@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "laptop-control-mcp"
+version = "0.1.0"
+description = "A local MCP server that lets an AI see and control a macOS desktop"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp[cli]>=1.6,<2",
+  "pillow>=10,<12",
+  "pyautogui>=0.9.54,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+laptop-control-mcp = "laptop_control_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/laptop_control_mcp"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
