@@ -150,6 +150,23 @@ def test_console_serves_creation_form_and_rejects_missing_source(tmp_path: Path)
     assert "does not exist" in response.json()["error"]
 
 
+def test_console_reports_creative_intelligence_readiness() -> None:
+    client = TestClient(app, base_url="http://127.0.0.1")
+
+    response = client.get("/api/intelligence")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["enabled"] is True
+    assert {item["capability"] for item in payload["capabilities"]} == {
+        "game_ocr",
+        "transcription",
+        "semantic_vision",
+        "music",
+        "sound",
+    }
+
+
 def test_studio_rejects_dns_rebinding_and_cross_origin_mutations() -> None:
     local = TestClient(app, base_url="http://127.0.0.1")
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import mimetypes
 import os
+import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -23,7 +24,10 @@ from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Respon
 from starlette.routing import Route
 
 from nimbledesk.client import DaemonClient
-from nimbledesk.creative.automatic import AutomaticIntelligenceReport
+from nimbledesk.creative.automatic import (
+    AutomaticIntelligenceReport,
+    resolve_automatic_intelligence,
+)
 from nimbledesk.creative.cancellation import CancellationToken
 from nimbledesk.creative.davinci import execute_davinci_isolated
 from nimbledesk.creative.fcpxml import export_fcpxml
@@ -678,6 +682,21 @@ async def runtime_health(request: Request) -> JSONResponse:
         return JSONResponse({"status": "unavailable", "error": str(error)}, status_code=503)
 
 
+async def intelligence_readiness(request: Request) -> JSONResponse:
+    with tempfile.TemporaryDirectory(prefix="nimbledesk-intelligence-readiness-") as temporary:
+        selection = resolve_automatic_intelligence(
+            CreativeBrief(),
+            Path(temporary),
+            enabled=True,
+            game_ocr=False,
+            transcribe=False,
+            vision_provider=None,
+            music_catalog=None,
+            sound_catalog=None,
+        )
+    return JSONResponse(selection.report.model_dump(mode="json"))
+
+
 async def decide_approval(request: Request) -> JSONResponse:
     decision = request.path_params["decision"]
     if decision not in {"approve", "reject"}:
@@ -834,6 +853,7 @@ app = Starlette(
         ),
         Route("/api/approvals", list_approvals, methods=["GET"]),
         Route("/api/health", runtime_health, methods=["GET"]),
+        Route("/api/intelligence", intelligence_readiness, methods=["GET"]),
         Route(
             "/api/approvals/{approval_id}/{decision}", decide_approval, methods=["POST"]
         ),
@@ -901,6 +921,7 @@ _HTML = """<!doctype html>
   <h1>NimbleDesk Studio</h1>
   <p>Turn long footage into a planned, rendered, and editable DaVinci Resolve timeline.</p>
   <section id="health"></section>
+  <section id="intelligence"></section>
   <section id="approvals"></section>
   <form id="create">
     <div class="grid">
@@ -1008,6 +1029,7 @@ const form = document.querySelector('#create'); const jobs = document.querySelec
 const photoForm = document.querySelector('#photos');
 const approvals = document.querySelector('#approvals');
 const health = document.querySelector('#health');
+const intelligence = document.querySelector('#intelligence');
 form.addEventListener('submit', async event => {
   event.preventDefault(); try { const data = new FormData(form);
   const optional = name => data.get(name) || null;
@@ -1122,6 +1144,10 @@ async function refreshHealth(){const response=await fetch('/api/health');const d
   const capabilities=(data.capabilities||[]).join(', ')||'none';health.innerHTML=`<article>
     <strong>Desktop runtime: ${h(data.status)}</strong><p>Backend: ${h(data.backend||'unavailable')} ·
     Capabilities: ${h(capabilities)}</p>${data.error?`<p class="error">${h(data.error)}</p>`:''}</article>`;}
+async function refreshIntelligence(){const response=await fetch('/api/intelligence');const data=await response.json();
+  const items=(data.capabilities||[]).map(item=>`<li><strong>${h(item.capability)}</strong> ·
+    ${h(item.status)} — ${h(item.detail)}</li>`).join('');intelligence.innerHTML=`<article>
+    <strong>Creative intelligence readiness</strong><ul>${items}</ul></article>`;}
 async function decideApproval(approvalId,decision){const response=await fetch(
   `/api/approvals/${approvalId}/${decision}`,{method:'POST',headers:{'content-type':'application/json'}});
   const result=await response.json();if(!response.ok){alert(result.error);return;}refreshApprovals();}
@@ -1150,7 +1176,7 @@ jobs.addEventListener('submit',async event=>{if(!event.target.matches('.revision
   const response=await fetch(`/api/jobs/${revisionForm.dataset.jobId}/revisions`,{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
   const result=await response.json();if(!response.ok){alert(result.error);return;}refresh();});
-refresh();refreshApprovals();refreshHealth();loadStyleProfiles();setInterval(()=>{refreshApprovals();
+refresh();refreshApprovals();refreshHealth();refreshIntelligence();loadStyleProfiles();setInterval(()=>{refreshApprovals();
   refreshHealth();
   if(!document.querySelector('.revision-form:focus-within'))refresh();},2000);
 </script></body></html>"""
