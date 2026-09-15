@@ -597,6 +597,7 @@ name = "nimbledesk"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "mcp", extra = ["cli"] },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -624,6 +625,7 @@ native = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=45,<51" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.6,<2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.15,<2" },
     { name = "numpy", specifier = ">=2,<3" },

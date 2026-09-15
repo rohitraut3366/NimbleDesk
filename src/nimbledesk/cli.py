@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import os
 import subprocess
 import sys
 import time
@@ -20,6 +21,8 @@ from nimbledesk.media.photo_cli import main as photos_main
 from nimbledesk.service import main as service_main
 from nimbledesk.testing.smoke import main as smoke_main
 from nimbledesk.ui.server import main as studio_main
+from nimbledesk.update import UpdateManager
+from nimbledesk.update import main as update_main
 
 COMMANDS: dict[str, Callable[[], None]] = {
     "daemon": daemon_main,
@@ -34,10 +37,12 @@ COMMANDS: dict[str, Callable[[], None]] = {
     "smoke": smoke_main,
     "service": service_main,
     "diagnostics": diagnostics_main,
+    "update": update_main,
 }
 
 
 def main(arguments: list[str] | None = None) -> None:
+    _handoff_to_managed_version(arguments)
     parser = argparse.ArgumentParser(
         prog="nimbledesk",
         description="Run NimbleDesk desktop automation and creative workflows",
@@ -53,6 +58,21 @@ def main(arguments: list[str] | None = None) -> None:
         return
     sys.argv = [f"nimbledesk {parsed.command}", *remaining]
     COMMANDS[parsed.command]()
+
+
+def _handoff_to_managed_version(arguments: list[str] | None) -> None:
+    if not getattr(sys, "frozen", False):
+        return
+    selected_arguments = list(sys.argv[1:] if arguments is None else arguments)
+    if selected_arguments[:1] == ["update"]:
+        return
+    manager = UpdateManager()
+    if manager.state() is None:
+        return
+    executable = manager.executable()
+    if executable.resolve() == Path(sys.executable).resolve():
+        return
+    os.execv(str(executable), [str(executable), *selected_arguments])
 
 
 def _start(studio_arguments: list[str]) -> None:

@@ -9,6 +9,7 @@ description = "A model-agnostic, cross-platform desktop agent runtime"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "cryptography>=45,<51",
   "mcp[cli]>=1.6,<2",
   "numpy>=2,<3",
   "pillow>=10,<12",

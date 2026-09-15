@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import platform
 import plistlib
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -116,9 +117,22 @@ def uninstall_service(
     return path
 
 
+def purge_user_data(home: Path | None = None) -> Path:
+    root = (home or Path.home()) / ".nimbledesk"
+    if root.is_symlink():
+        raise RuntimeError("refusing to purge a symlinked NimbleDesk data directory")
+    shutil.rmtree(root, ignore_errors=True)
+    return root
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manage the per-user NimbleDesk daemon service")
     parser.add_argument("action", choices=("install", "uninstall"))
+    parser.add_argument(
+        "--purge-data",
+        action="store_true",
+        help="also permanently remove local projects, configuration, logs, and audit data",
+    )
     arguments = parser.parse_args()
     if arguments.action == "install":
         path = install_service(_installed_executable())
@@ -126,6 +140,8 @@ def main() -> None:
     else:
         path = uninstall_service()
         print(f"Removed per-user service: {path}")
+        if arguments.purge_data:
+            print(f"Removed NimbleDesk user data: {purge_user_data()}")
 
 
 def _run(command: list[str], *, check: bool = True) -> None:

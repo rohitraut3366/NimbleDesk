@@ -27,7 +27,7 @@ The current release combines portable PyAutoGUI capture/input with native semant
 - Recursive photo discovery, perceptual duplicate removal, technical ranking, light correction, a contact sheet, and an optional MP4 slideshow.
 - Token-budgeted observations and size-bounded screenshots.
 
-Automatic game recognition currently uses configurable OCR phrases and patterns, temporal event inference, and audiovisual evidence; accuracy depends on the game, HUD, language, crop, and capture quality. Model-based vision packs, native Wayland capture/input, subject-tracked vertical reframing, signed installers, and automated tests on physical Windows/Linux/macOS machines remain release-hardening work described in [PLAN.md](PLAN.md).
+Automatic game recognition currently uses configurable OCR phrases and patterns, temporal event inference, and audiovisual evidence; accuracy depends on the game, HUD, language, crop, and capture quality. Model-based vision packs, native Wayland capture/input, subject-tracked vertical reframing, external release signing, and automated tests on physical Windows/Linux/macOS machines remain release-hardening work described in [PLAN.md](PLAN.md).
 
 ## Requirements
 

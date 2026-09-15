@@ -1,0 +1,125 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  installers:
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Require macOS release credentials
+        if: runner.os == 'macOS'
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLICATION_IDENTITY: ${{ secrets.APPLE_APPLICATION_IDENTITY }}
+          INSTALLER_IDENTITY: ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_NOTARY_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          test -n "$CERTIFICATE"
+          test -n "$CERTIFICATE_PASSWORD"
+          test -n "$APPLICATION_IDENTITY"
+          test -n "$INSTALLER_IDENTITY"
+          test -n "$APPLE_ID"
+          test -n "$APPLE_PASSWORD"
+          test -n "$APPLE_TEAM_ID"
+      - name: Import macOS signing identity
+        if: runner.os == 'macOS'
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_NOTARY_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          echo "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/nimbledesk.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/nimbledesk.keychain-db"
+          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/nimbledesk.keychain-db"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/nimbledesk.keychain-db"
+          security import "$RUNNER_TEMP/nimbledesk.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$RUNNER_TEMP/nimbledesk.keychain-db"
+          security list-keychain -d user -s "$RUNNER_TEMP/nimbledesk.keychain-db"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/nimbledesk.keychain-db"
+          xcrun notarytool store-credentials nimbledesk-release --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_PASSWORD"
+      - name: Require Windows release credentials
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (!$env:CERTIFICATE -or !$env:CERTIFICATE_PASSWORD) { throw "Windows release signing credentials are required" }
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\nimbledesk.pfx", [Convert]::FromBase64String($env:CERTIFICATE))
+      - name: Install WiX
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: dotnet tool install --global wix
+      - run: uv sync --extra bundle --locked
+      - run: uv run --extra bundle python packaging/build_bundle.py
+      - name: Build release installer
+        env:
+          NIMBLEDESK_APPLE_APPLICATION_IDENTITY: ${{ secrets.APPLE_APPLICATION_IDENTITY }}
+          NIMBLEDESK_APPLE_INSTALLER_IDENTITY: ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+          NIMBLEDESK_APPLE_NOTARY_PROFILE: nimbledesk-release
+          NIMBLEDESK_WINDOWS_SIGNING_CERTIFICATE: ${{ runner.temp }}\nimbledesk.pfx
+          NIMBLEDESK_WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: uv run --extra bundle python packaging/build_installer.py --version "${{ github.ref_name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ runner.os }}-${{ runner.arch }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  publish:
+    environment: release
+    needs: installers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: artifacts
+          merge-multiple: true
+      - name: Require update signing key
+        env:
+          RELEASE_KEY: ${{ secrets.UPDATE_ED25519_PRIVATE_KEY_BASE64 }}
+          RELEASE_KEY_ID: ${{ secrets.UPDATE_ED25519_KEY_ID }}
+        run: |
+          test -n "$RELEASE_KEY"
+          test -n "$RELEASE_KEY_ID"
+          echo "$RELEASE_KEY" | base64 --decode > "$RUNNER_TEMP/release-key.pem"
+      - run: uv sync --locked
+      - name: Sign release metadata
+        env:
+          RELEASE_KEY_ID: ${{ secrets.UPDATE_ED25519_KEY_ID }}
+        run: |
+          arguments=()
+          for artifact in artifacts/*; do
+            name=$(basename "$artifact")
+            arguments+=(--artifact "$name=$artifact=https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$name")
+          done
+          uv run python packaging/sign_release.py --version "${{ github.ref_name }}" --key-id "$RELEASE_KEY_ID" --private-key "$RUNNER_TEMP/release-key.pem" --output artifacts/release.json "${arguments[@]}"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

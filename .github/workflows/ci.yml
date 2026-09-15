@@ -76,6 +76,37 @@ jobs:
           enable-cache: true
       - run: uv sync --extra bundle --locked
       - run: uv run --extra bundle python packaging/build_bundle.py
+      - name: Install WiX
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: dotnet tool install --global wix
+      - name: Build native installer
+        run: uv run --extra bundle python packaging/build_installer.py
+      - name: Test Linux install and uninstall
+        if: runner.os == 'Linux'
+        run: |
+          sudo dpkg --install artifacts/*.deb
+          nimbledesk --help
+          sudo dpkg --remove nimbledesk
+          test ! -e /usr/bin/nimbledesk
+      - name: Test macOS install and uninstall
+        if: runner.os == 'macOS'
+        run: |
+          sudo installer -pkg artifacts/*.pkg -target /
+          /usr/local/bin/nimbledesk --help
+          sudo rm /usr/local/bin/nimbledesk
+          sudo rm -rf /Applications/NimbleDesk.app
+          sudo pkgutil --forget io.nimbledesk.app
+          test ! -e /Applications/NimbleDesk.app
+      - name: Test Windows install and uninstall
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = (Resolve-Path artifacts/*.msi).Path
+          Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /qn /norestart" -Wait
+          & "$env:LOCALAPPDATA\NimbleDesk\nimbledesk.exe" --help
+          Start-Process msiexec.exe -ArgumentList "/x `"$installer`" /qn /norestart" -Wait
+          if (Test-Path "$env:LOCALAPPDATA\NimbleDesk\nimbledesk.exe") { exit 1 }
       - uses: actions/upload-artifact@v4
         with:
           name: nimbledesk-${{ runner.os }}-${{ runner.arch }}
