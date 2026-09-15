@@ -14,6 +14,8 @@ dependencies = [
   "pillow>=10,<12",
   "pydantic>=2.11,<3",
   "pyautogui>=0.9.54,<1",
+  "starlette>=0.46,<2",
+  "uvicorn>=0.34,<1",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +33,7 @@ nimbledesk-smoke = "nimbledesk.testing.smoke:main"
 nimbledesk-highlights = "nimbledesk.media.cli:main"
 nimbledesk-photos = "nimbledesk.media.photo_cli:main"
 nimbledesk-create = "nimbledesk.creative.cli:main"
+nimbledesk-ui = "nimbledesk.ui.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nimbledesk"]
