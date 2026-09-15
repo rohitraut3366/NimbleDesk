@@ -38,6 +38,7 @@ async def test_gateway_builds_observation_bound_action(monkeypatch: pytest.Monke
     assert result == {"status": "completed"}
     assert recording_client.method == "action_execute"
     assert action["source_observation_id"] == "observation"
+    assert action["recovery"] == {"max_reobservations": 0}
     assert action["expected_application_id"] == "fixture.app"
     assert action["expected_window_id"] == "fixture-window"
     assert action["target"]["point"] == {"x": 10, "y": 20}
@@ -62,6 +63,7 @@ async def test_gateway_builds_semantic_element_action(monkeypatch: pytest.Monkey
         "element_id": "create-button",
     }
     assert action["source_observation_id"] == "observation"
+    assert action["recovery"] == {"max_reobservations": 1}
 
 
 @pytest.mark.asyncio

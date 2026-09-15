@@ -14,9 +14,11 @@ from nimbledesk.protocol.models import (
     ActionStatus,
     CaptureOptions,
     DesktopObservation,
+    ElementTarget,
     PolicyDecision,
     Rectangle,
     ScreenCapture,
+    SelectorTarget,
     Session,
     SessionConfig,
     SessionState,
@@ -38,6 +40,7 @@ class DesktopRuntime:
         self._approvals = approvals
         self._audit = audit
         self._observations: dict[str, DesktopObservation] = {}
+        self._observation_history: dict[str, dict[str, DesktopObservation]] = {}
 
     def start_session(self, reason: str, config: SessionConfig) -> Session:
         return self._sessions.start(reason, config)
@@ -54,6 +57,10 @@ class DesktopRuntime:
             raise SessionError("session is stopped")
         observation = self._backend.observe()
         self._observations[session_id] = observation
+        history = self._observation_history.setdefault(session_id, {})
+        history[observation.observation_id] = observation
+        while len(history) > 8:
+            del history[next(iter(history))]
         return observation
 
     def approve(self, approval_id: str) -> str:
@@ -92,17 +99,31 @@ class DesktopRuntime:
         except SessionError as error:
             return self._finish(action, ActionStatus.REJECTED, str(error), started_at)
 
-        observation_error = self._validate_observation(action)
+        execution_action = action
+        observation_error = self._validate_observation(execution_action)
+        recovery_attempts = 0
+        while observation_error and recovery_attempts < action.recovery.max_reobservations:
+            recovered, recovery_error = self._recover_stale_action(execution_action)
+            if recovered is None:
+                observation_error = recovery_error
+                break
+            execution_action = recovered
+            recovery_attempts += 1
+            observation_error = self._validate_observation(execution_action)
         if observation_error:
             return self._finish(
                 action,
                 ActionStatus.STALE_OBSERVATION,
                 observation_error,
                 started_at,
+                data={
+                    "recovery_classification": "revalidation_failed",
+                    "reobservations": recovery_attempts,
+                },
             )
 
         approved = self._approvals.consume(action.approval_token, action)
-        outcome = self._policy.evaluate(session, action, approved)
+        outcome = self._policy.evaluate(session, execution_action, approved)
         if outcome.decision is PolicyDecision.DENY:
             return self._finish(action, ActionStatus.REJECTED, outcome.reason, started_at)
         if outcome.decision is PolicyDecision.REQUIRE_CONFIRMATION:
@@ -117,9 +138,8 @@ class DesktopRuntime:
 
         try:
             self._sessions.consume_action(action.session_id)
-            execution_action = action
-            if action.kind is ActionKind.APP_COMMAND:
-                execution_action = action.model_copy(
+            if execution_action.kind is ActionKind.APP_COMMAND:
+                execution_action = execution_action.model_copy(
                     update={
                         "arguments": {
                             **action.arguments,
@@ -130,8 +150,77 @@ class DesktopRuntime:
             result = self._backend.execute(execution_action)
         except (SessionError, ValueError, RuntimeError) as error:
             return self._finish(action, ActionStatus.FAILED, str(error), started_at)
+        if recovery_attempts:
+            result = result.model_copy(
+                update={
+                    "data": {
+                        **result.data,
+                        "recovery_classification": "stale_target_revalidated",
+                        "reobservations": recovery_attempts,
+                        "recovered_observation_id": execution_action.source_observation_id,
+                    }
+                }
+            )
         self._audit.record(action, result)
         return result
+
+    def _recover_stale_action(
+        self, action: ActionRequest
+    ) -> tuple[ActionRequest | None, str]:
+        if action.kind is ActionKind.APP_COMMAND:
+            return None, "application commands are never retried automatically"
+        if not isinstance(action.target, (ElementTarget, SelectorTarget)):
+            return None, "only semantic targets can be revalidated automatically"
+        previous = self._observation_history.get(action.session_id, {}).get(
+            action.source_observation_id or ""
+        )
+        current = self.observe(action.session_id)
+        if action.expected_application_id and (
+            current.active_application_id != action.expected_application_id
+        ):
+            return None, "active application changed during target revalidation"
+        if action.expected_window_id and current.focused_window_id != action.expected_window_id:
+            return None, "focused window changed during target revalidation"
+        target = action.target
+        if isinstance(target, ElementTarget):
+            if previous is None:
+                return None, "original element observation is no longer available"
+            original = next(
+                (
+                    element
+                    for element in previous.elements
+                    if element.element_id == target.element_id
+                ),
+                None,
+            )
+            if original is None:
+                return None, "original semantic element is unavailable"
+            candidates = [
+                element
+                for element in current.elements
+                if element.enabled
+                and element.role == original.role
+                and element.name == original.name
+                and (
+                    action.expected_window_id is None
+                    or element.window_id == action.expected_window_id
+                )
+            ]
+            if len(candidates) != 1:
+                return None, "semantic target revalidation was ambiguous"
+            target = ElementTarget(
+                observation_id=current.observation_id,
+                element_id=candidates[0].element_id,
+            )
+        return (
+            action.model_copy(
+                update={
+                    "source_observation_id": current.observation_id,
+                    "target": target,
+                }
+            ),
+            "target revalidated",
+        )
 
     def _validate_observation(self, action: ActionRequest) -> str | None:
         if action.kind is ActionKind.WAIT:
@@ -159,6 +248,7 @@ class DesktopRuntime:
         message: str,
         started_at: float,
         approval_id: str | None = None,
+        data: dict[str, object] | None = None,
     ) -> ActionResult:
         result = ActionResult(
             action_id=action.action_id,
@@ -167,6 +257,7 @@ class DesktopRuntime:
             started_at=started_at,
             finished_at=time(),
             approval_id=approval_id,
+            data=data or {},
         )
         self._audit.record(action, result)
         return result

@@ -14,6 +14,7 @@ from nimbledesk.protocol.models import (
     CoordinateTarget,
     ElementTarget,
     Point,
+    RecoveryOptions,
     SessionConfig,
     SessionState,
 )
@@ -104,6 +105,73 @@ def test_semantic_element_click_is_observation_bound() -> None:
 
     assert result.status is ActionStatus.COMPLETED
     assert backend.executed_actions == [action]
+
+
+def test_stale_semantic_target_can_be_reobserved_and_revalidated() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("semantic recovery", SessionConfig(input_enabled=True))
+    original = runtime.observe(session.session_id)
+    runtime.observe(session.session_id)
+    action = ActionRequest(
+        session_id=session.session_id,
+        source_observation_id=original.observation_id,
+        expected_application_id="fixture.app",
+        expected_window_id="fixture-window",
+        kind=ActionKind.CLICK,
+        target=ElementTarget(
+            observation_id=original.observation_id,
+            element_id="fixture-create",
+        ),
+        recovery=RecoveryOptions(max_reobservations=1),
+    )
+
+    result = runtime.execute(action)
+
+    assert result.status is ActionStatus.COMPLETED
+    assert result.data["recovery_classification"] == "stale_target_revalidated"
+    assert result.data["reobservations"] == 1
+    assert backend.executed_actions[0].source_observation_id != original.observation_id
+
+
+def test_recovery_stops_when_application_changes() -> None:
+    class FocusChangingBackend(SimulatorBackend):
+        observations = 0
+
+        def observe(self):  # type: ignore[no-untyped-def]
+            observation = super().observe()
+            self.observations += 1
+            if self.observations >= 3:
+                return observation.model_copy(update={"active_application_id": "dialog.app"})
+            return observation
+
+    backend = FocusChangingBackend()
+    runtime = DesktopRuntime(
+        backend,
+        SessionManager(),
+        ActionPolicy(host_input_enabled=True),
+        ApprovalManager(),
+        AuditLog(),
+    )
+    session = runtime.start_session("focus recovery", SessionConfig(input_enabled=True))
+    original = runtime.observe(session.session_id)
+    runtime.observe(session.session_id)
+    action = ActionRequest(
+        session_id=session.session_id,
+        source_observation_id=original.observation_id,
+        expected_application_id="fixture.app",
+        kind=ActionKind.CLICK,
+        target=ElementTarget(
+            observation_id=original.observation_id,
+            element_id="fixture-create",
+        ),
+        recovery=RecoveryOptions(max_reobservations=1),
+    )
+
+    result = runtime.execute(action)
+
+    assert result.status is ActionStatus.STALE_OBSERVATION
+    assert "active application changed" in result.message
+    assert backend.executed_actions == []
 
 
 def test_application_command_approval_is_exact_and_single_use() -> None:

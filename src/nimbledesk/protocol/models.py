@@ -209,6 +209,10 @@ class ResponseBudget(ProtocolModel):
     max_elements: Annotated[int, Field(ge=0, le=2_000)] = 100
 
 
+class RecoveryOptions(ProtocolModel):
+    max_reobservations: Annotated[int, Field(ge=0, le=3)] = 0
+
+
 class ActionRequest(ProtocolModel):
     protocol_version: Literal["1.0.0"] = PROTOCOL_VERSION
     action_id: str = Field(default_factory=lambda: str(uuid4()))
@@ -221,6 +225,7 @@ class ActionRequest(ProtocolModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     deadline_ms: Annotated[int, Field(ge=1, le=120_000)] = 10_000
     approval_token: str | None = None
+    recovery: RecoveryOptions = RecoveryOptions()
 
 
 class ActionResult(ProtocolModel):

@@ -423,6 +423,8 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 
 Coordinates are logical desktop coordinates from `desktop_observe`. Element IDs are valid only for the observation that returned them. The daemon verifies the observation is fresh and, when supplied, that the active application and focused window still match. PyAutoGUI's corner fail-safe remains enabled: move the pointer to a screen corner to interrupt portable automation.
 
+Semantic element clicks opt into one bounded stale-state recovery by default. If the observation changed before execution, the daemon observes again and requires one enabled element with the same role, accessible name, application, and expected window. It stops on ambiguity, an unexpected application/window, missing history, coordinate or visual targets, and application commands. Recovery happens only before an action executes, is policy checked, consumes one action budget entry, and is recorded in the action result and audit trail.
+
 Application adapters are disabled until a manifest and its Python package are installed. Pending actions appear in NimbleDesk Studio when it uses the same `NIMBLEDESK_CONNECTION_FILE` as the daemon. See [docs/ADAPTERS.md](docs/ADAPTERS.md) for the manifest, worker contract, path grants, approval flow, and isolation limits.
 
 ## Use the real desktop

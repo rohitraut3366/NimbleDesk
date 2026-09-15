@@ -17,6 +17,7 @@ from nimbledesk.protocol.models import (
     CoordinateTarget,
     ElementTarget,
     Point,
+    RecoveryOptions,
     ResponseBudget,
     Target,
 )
@@ -148,6 +149,7 @@ async def click_element(
     element_id: str,
     expected_application_id: str | None = None,
     expected_window_id: str | None = None,
+    recover_if_stale: bool = True,
 ) -> dict[str, Any]:
     """Invoke a semantic UI element from the latest accessibility observation."""
     return await _execute_action(
@@ -158,6 +160,7 @@ async def click_element(
         expected_application_id=expected_application_id,
         expected_window_id=expected_window_id,
         arguments={"button": "left", "clicks": 1},
+        recovery=RecoveryOptions(max_reobservations=1 if recover_if_stale else 0),
     )
 
 
@@ -357,6 +360,7 @@ async def _execute_action(
     target: Target | None = None,
     expected_application_id: str | None = None,
     expected_window_id: str | None = None,
+    recovery: RecoveryOptions | None = None,
 ) -> dict[str, Any]:
     action = ActionRequest(
         session_id=session_id,
@@ -366,6 +370,7 @@ async def _execute_action(
         kind=kind,
         target=target,
         arguments=arguments,
+        recovery=recovery or RecoveryOptions(),
     )
     return await client().call("action_execute", {"action": action.model_dump(mode="json")})
 
