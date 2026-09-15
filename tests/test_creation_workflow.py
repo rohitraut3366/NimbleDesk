@@ -58,3 +58,15 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
     assert rendered.width == 1920
     assert rendered.height == 1080
     assert rendered.has_audio
+
+
+def test_creation_workflow_enforces_mandatory_events(tmp_path: Path) -> None:
+    brief = CreativeBrief(
+        title="Must include clutch",
+        mandatory_event_types=("clutch",),
+        captions=False,
+        music=False,
+    )
+
+    with pytest.raises(ValueError, match="mandatory event types were not detected: clutch"):
+        CreationWorkflow().create(tmp_path / "source.mp4", tmp_path / "output", brief)

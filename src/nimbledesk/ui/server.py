@@ -111,6 +111,7 @@ class JobService:
                 render=request.ffmpeg_render,
                 execute_davinci=request.davinci or request.davinci_render,
                 render_in_davinci=request.davinci_render,
+                progress=lambda stage, value: self._update_progress(job, stage, value),
             )
         except Exception as error:
             with job.lock:
@@ -123,6 +124,11 @@ class JobService:
             job.stage = "completed"
             job.progress = 1
             job.result = result
+
+    def _update_progress(self, job: JobRecord, stage: str, value: float) -> None:
+        with job.lock:
+            job.stage = stage
+            job.progress = value
 
 
 JOB_SERVICE = JobService()

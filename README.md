@@ -12,11 +12,18 @@ The current release runs on macOS, Windows, and Linux X11 through a portable PyA
 - An authenticated, replay-protected loopback connection between the MCP server and daemon.
 - A deterministic simulator that exercises the complete control flow without touching the desktop.
 - Generic video highlight detection from motion and audio peaks, plus optional supplied timeline events.
+- Automatic game-event OCR with a built-in shooter pack or a custom game pack.
+- Local Whisper transcription or supplied time-aligned transcripts.
+- Explainable edit plans covering story order, pacing, speed, punch-ins, color, captions, and music.
+- Licensed local music-catalog ranking and timeline mixing.
+- Finished FFmpeg review renders and DaVinci Resolve-importable FCPXML timelines.
+- Direct project, timeline, and render execution through the DaVinci Resolve scripting API.
+- A loopback-only creation console with background job monitoring.
 - Rendered, ranked MP4 clips with FFprobe validation and a JSON manifest.
 - Recursive photo discovery, perceptual duplicate removal, technical ranking, light correction, a contact sheet, and an optional MP4 slideshow.
 - Token-budgeted observations and size-bounded screenshots.
 
-NimbleDesk does not yet infer game-specific kills or clutches from pixels alone, transcribe speech, choose music, generate a complete creative edit plan, control an editor through a native adapter, or provide signed installers and a production UI. Those systems are specified in [PLAN.md](PLAN.md), but commands for them are not present in this release.
+Automatic game recognition currently uses configurable OCR phrases and audiovisual evidence; accuracy depends on the game, HUD, language, crop, and capture quality. Model-based vision packs, native semantic OS backends, subject-tracked vertical reframing, signed installers, and automated tests on physical Windows/Linux/macOS machines remain release-hardening work described in [PLAN.md](PLAN.md).
 
 ## Requirements
 
@@ -24,6 +31,9 @@ NimbleDesk does not yet infer game-specific kills or clutches from pixels alone,
 - Python 3.11 or newer. Development checks target Python 3.12.
 - [uv](https://docs.astral.sh/uv/getting-started/installation/).
 - [FFmpeg](https://ffmpeg.org/download.html), including `ffprobe`, for video highlights and photo slideshows.
+- Optional [Tesseract](https://tesseract-ocr.github.io/) for automatic game HUD/event OCR.
+- Optional `openai-whisper` command-line package and its model weights for transcription.
+- Optional DaVinci Resolve with local external scripting enabled for direct editor execution.
 - Git if installing from source.
 
 Confirm the tools are available:
@@ -52,6 +62,174 @@ All examples below run from the repository root. `uv run` automatically uses the
 ```bash
 uv sync --extra dev
 ```
+
+## Create a finished video
+
+The creation workflow is the main end-to-end entry point. It analyzes the source, incorporates supplied or automatically detected semantic events, transcribes dialogue when requested, ranks moments, creates a reviewable edit plan, selects licensed music, renders a finished review MP4, writes captions, and exports a DaVinci Resolve timeline.
+
+```bash
+uv run nimbledesk-create gameplay.mp4 output/my-video \
+  --title "Best ranked moments" \
+  --content-kind gameplay \
+  --duration 60 \
+  --aspect-ratio 9:16 \
+  --pace fast \
+  --mood exciting \
+  --game-ocr \
+  --transcribe \
+  --music-catalog music.json
+```
+
+The command never changes the source. Its output directory contains:
+
+- `final.mp4`: validated H.264/AAC review render.
+- `final.srt`: captions when a transcript overlaps selected moments.
+- `edit_plan.json`: source ranges and explainable story, speed, visual, color, music, caption, evidence, confidence, and review decisions.
+- `davinci_timeline.fcpxml`: editable timeline for DaVinci Resolve.
+- `transcript.json`: normalized transcript when speech is available.
+- `detected_events.json`: merged automatic and supplied events.
+- `analysis/`: ranked intermediate clips and `highlights.json`.
+
+With `content_kind=auto`, detected events select gameplay treatment, an available transcript selects talking-head treatment, and other footage uses the general vlog treatment. Mandatory event types are hard constraints: creation stops if they are absent. Excluded event types are removed before ranking.
+
+### Creation options
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `SOURCE` | Required | Source video. |
+| `OUTPUT_DIRECTORY` | Required | New or existing output directory. |
+| `--brief` | None | Complete `CreativeBrief` JSON; when present it replaces the individual brief flags. |
+| `--title` | `Untitled creation` | Project, plan, and DaVinci timeline name. |
+| `--content-kind` | `auto` | `auto`, `gameplay`, `talking_head`, `tutorial`, or `vlog`. |
+| `--platform` | `youtube` | Intended delivery platform recorded in the plan. |
+| `--duration` | `60` | Target timeline duration from 5 to 14,400 seconds. |
+| `--aspect-ratio` | `16:9` | `16:9`, `9:16`, or `1:1`. |
+| `--pace` | `balanced` | `calm`, `balanced`, or `fast`. |
+| `--mood` | `engaging` | Mood terms used for music supervision. |
+| `--clip-count` | `10` | Maximum selected moments, from 1 to 100. |
+| `--color-look` | `natural_contrast` | Named editable color treatment; also accepts `vivid`, `high_contrast`, `cinematic`, `moody`, `flat`, or `neutral`. |
+| `--no-captions` | Off | Do not map transcript segments into caption cues. |
+| `--no-music` | Off | Do not select or mix music. |
+| `--events` | None | Supplied event JSON in the highlight-event format. |
+| `--game-ocr` | Off | Sample frames and run the selected Tesseract game pack. |
+| `--game-pack` | Built-in shooter | Custom game-pack JSON. |
+| `--transcript` | None | Existing normalized transcript JSON. |
+| `--transcribe` | Off | Run the local `whisper` CLI. |
+| `--whisper-model` | `small` | Whisper model name. Models download through Whisper on first use. |
+| `--language` | Auto | Optional Whisper language code. |
+| `--music-catalog` | None | JSON catalog of local music with explicit license metadata. |
+| `--plan-only` | Off | Analyze, plan, and export FCPXML without rendering `final.mp4`. |
+| `--davinci` | Off | Import the generated timeline into a running DaVinci Resolve instance. |
+| `--davinci-render` | Off | Import the timeline, render it in Resolve, and verify `davinci-final.mp4`. |
+
+You can supply one complete brief instead of flags:
+
+```json
+{
+  "title": "Road to the final",
+  "content_kind": "gameplay",
+  "audience": "competitive FPS players",
+  "platform": "youtube_shorts",
+  "target_duration_seconds": 55,
+  "aspect_ratio": "9:16",
+  "pace": "fast",
+  "mood": "tense exciting",
+  "clip_count": 8,
+  "captions": true,
+  "music": true,
+  "color_look": "vivid",
+  "mandatory_event_types": ["clutch"],
+  "excluded_event_types": ["death"]
+}
+```
+
+Use it with `--brief brief.json`.
+
+### Transcription
+
+Install Whisper in a separate Python environment appropriate for your hardware and make its `whisper` command available on `PATH`. Then pass `--transcribe`. NimbleDesk invokes Whisper locally and records normalized segments; media is not uploaded by this provider.
+
+To use another transcription engine, provide normalized JSON:
+
+```json
+[
+  {
+    "source_range": {"start_seconds": 17.2, "end_seconds": 19.8},
+    "text": "That was close!",
+    "confidence": 0.96,
+    "speaker": "Rohit"
+  }
+]
+```
+
+### Automatic game events
+
+`--game-ocr` samples frames with FFmpeg, runs Tesseract, and matches the built-in shooter phrases for kills, multi-kills, grenade kills, clutches, narrow survivals, and victories. Consecutive duplicate HUD messages are collapsed. Combine `--game-ocr` with telemetry or manual `--events` when available; the workflow merges both evidence sources.
+
+A custom pack controls sampling, crop, phrases, and importance:
+
+```json
+{
+  "name": "my-game",
+  "sample_interval_seconds": 1,
+  "crop": "iw*0.45:ih*0.35:iw*0.55:0",
+  "phrases": {
+    "kill": ["eliminated"],
+    "clutch": ["clutch", "last player standing"]
+  },
+  "importance": {"kill": 0.75, "clutch": 1.0}
+}
+```
+
+The optional crop uses FFmpeg's `crop=width:height:x:y` expression and should cover the game's kill feed or event banner.
+
+### Licensed music selection
+
+NimbleDesk only selects tracks declared in a user-supplied catalog. Use absolute paths so DaVinci can resolve the media:
+
+```json
+[
+  {
+    "path": "/absolute/path/music/action-bed.wav",
+    "duration_seconds": 180,
+    "title": "Action Bed",
+    "mood": ["exciting", "tense"],
+    "bpm": 128,
+    "energy": 0.85,
+    "instrumental": true,
+    "license": "user-owned; worldwide social usage",
+    "attribution": null
+  }
+]
+```
+
+The planner ranks mood, energy, duration, pace, and vocal competition. The selected cue, license, source/timeline ranges, gain, dialogue ducking target, and rationale remain editable in `edit_plan.json`.
+
+### DaVinci Resolve execution
+
+Open DaVinci Resolve and enable local external scripting in Resolve preferences. NimbleDesk searches the standard scripting-module directory on macOS, Windows, and Linux. If Resolve is installed elsewhere, set `RESOLVE_SCRIPT_API` to its `Developer/Scripting/Modules` directory.
+
+Import and render directly:
+
+```bash
+uv run nimbledesk-create gameplay.mp4 output/my-video \
+  --brief brief.json \
+  --events events.json \
+  --music-catalog music.json \
+  --davinci-render
+```
+
+`--davinci` stops after creating/selecting the project and importing the editable timeline. `--davinci-render` additionally creates an MP4/H.264 job, starts it, checks Resolve's final job status, and verifies `davinci-final.mp4`. The standalone `davinci_timeline.fcpxml` can also be imported manually with **File → Import → Timeline**.
+
+## Run the creation console
+
+Start the loopback-only web console:
+
+```bash
+uv run nimbledesk-ui
+```
+
+Open `http://127.0.0.1:8765`, enter absolute source/output paths, choose the creative brief, and start a background job. The page reports the analysis, transcription, planning, render, and DaVinci stages and shows generated output paths. Use `--port` to choose another port. The server rejects non-loopback bind addresses so local file and editor controls are not exposed to the network.
 
 ## Quick start with the simulator
 
