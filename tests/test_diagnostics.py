@@ -6,7 +6,9 @@ from pytest import MonkeyPatch
 
 import nimbledesk.diagnostics as diagnostics
 from nimbledesk.daemon.audit import AuditLog
+from nimbledesk.daemon.transport import write_connection_file
 from nimbledesk.protocol.models import ActionKind, ActionRequest, ActionResult, ActionStatus
+from nimbledesk.protocol.rpc import ConnectionInfo
 
 
 def test_diagnostic_bundle_contains_aggregate_health_without_private_data(
@@ -18,12 +20,10 @@ def test_diagnostic_bundle_contains_aggregate_health_without_private_data(
     runtime.mkdir(parents=True)
     jobs.mkdir()
     private_path = tmp_path / "private-video.mp4"
-    secret = "secret-that-must-not-leak"
-    (runtime / "connection.json").write_text(
-        json.dumps({"host": "127.0.0.1", "port": 1234, "secret": secret}),
-        encoding="utf-8",
+    secret = "secret-that-must-not-leak" * 2
+    write_connection_file(
+        runtime / "connection.json", ConnectionInfo(port=1234, secret=secret)
     )
-    (runtime / "connection.json").chmod(0o600)
     (jobs / "job.json").write_text(
         json.dumps(
             {

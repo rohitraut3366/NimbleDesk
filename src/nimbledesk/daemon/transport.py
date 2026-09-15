@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -128,7 +130,30 @@ class DaemonTransport:
 def write_connection_file(path: Path, connection: ConnectionInfo) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(connection.model_dump_json(indent=2), encoding="utf-8")
-    path.chmod(0o600)
+    if os.name == "nt":
+        domain = os.getenv("USERDOMAIN")
+        username = os.getenv("USERNAME")
+        if not username:
+            raise RuntimeError("Windows user identity is unavailable")
+        principal = f"{domain}\\{username}" if domain else username
+        completed = subprocess.run(
+            [
+                "icacls",
+                str(path),
+                "/inheritance:r",
+                "/grant:r",
+                f"{principal}:(F)",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            path.unlink(missing_ok=True)
+            message = completed.stderr.strip() or completed.stdout.strip()
+            raise RuntimeError(message or "could not restrict the connection-file ACL")
+    else:
+        path.chmod(0o600)
 
 
 def _error(request_id: str, code: str, message: str) -> RpcResponse:

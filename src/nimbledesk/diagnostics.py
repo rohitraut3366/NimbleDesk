@@ -78,12 +78,37 @@ def _tool_status(tool: str) -> dict[str, object]:
 def _runtime_status(runtime: Path) -> dict[str, object]:
     connection = runtime / "connection.json"
     mode = stat.S_IMODE(connection.stat().st_mode) if connection.is_file() else None
+    private = (
+        _windows_file_is_private(connection)
+        if os.name == "nt"
+        else mode is None or mode & 0o077 == 0
+    )
     return {
         "directory_exists": runtime.is_dir(),
         "connection_exists": connection.is_file(),
         "connection_mode_octal": f"{mode:04o}" if mode is not None else None,
-        "connection_private": mode is None or mode & 0o077 == 0,
+        "connection_private": private,
     }
+
+
+def _windows_file_is_private(path: Path) -> bool:
+    if not path.is_file():
+        return True
+    completed = subprocess.run(
+        ["icacls", str(path)], capture_output=True, check=False, text=True, timeout=5
+    )
+    if completed.returncode != 0:
+        return False
+    access_list = completed.stdout.casefold()
+    broad_principals = (
+        "everyone",
+        "authenticated users",
+        "builtin\\users",
+        "s-1-1-0",
+        "s-1-5-11",
+        "s-1-5-32-545",
+    )
+    return not any(principal in access_list for principal in broad_principals)
 
 
 def _daemon_health(connection: Path) -> dict[str, object]:

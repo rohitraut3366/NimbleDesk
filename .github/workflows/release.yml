@@ -69,7 +69,7 @@ jobs:
       - name: Install WiX
         if: runner.os == 'Windows'
         shell: pwsh
-        run: dotnet tool install --global wix
+        run: dotnet tool install --global wix --version 4.0.6
       - run: uv sync --extra bundle --locked
       - run: uv run --extra bundle python packaging/build_bundle.py
       - name: Build release installer

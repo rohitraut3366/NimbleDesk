@@ -2,6 +2,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -41,7 +42,8 @@ def _release(archive: Path, version: str = "2.0.0") -> tuple[SignedRelease, byte
 def _archive(path: Path, executable: bytes) -> None:
     with tarfile.open(path, "w:gz") as compressed:
         payload = io.BytesIO(executable)
-        metadata = tarfile.TarInfo("NimbleDesk/nimbledesk")
+        executable_name = "nimbledesk.exe" if os.name == "nt" else "nimbledesk"
+        metadata = tarfile.TarInfo(f"NimbleDesk/{executable_name}")
         metadata.size = len(executable)
         metadata.mode = 0o755
         compressed.addfile(metadata, payload)
