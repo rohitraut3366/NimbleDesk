@@ -723,6 +723,14 @@ uv run nimbledesk-fixture-contract \
   --output evidence/fixture-contract.json
 ```
 
+To qualify a real DaVinci Resolve installation against an existing plan:
+
+```bash
+uv run nimbledesk-davinci-contract \
+  --plan output/my-video/edit_plan.json \
+  --output evidence/davinci-contract
+```
+
 Measure event recognition against a labeled corpus with the release qualification command:
 
 ```bash

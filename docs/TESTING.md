@@ -94,6 +94,20 @@ For a Wayland fixture run, install the desktop's XDG portal backend and GStreame
 
 Each application adapter owns versioned fixtures and projects. Video-editor tests import deterministic generated media, build a timeline, save, render, reopen, revise, and cancel a job. FFprobe validates technical output and the adapter exports a timeline report that is compared with the requested edit plan.
 
+After producing and validating an edit plan, open DaVinci Resolve with external scripting enabled
+and run the physical contract:
+
+```bash
+uv run nimbledesk-davinci-contract \
+  --plan output/my-video/edit_plan.json \
+  --output evidence/davinci-contract
+```
+
+The runner creates a uniquely named qualification project, imports and saves a new timeline,
+reruns the identical plan to prove idempotent reuse, renders and verifies the output, changes an
+editable color decision and proves a new versioned timeline is created, then starts and cancels a
+render. It writes `davinci-contract.json` and exits nonzero unless all four cases pass.
+
 GUI fallback operations retain before/after screenshots and semantic evidence. A test fails when it merely clicks the expected coordinate but does not produce the expected application state.
 
 ## 5. Media intelligence and creative quality

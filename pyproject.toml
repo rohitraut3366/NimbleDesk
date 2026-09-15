@@ -55,6 +55,7 @@ nimbledesk-diagnostics = "nimbledesk.diagnostics:main"
 nimbledesk-qualify = "nimbledesk.testing.qualification:main"
 nimbledesk-fixture = "nimbledesk.testing.fixture_app:main"
 nimbledesk-fixture-contract = "nimbledesk.testing.fixture_contract:main"
+nimbledesk-davinci-contract = "nimbledesk.testing.davinci_contract:main"
 nimbledesk-vision-http = "nimbledesk.creative.vision_http:main"
 
 [tool.hatch.build.targets.wheel]

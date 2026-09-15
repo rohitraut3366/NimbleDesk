@@ -20,6 +20,7 @@ from nimbledesk.gateway.server import main as gateway_main
 from nimbledesk.media.cli import main as highlights_main
 from nimbledesk.media.photo_cli import main as photos_main
 from nimbledesk.service import main as service_main
+from nimbledesk.testing.davinci_contract import main as davinci_contract_main
 from nimbledesk.testing.fixture_app import main as fixture_main
 from nimbledesk.testing.fixture_contract import main as fixture_contract_main
 from nimbledesk.testing.qualification import main as qualification_main
@@ -44,6 +45,7 @@ COMMANDS: dict[str, Callable[[], None]] = {
     "qualify": qualification_main,
     "fixture": fixture_main,
     "fixture-contract": fixture_contract_main,
+    "davinci-contract": davinci_contract_main,
     "vision-http": vision_http_main,
     "update": update_main,
 }
