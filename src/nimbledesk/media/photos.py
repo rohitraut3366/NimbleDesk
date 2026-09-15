@@ -3,9 +3,10 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageEnhance, ImageOps
+from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageOps
 from pydantic import BaseModel, ConfigDict
 
 from nimbledesk.media.ffmpeg import MediaToolError, probe_media, require_media_tools
@@ -44,6 +45,11 @@ class PhotoManifest(BaseModel):
     selected: tuple[RenderedPhoto, ...]
     contact_sheet: Path
     slideshow: Path | None = None
+    thumbnail: Path | None = None
+    poster: Path | None = None
+    collage: Path | None = None
+    carousel: tuple[Path, ...] = ()
+    animated_gif: Path | None = None
 
 
 class PhotoPipeline:
@@ -54,6 +60,10 @@ class PhotoPipeline:
         count: int = 20,
         create_slideshow: bool = False,
         slideshow_width: int = 1920,
+        create_social_assets: bool = False,
+        create_animated_gif: bool = False,
+        title: str = "Photo story",
+        platform: Literal["youtube", "instagram", "tiktok"] = "instagram",
         progress: Callable[[str, float], None] | None = None,
         cancelled: CancellationCheck | None = None,
     ) -> PhotoManifest:
@@ -87,11 +97,33 @@ class PhotoPipeline:
             report("rendering photo slideshow", 0.85)
             slideshow = output_directory / "slideshow.mp4"
             render_slideshow(rendered, slideshow, slideshow_width, cancelled=cancelled)
+        thumbnail = poster = collage = animated_gif = None
+        carousel: tuple[Path, ...] = ()
+        if create_social_assets:
+            report("creating social photo assets", 0.92)
+            social_directory = output_directory / "social"
+            thumbnail = social_directory / "thumbnail.jpg"
+            poster = social_directory / "poster.jpg"
+            collage = social_directory / "collage.jpg"
+            render_photo_card(rendered[0], thumbnail, (1280, 720), title)
+            poster_size = (1080, 1920) if platform == "tiktok" else (1080, 1350)
+            render_photo_card(rendered[0], poster, poster_size, title)
+            render_collage(rendered, collage, (1080, 1080))
+            carousel = render_carousel(rendered, social_directory / "carousel")
+        if create_animated_gif:
+            report("creating animated GIF", 0.96)
+            animated_gif = output_directory / "photo-story.gif"
+            render_animated_gif(rendered, animated_gif)
         manifest = PhotoManifest(
             analyzed=analyses,
             selected=rendered,
             contact_sheet=contact_sheet,
             slideshow=slideshow,
+            thumbnail=thumbnail,
+            poster=poster,
+            collage=collage,
+            carousel=carousel,
+            animated_gif=animated_gif,
         )
         (output_directory / "photos.json").write_text(
             manifest.model_dump_json(indent=2),
@@ -99,6 +131,114 @@ class PhotoPipeline:
         )
         report("completed", 1)
         return manifest
+
+
+def render_photo_card(
+    photo: RenderedPhoto,
+    output_path: Path,
+    size: tuple[int, int],
+    title: str,
+) -> Path:
+    with Image.open(photo.output_path) as opened:
+        image = ImageOps.fit(opened.convert("RGB"), size, method=Image.Resampling.LANCZOS)
+    overlay = Image.new("RGBA", size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    gradient_height = round(size[1] * 0.34)
+    for row in range(gradient_height):
+        alpha = round(210 * row / max(1, gradient_height - 1))
+        y = size[1] - gradient_height + row
+        draw.line((0, y, size[0], y), fill=(0, 0, 0, alpha))
+    text = title.strip()[:48] or "Photo story"
+    font = _font(max(28, round(size[1] * 0.06)))
+    draw.text(
+        (round(size[0] * 0.06), round(size[1] * 0.86)),
+        text,
+        fill="white",
+        font=font,
+        stroke_width=max(1, round(size[1] * 0.002)),
+        stroke_fill="black",
+        anchor="ls",
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB").save(
+        output_path, "JPEG", quality=92, optimize=True
+    )
+    return output_path
+
+
+def render_collage(
+    rendered: tuple[RenderedPhoto, ...], output_path: Path, size: tuple[int, int]
+) -> Path:
+    canvas = Image.new("RGB", size, "#10131a")
+    selected = rendered[:4]
+    columns = 2 if len(selected) > 1 else 1
+    rows = math.ceil(len(selected) / columns)
+    gap = max(4, round(size[0] * 0.008))
+    cell_width = (size[0] - gap * (columns + 1)) // columns
+    cell_height = (size[1] - gap * (rows + 1)) // rows
+    for index, photo in enumerate(selected):
+        with Image.open(photo.output_path) as opened:
+            tile = ImageOps.fit(
+                opened.convert("RGB"),
+                (cell_width, cell_height),
+                method=Image.Resampling.LANCZOS,
+            )
+        x = gap + (index % columns) * (cell_width + gap)
+        y = gap + (index // columns) * (cell_height + gap)
+        canvas.paste(tile, (x, y))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(output_path, "JPEG", quality=92, optimize=True)
+    return output_path
+
+
+def render_carousel(
+    rendered: tuple[RenderedPhoto, ...], output_directory: Path
+) -> tuple[Path, ...]:
+    output_directory.mkdir(parents=True, exist_ok=True)
+    outputs: list[Path] = []
+    for index, photo in enumerate(rendered[:10], start=1):
+        with Image.open(photo.output_path) as opened:
+            card = ImageOps.fit(
+                opened.convert("RGB"), (1080, 1080), method=Image.Resampling.LANCZOS
+            )
+        draw = ImageDraw.Draw(card)
+        draw.rounded_rectangle((40, 40, 130, 110), radius=18, fill=(0, 0, 0))
+        draw.text((85, 75), str(index), fill="white", font=_font(36), anchor="mm")
+        path = output_directory / f"card-{index:02d}.jpg"
+        card.save(path, "JPEG", quality=92, optimize=True)
+        outputs.append(path)
+    return tuple(outputs)
+
+
+def render_animated_gif(
+    rendered: tuple[RenderedPhoto, ...], output_path: Path
+) -> Path:
+    frames: list[Image.Image] = []
+    for photo in rendered[:12]:
+        with Image.open(photo.output_path) as opened:
+            frame = ImageOps.fit(
+                opened.convert("RGB"), (720, 720), method=Image.Resampling.LANCZOS
+            )
+        frames.append(frame)
+    if not frames:
+        raise ValueError("cannot create an animated GIF without selected photos")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    frames[0].save(
+        output_path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=1_800,
+        loop=0,
+        optimize=True,
+    )
+    return output_path
+
+
+def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    try:
+        return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
+    except OSError:
+        return ImageFont.load_default(size=size)
 
 
 def discover_images(source: Path) -> tuple[Path, ...]:

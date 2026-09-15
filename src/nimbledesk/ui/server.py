@@ -81,6 +81,10 @@ class PhotoJobRequest(BaseModel):
     count: int = 20
     create_slideshow: bool = False
     slideshow_width: int = 1920
+    create_social_assets: bool = False
+    create_animated_gif: bool = False
+    title: str = "Photo story"
+    platform: Literal["youtube", "instagram", "tiktok"] = "instagram"
 
 
 class RevisionResult(BaseModel):
@@ -328,6 +332,10 @@ class JobService:
                     count=request.count,
                     create_slideshow=request.create_slideshow,
                     slideshow_width=request.slideshow_width,
+                    create_social_assets=request.create_social_assets,
+                    create_animated_gif=request.create_animated_gif,
+                    title=request.title,
+                    platform=request.platform,
                     progress=lambda stage, value: self._update_progress(job, stage, value),
                     cancelled=job.cancellation.is_cancelled,
                 )
@@ -685,7 +693,14 @@ def _artifact_paths(state: PersistedJob) -> dict[str, Path]:
         candidates = {
             "contact-sheet": result.contact_sheet,
             "slideshow": result.slideshow,
+            "thumbnail": result.thumbnail,
+            "poster": result.poster,
+            "collage": result.collage,
+            "animated-gif": result.animated_gif,
         }
+        candidates.update(
+            {f"carousel-{index:02d}": path for index, path in enumerate(result.carousel, 1)}
+        )
         root = result.contact_sheet.expanduser().resolve().parent
     artifacts: dict[str, Path] = {}
     for name, candidate in candidates.items():
@@ -884,8 +899,13 @@ _HTML = """<!doctype html>
       </label>
       <label>Photos to select<input name="count" type="number" min="1" max="1000" value="20"></label>
       <label>Slideshow width<input name="width" type="number" min="320" max="7680" value="1920"></label>
+      <label>Story title<input name="title" value="Photo story"></label>
+      <label>Platform<select name="platform"><option>instagram</option><option>youtube</option>
+        <option>tiktok</option></select></label>
     </div>
-    <div class="checks"><label><input name="slideshow" type="checkbox"> Create MP4 slideshow</label></div>
+    <div class="checks"><label><input name="slideshow" type="checkbox"> Create MP4 slideshow</label>
+      <label><input name="socialAssets" type="checkbox" checked> Create social assets</label>
+      <label><input name="animatedGif" type="checkbox"> Create animated GIF</label></div>
     <button>Create photo story</button>
   </form>
   <section id="jobs"></section>
@@ -920,7 +940,9 @@ form.addEventListener('submit', async event => {
 });
 photoForm.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(photoForm);
   const payload={source:data.get('source'),output_directory:data.get('output'),count:Number(data.get('count')),
-    create_slideshow:data.has('slideshow'),slideshow_width:Number(data.get('width'))};
+    create_slideshow:data.has('slideshow'),slideshow_width:Number(data.get('width')),
+    create_social_assets:data.has('socialAssets'),create_animated_gif:data.has('animatedGif'),
+    title:data.get('title'),platform:data.get('platform')};
   const response=await fetch('/api/photo-jobs',{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
   const result=await response.json();if(!response.ok){alert(result.error);return;}refresh();});

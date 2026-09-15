@@ -28,13 +28,34 @@ def test_photo_pipeline_removes_duplicates_and_creates_outputs(tmp_path: Path) -
     best.save(source / "duplicate.png")
     Image.new("RGB", (320, 320), (120, 120, 120)).save(source / "flat.png")
 
-    manifest = PhotoPipeline().create(source, output, count=3)
+    manifest = PhotoPipeline().create(
+        source,
+        output,
+        count=3,
+        create_social_assets=True,
+        create_animated_gif=True,
+        title="Best weekend",
+        platform="tiktok",
+    )
 
     assert len(manifest.analyzed) == 3
     assert sum(analysis.duplicate_of is not None for analysis in manifest.analyzed) >= 1
     assert len(manifest.selected) == 2
     assert all(photo.output_path.is_file() for photo in manifest.selected)
     assert manifest.contact_sheet.is_file()
+    assert manifest.thumbnail is not None and manifest.thumbnail.is_file()
+    assert manifest.poster is not None and manifest.poster.is_file()
+    assert manifest.collage is not None and manifest.collage.is_file()
+    assert len(manifest.carousel) == 2
+    assert all(path.is_file() for path in manifest.carousel)
+    assert manifest.animated_gif is not None and manifest.animated_gif.is_file()
+    with Image.open(manifest.thumbnail) as thumbnail:
+        assert thumbnail.size == (1280, 720)
+    with Image.open(manifest.poster) as poster:
+        assert poster.size == (1080, 1920)
+    with Image.open(manifest.animated_gif) as animation:
+        assert animation.is_animated
+        assert animation.n_frames == 2
     assert (output / "photos.json").is_file()
 
 

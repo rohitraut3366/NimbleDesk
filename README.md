@@ -605,7 +605,13 @@ Without an events file, ranking is based on generic audiovisual activity. It can
 
 ## Create from photos
 
-The photo command recursively scans one image or a directory, applies EXIF orientation, detects perceptual duplicates, scores sharpness, exposure, contrast, and resolution, keeps visually diverse high-scoring images, and creates lightly corrected JPEG copies. Supported source formats are JPEG, PNG, WebP, TIFF, and TIF.
+The photo command recursively scans one image or a directory, applies EXIF orientation, detects perceptual duplicates, scores sharpness, exposure, contrast, and resolution, keeps visually diverse high-scoring images, and creates lightly corrected JPEG copies. Supported source formats are JPEG, PNG, WebP, TIFF, and TIF. Source images remain unchanged.
+
+Pass `--social-assets --title "My story" --platform instagram` to produce a 1280×720
+thumbnail, a platform poster (1080×1920 for TikTok or 1080×1350 otherwise), a square collage,
+and up to ten numbered 1080×1080 carousel cards. Pass `--animated-gif` for a looping square GIF
+from up to twelve selected images. Studio exposes the same options and previews or downloads every
+generated artifact from the completed photo job.
 
 ```bash
 uv run nimbledesk-photos photos/ output/photos \
