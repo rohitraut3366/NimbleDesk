@@ -49,6 +49,7 @@ nimbledesk-music-index = "nimbledesk.creative.music_cli:main"
 nimbledesk-revise = "nimbledesk.creative.revision_cli:main"
 nimbledesk-approve = "nimbledesk.daemon.approval_cli:main"
 nimbledesk-diagnostics = "nimbledesk.diagnostics:main"
+nimbledesk-qualify = "nimbledesk.testing.qualification:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nimbledesk"]

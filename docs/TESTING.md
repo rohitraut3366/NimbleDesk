@@ -69,8 +69,34 @@ GUI fallback operations retain before/after screenshots and semantic evidence. A
 
 Generated and licensed evaluation corpora contain labeled shots, speech, silence, music, kills, clutches, reactions, duplicate moments, photo bursts, technical defects, and known story structure. Automated metrics cover event precision/recall, boundary error, ranking quality, diversity, context retention, caption accuracy, loudness, color, pacing constraints, and render correctness.
 
+Store labeled and detected events as `TimelineEvent` JSON lists, then create machine-readable
+precision, recall, F1, per-event-type, miss, false-positive, and temporal-boundary evidence:
+
+```bash
+uv run nimbledesk-qualify events \
+  --expected corpus/expected-events.json \
+  --detected output/detected_events.json \
+  --tolerance-seconds 3 \
+  --output evidence/event-benchmark.json
+```
+
 Creative quality also needs blinded human review. Reviewers compare variants for hook, clarity, pacing, emotion, novelty, and overall preference without seeing which planner produced them. No heuristic is treated as proof that content will become popular. With user permission, normalized retention and engagement data may inform later experiments.
 
 ## Release gate
 
 A release requires deterministic tests, all supported backend contract subsets, a real reference-editor workflow, security tests, interruption/recovery tests, and the declared creative benchmark. Failures are recorded by OS, backend capability, application version, and media domain rather than hidden behind generic retries.
+
+The mixed-workload daemon endurance runner observes continuously, performs bounded screen captures,
+validates each capture hash, records latency, and always closes its session. It runs for eight hours
+unless `--hours` is provided. On a dedicated input-test machine, `--input-every 60` also moves and
+restores the pointer every sixtieth iteration. A report passes only when the requested duration
+completes without an RPC, capture, input, or cleanup failure.
+
+```bash
+uv run nimbledesk-qualify endurance \
+  --connection-file ~/.nimbledesk/runtime/connection.json \
+  --hours 8 \
+  --interval-seconds 5 \
+  --capture-every 12 \
+  --output evidence/endurance.json
+```

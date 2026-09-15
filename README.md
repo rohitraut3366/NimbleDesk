@@ -601,7 +601,10 @@ The output directory contains:
 - `highlight_01_<label>_<timestamp>.mp4`, one validated clip for each ranked moment.
 - `highlights.json`, containing source metadata, resolved configuration, ranked candidates, scores, reasons, event labels, and rendered-file metadata.
 
-Without an events file, ranking is based on generic audiovisual activity. It can find energetic moments, but it cannot currently know that a pixel sequence is a kill, grenade kill, clutch, or survival event.
+Without event analysis, ranking uses generic audiovisual activity. Enable game OCR and, when
+available, a semantic vision provider to identify kills, grenade kills, multi-kills, clutches,
+narrow survivals, and victories. Corroborating detectors are fused and every event records its
+detector provenance and evidence in `detected_events.json`.
 
 ## Create from photos
 
@@ -675,11 +678,31 @@ uv run nimbledesk-smoke \
 
 See [docs/TESTING.md](docs/TESTING.md) for the complete simulator, OS backend, real-application, media-quality, and release test strategy.
 
+Measure event recognition against a labeled corpus with the release qualification command:
+
+```bash
+uv run nimbledesk-qualify events \
+  --expected corpus/expected-events.json \
+  --detected output/detected_events.json \
+  --tolerance-seconds 3 \
+  --output evidence/event-benchmark.json
+```
+
+Run the endurance gate against a separately running daemon. The release run is eight hours by
+default. `--input-every` is optional and only moves the pointer briefly before restoring it; use it
+on a dedicated test desktop after enabling host and session input.
+
+```bash
+uv run nimbledesk-qualify endurance \
+  --connection-file ~/.nimbledesk/runtime/connection.json \
+  --output evidence/endurance.json
+```
+
 ## Configuration reference
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `NIMBLEDESK_BACKEND` | `simulator` | Select `simulator` or `portable`. Unknown values fail at startup. |
+| `NIMBLEDESK_BACKEND` | `simulator` | Select `simulator`, `portable`, or `native`. Native composes the OS semantic/input providers and selects the XDG portal backend in a Wayland session. Unknown values fail at startup. |
 | `NIMBLEDESK_ENABLE_INPUT` | Disabled | Host input gate. Truthy values are `1`, `true`, `yes`, or `on`, ignoring case. |
 | `NIMBLEDESK_RUNTIME_DIR` | `~/.nimbledesk/runtime` | Directory for `connection.json` and `audit.jsonl`. |
 | `NIMBLEDESK_CONNECTION_FILE` | `~/.nimbledesk/runtime/connection.json` | Connection file read by `nimbledesk-mcp`. |
