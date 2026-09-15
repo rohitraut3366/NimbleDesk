@@ -637,6 +637,13 @@ async def list_approvals(request: Request) -> JSONResponse:
         return JSONResponse({"approvals": [], "daemon_error": str(error)})
 
 
+async def runtime_health(request: Request) -> JSONResponse:
+    try:
+        return JSONResponse(await daemon_client().call("health"))
+    except Exception as error:
+        return JSONResponse({"status": "unavailable", "error": str(error)}, status_code=503)
+
+
 async def decide_approval(request: Request) -> JSONResponse:
     decision = request.path_params["decision"]
     if decision not in {"approve", "reject"}:
@@ -775,6 +782,7 @@ app = Starlette(
             methods=["POST"],
         ),
         Route("/api/approvals", list_approvals, methods=["GET"]),
+        Route("/api/health", runtime_health, methods=["GET"]),
         Route(
             "/api/approvals/{approval_id}/{decision}", decide_approval, methods=["POST"]
         ),
@@ -811,8 +819,9 @@ _HTML = """<!doctype html>
       padding: 24px; margin: 24px 0; box-shadow: 0 12px 40px #0005; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     label { display: grid; gap: 7px; color: #c7cfe1; font-size: 14px; }
-    input, select { box-sizing: border-box; width: 100%; border: 1px solid #3a4668;
+    input, select, textarea { box-sizing: border-box; width: 100%; border: 1px solid #3a4668;
       background: #0e1528; color: white; border-radius: 9px; padding: 11px 12px; }
+    textarea { min-height: 76px; resize: vertical; }
     .checks { display: flex; flex-wrap: wrap; gap: 16px; margin: 18px 0; }
     .checks label { display: flex; align-items: center; } .checks input { width: auto; }
     button { border: 0; border-radius: 10px; padding: 12px 18px; font-weight: 700;
@@ -840,6 +849,7 @@ _HTML = """<!doctype html>
 <body><main>
   <h1>NimbleDesk Studio</h1>
   <p>Turn long footage into a planned, rendered, and editable DaVinci Resolve timeline.</p>
+  <section id="health"></section>
   <section id="approvals"></section>
   <form id="create">
     <div class="grid">
@@ -863,11 +873,24 @@ _HTML = """<!doctype html>
         <option>calm</option></select></label>
       <label>Mood<input name="mood" value="engaging"></label>
       <label>Color look<input name="colorLook" value="natural_contrast"></label>
+      <label>Title style<input name="titleStyle" value="clean"></label>
+      <label>Transition style<select name="transitionStyle"><option>restrained</option>
+        <option>energetic</option><option>cinematic</option></select></label>
+      <label>Music style or genres<input name="musicStyle" placeholder="cinematic, electronic"></label>
       <label>Autonomy<select name="autonomy"><option value="render_review">Render review</option>
         <option value="review_before_render">Review before render</option><option value="plan_only">Plan only</option>
         <option value="execute_editor">Allow editor execution</option></select></label>
       <label>Required event types<input name="mandatoryEvents" placeholder="clutch, victory"></label>
       <label>Excluded event types<input name="excludedEvents" placeholder="death, loading"></label>
+      <label>Reference links or notes<input name="references" placeholder="One per comma"></label>
+      <label>Preferred speakers<input name="speakers" placeholder="Rohit, Guest"></label>
+      <label>Excluded content<input name="excludedContent" placeholder="profanity, private screens"></label>
+      <label>Required moments
+        <textarea name="mandatoryMoments" placeholder="One per line: label | start seconds | end seconds | event type"></textarea>
+      </label>
+      <label>Excluded moments
+        <textarea name="excludedMoments" placeholder="One per line: label | start seconds | end seconds | event type"></textarea>
+      </label>
       <label>Transcript JSON<input name="transcript" placeholder="Optional"></label>
       <label>Whisper model<input name="whisperModel" value="small"></label>
       <label>Transcript language<input name="language" placeholder="Auto detect"></label>
@@ -876,6 +899,17 @@ _HTML = """<!doctype html>
       <label>Timeline events JSON<input name="events" placeholder="Optional"></label>
       <label>Game domain pack JSON<input name="gamePack" placeholder="Optional"></label>
       <label>Semantic vision provider JSON<input name="visionProvider" placeholder="Optional"></label>
+      <label>Brand logo path<input name="brandLogo" placeholder="Optional PNG"></label>
+      <label>Brand font path<input name="brandFont" placeholder="Optional TTF/OTF"></label>
+      <label>Primary brand color<input name="primaryColor" placeholder="#71e5b4"></label>
+      <label>Secondary brand color<input name="secondaryColor" placeholder="#8ed8ff"></label>
+      <label>Protected colors<input name="protectedColors" placeholder="#ff0000, #00ff00"></label>
+      <label>Logo position<select name="logoPosition"><option>top_right</option><option>top_left</option>
+        <option>bottom_right</option><option>bottom_left</option></select></label>
+      <label>Logo width fraction<input name="logoWidth" type="number" min="0.03" max="0.35" step="0.01" value="0.12"></label>
+      <label>Caption language<input name="captionLanguage" placeholder="en"></label>
+      <label>Caption characters per line<input name="captionLineLength" type="number" min="20" max="60" value="42"></label>
+      <label>Caption characters per second<input name="captionSpeed" type="number" min="8" max="30" step="0.5" value="22"></label>
     </div>
     <div class="checks">
       <label><input name="gameOcr" type="checkbox"> Detect game events</label>
@@ -885,6 +919,14 @@ _HTML = """<!doctype html>
       <label><input name="ffmpegRender" type="checkbox" checked> Render review MP4</label>
       <label><input name="davinci" type="checkbox"> Import into DaVinci</label>
       <label><input name="davinciRender" type="checkbox"> Render in DaVinci</label>
+      <label><input name="brandRequired" type="checkbox"> Require brand assets</label>
+      <label><input name="captionsRequired" type="checkbox"> Require captions for accessibility</label>
+      <label><input name="speakerLabels" type="checkbox" checked> Include speaker labels</label>
+      <label><input name="audioDescription" type="checkbox"> Require audio description</label>
+      <label><input name="remoteTranscript" type="checkbox"> Allow remote transcript processing</label>
+      <label><input name="remoteAudio" type="checkbox"> Allow remote audio processing</label>
+      <label><input name="remoteFrames" type="checkbox"> Allow remote frame processing</label>
+      <label><input name="retainCache" type="checkbox" checked> Retain local analysis cache</label>
     </div>
     <button>Create video</button>
   </form>
@@ -913,10 +955,16 @@ _HTML = """<!doctype html>
 const form = document.querySelector('#create'); const jobs = document.querySelector('#jobs');
 const photoForm = document.querySelector('#photos');
 const approvals = document.querySelector('#approvals');
+const health = document.querySelector('#health');
 form.addEventListener('submit', async event => {
-  event.preventDefault(); const data = new FormData(form);
+  event.preventDefault(); try { const data = new FormData(form);
   const optional = name => data.get(name) || null;
   const list = name => String(data.get(name)||'').split(',').map(value=>value.trim()).filter(Boolean);
+  const moments = name => String(data.get(name)||'').split('\\n').map(value=>value.trim()).filter(Boolean)
+    .map(value=>{const parts=value.split('|').map(item=>item.trim());if(parts.length<3)
+      throw new Error(`${name} entries need label | start | end | optional event type`);
+      return {label:parts[0],start_seconds:Number(parts[1]),end_seconds:Number(parts[2]),
+        event_type:parts[3]||null};});
   const payload = {source:data.get('source'), output_directory:data.get('output'),
     brief:{title:data.get('title'),content_kind:data.get('kind'),audience:data.get('audience'),
       platform:data.get('platform'),
@@ -924,7 +972,23 @@ form.addEventListener('submit', async event => {
       pace:data.get('pace'),mood:data.get('mood'),clip_count:Number(data.get('clipCount')),
       captions:data.has('captions'),music:data.has('musicEnabled'),color_look:data.get('colorLook'),
       autonomy:data.get('autonomy'),
-      mandatory_event_types:list('mandatoryEvents'),excluded_event_types:list('excludedEvents')},
+      title_style:data.get('titleStyle'),transition_style:data.get('transitionStyle'),
+      music_style:list('musicStyle'),references:list('references'),preferred_speakers:list('speakers'),
+      excluded_content:list('excludedContent'),mandatory_moments:moments('mandatoryMoments'),
+      excluded_moments:moments('excludedMoments'),
+      mandatory_event_types:list('mandatoryEvents'),excluded_event_types:list('excludedEvents'),
+      brand:{logo_path:optional('brandLogo'),font_path:optional('brandFont'),
+        primary_color:optional('primaryColor'),secondary_color:optional('secondaryColor'),
+        protected_colors:list('protectedColors'),logo_position:data.get('logoPosition'),
+        logo_width_fraction:Number(data.get('logoWidth')),required:data.has('brandRequired')},
+      accessibility:{captions_required:data.has('captionsRequired'),
+        caption_language:optional('captionLanguage'),speaker_labels:data.has('speakerLabels'),
+        maximum_caption_characters_per_line:Number(data.get('captionLineLength')),
+        maximum_caption_characters_per_second:Number(data.get('captionSpeed')),
+        audio_description_required:data.has('audioDescription')},
+      data_policy:{allow_remote_transcript:data.has('remoteTranscript'),
+        allow_remote_audio:data.has('remoteAudio'),allow_remote_frames:data.has('remoteFrames'),
+        retain_analysis_cache:data.has('retainCache')}},
     transcript:optional('transcript'),music_catalog:optional('music'),sound_catalog:optional('sounds'),
     events:optional('events'),
     game_pack:optional('gamePack'),
@@ -937,6 +1001,7 @@ form.addEventListener('submit', async event => {
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)
   }); const result=await response.json();
   if(!response.ok){alert(result.error);return;} refresh();
+  }catch(error){alert(error instanceof Error?error.message:String(error));}
 });
 photoForm.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(photoForm);
   const payload={source:data.get('source'),output_directory:data.get('output'),count:Number(data.get('count')),
@@ -995,7 +1060,11 @@ async function refreshApprovals(){const response=await fetch('/api/approvals');c
       <p>Expires ${h(new Date(item.expires_at*1000).toLocaleTimeString())}</p>
       <pre><code>${h(JSON.stringify(action.arguments?.arguments||{},null,2))}</code></pre>
       <button onclick="decideApproval('${h(item.approval_id)}','approve')">Approve exact action</button>
-      <button onclick="decideApproval('${h(item.approval_id)}','reject')">Reject</button></article>`;}).join('):'';}
+      <button onclick="decideApproval('${h(item.approval_id)}','reject')">Reject</button></article>`;}).join(''):'';}
+async function refreshHealth(){const response=await fetch('/api/health');const data=await response.json();
+  const capabilities=(data.capabilities||[]).join(', ')||'none';health.innerHTML=`<article>
+    <strong>Desktop runtime: ${h(data.status)}</strong><p>Backend: ${h(data.backend||'unavailable')} ·
+    Capabilities: ${h(capabilities)}</p>${data.error?`<p class="error">${h(data.error)}</p>`:''}</article>`;}
 async function decideApproval(approvalId,decision){const response=await fetch(
   `/api/approvals/${approvalId}/${decision}`,{method:'POST',headers:{'content-type':'application/json'}});
   const result=await response.json();if(!response.ok){alert(result.error);return;}refreshApprovals();}
@@ -1024,6 +1093,7 @@ jobs.addEventListener('submit',async event=>{if(!event.target.matches('.revision
   const response=await fetch(`/api/jobs/${revisionForm.dataset.jobId}/revisions`,{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
   const result=await response.json();if(!response.ok){alert(result.error);return;}refresh();});
-refresh();refreshApprovals();loadStyleProfiles();setInterval(()=>{refreshApprovals();
+refresh();refreshApprovals();refreshHealth();loadStyleProfiles();setInterval(()=>{refreshApprovals();
+  refreshHealth();
   if(!document.querySelector('.revision-form:focus-within'))refresh();},2000);
 </script></body></html>"""

@@ -1,6 +1,9 @@
+import shutil
+import subprocess
 import time
 from pathlib import Path
 
+import pytest
 from PIL import Image
 from pytest import MonkeyPatch
 from starlette.testclient import TestClient
@@ -24,6 +27,7 @@ from nimbledesk.creative.workflow import CreationResult, CreationWorkflow
 from nimbledesk.media.models import MediaMetadata
 from nimbledesk.media.photos import PhotoManifest
 from nimbledesk.ui.server import (
+    _HTML,
     CreateJobRequest,
     JobRecord,
     JobService,
@@ -32,6 +36,18 @@ from nimbledesk.ui.server import (
     ReviseJobRequest,
     app,
 )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_studio_client_javascript_parses(tmp_path: Path) -> None:
+    script = tmp_path / "studio.js"
+    script.write_text(_HTML.split("<script>", 1)[1].split("</script>", 1)[0], encoding="utf-8")
+
+    completed = subprocess.run(
+        ["node", "--check", str(script)], capture_output=True, check=False, text=True
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_console_serves_creation_form_and_rejects_missing_source(tmp_path: Path) -> None:
@@ -53,8 +69,83 @@ def test_console_serves_creation_form_and_rejects_missing_source(tmp_path: Path)
     assert "Actions awaiting your approval" in page.text
     assert "Semantic vision provider JSON" in page.text
     assert "Required event types" in page.text
+    assert "Brand logo path" in page.text
+    assert "Allow remote frame processing" in page.text
+    assert "Required moments" in page.text
     assert response.status_code == 400
     assert "does not exist" in response.json()["error"]
+
+
+def test_console_accepts_complete_creative_brief(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"fixture")
+    service = JobService(tmp_path / "jobs")
+    monkeypatch.setattr(service._executor, "submit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ui, "JOB_SERVICE", service)
+
+    response = TestClient(app).post(
+        "/api/jobs",
+        json={
+            "source": str(source),
+            "output_directory": str(tmp_path / "output"),
+            "brief": {
+                "title": "Complete brief",
+                "references": ["Fast, clear opening"],
+                "preferred_speakers": ["Rohit"],
+                "excluded_content": ["private screens"],
+                "mandatory_moments": [
+                    {"label": "Clutch", "start_seconds": 10, "end_seconds": 15}
+                ],
+                "music_style": ["cinematic", "electronic"],
+                "transition_style": "cinematic",
+                "brand": {
+                    "primary_color": "#71e5b4",
+                    "protected_colors": ["#ff0000"],
+                    "required": False,
+                },
+                "accessibility": {
+                    "captions_required": True,
+                    "caption_language": "en",
+                    "speaker_labels": True,
+                    "maximum_caption_characters_per_line": 38,
+                    "maximum_caption_characters_per_second": 18,
+                },
+                "data_policy": {
+                    "allow_remote_transcript": False,
+                    "allow_remote_audio": False,
+                    "allow_remote_frames": True,
+                    "retain_analysis_cache": False,
+                },
+            },
+        },
+    )
+    service.close()
+
+    assert response.status_code == 202
+    brief = response.json()["request"]["brief"]
+    assert brief["mandatory_moments"][0]["label"] == "Clutch"
+    assert brief["accessibility"]["maximum_caption_characters_per_line"] == 38
+    assert brief["data_policy"]["allow_remote_frames"] is True
+
+
+def test_console_reports_desktop_runtime_health(monkeypatch: MonkeyPatch) -> None:
+    class FakeDaemonClient:
+        async def call(self, method: str) -> dict[str, object]:
+            assert method == "health"
+            return {
+                "status": "ok",
+                "backend": "native:macos-ax+portable-pyautogui",
+                "capabilities": ["screen_capture", "pointer"],
+            }
+
+    monkeypatch.setattr(ui, "daemon_client", FakeDaemonClient)
+
+    response = TestClient(app).get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json()["capabilities"] == ["screen_capture", "pointer"]
 
 
 def test_console_returns_unknown_job() -> None:
