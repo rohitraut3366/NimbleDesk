@@ -76,6 +76,7 @@ def test_native_backend_merges_semantic_observation_and_invokes_element() -> Non
     assert observation.permissions[Capability.ACCESSIBILITY] is PermissionState.GRANTED
     assert result.status is ActionStatus.COMPLETED
     assert semantic.invoked == ["button-1"]
+    assert "Portable fallback reports the primary display only" in observation.warnings
 
 
 def test_native_backend_does_not_fall_back_when_semantic_target_is_unknown() -> None:

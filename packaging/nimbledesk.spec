@@ -6,7 +6,8 @@ from PyInstaller.utils.hooks import collect_submodules
 root = Path(SPECPATH).parent
 
 hiddenimports = (
-    collect_submodules("mcp")
+    collect_submodules("dbus_next")
+    + collect_submodules("mcp")
     + collect_submodules("nimbledesk")
     + collect_submodules("starlette")
     + collect_submodules("uvicorn")

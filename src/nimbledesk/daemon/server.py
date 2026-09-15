@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import platform
 import secrets
 from contextlib import suppress
 from importlib import import_module
@@ -12,6 +13,7 @@ from nimbledesk.backends import (
     NativeDesktopBackend,
     PortableDesktopBackend,
     SimulatorBackend,
+    WaylandPortalBackend,
     registry_for_host,
     system_semantic_provider,
 )
@@ -37,8 +39,14 @@ def build_runtime(runtime_dir: Path) -> DesktopRuntime:
     if backend_name == "portable":
         backend = PortableDesktopBackend(import_module("pyautogui"))
     elif backend_name == "native":
+        portable_backend: DesktopBackend = (
+            WaylandPortalBackend()
+            if platform.system() == "Linux"
+            and os.getenv("XDG_SESSION_TYPE", "").casefold() == "wayland"
+            else PortableDesktopBackend(import_module("pyautogui"))
+        )
         backend = NativeDesktopBackend(
-            PortableDesktopBackend(import_module("pyautogui")),
+            portable_backend,
             system_semantic_provider(),
         )
     elif backend_name == "simulator":

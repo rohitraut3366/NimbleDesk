@@ -2,12 +2,14 @@ from nimbledesk.backends.native import NativeDesktopBackend
 from nimbledesk.backends.portable import PortableDesktopBackend
 from nimbledesk.backends.semantic import system_semantic_provider
 from nimbledesk.backends.simulator import SimulatorBackend
+from nimbledesk.backends.wayland import WaylandPortalBackend
 
 __all__ = [
     "NativeDesktopBackend",
     "AdapterDesktopBackend",
     "PortableDesktopBackend",
     "SimulatorBackend",
+    "WaylandPortalBackend",
     "system_semantic_provider",
     "registry_for_host",
 ]

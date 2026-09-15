@@ -27,7 +27,7 @@ The current release combines portable PyAutoGUI capture/input with native semant
 - Recursive photo discovery, perceptual duplicate removal, technical ranking, light correction, a contact sheet, and an optional MP4 slideshow.
 - Token-budgeted observations and size-bounded screenshots.
 
-Automatic game recognition currently uses configurable OCR phrases and patterns, temporal event inference, and audiovisual evidence; accuracy depends on the game, HUD, language, crop, and capture quality. Model-based vision packs, native Wayland capture/input, subject-tracked vertical reframing, external release signing, and automated tests on physical Windows/Linux/macOS machines remain release-hardening work described in [PLAN.md](PLAN.md).
+Automatic game recognition currently uses configurable OCR phrases and patterns, temporal event inference, and audiovisual evidence; accuracy depends on the game, HUD, language, crop, and capture quality. Model-based vision packs, subject-tracked vertical reframing, external release signing, and automated tests on physical Windows/Linux/macOS machines remain release-hardening work described in [PLAN.md](PLAN.md).
 
 ## Requirements
 
@@ -541,7 +541,7 @@ Run real input tests only on a dedicated test desktop with no sensitive or destr
 
 **Windows:** Install the `native` extra to enable UI Automation through `pywinauto`. A normal process can control applications running at the same integrity level. It cannot control an application launched as administrator; run both at the same level. UIA failures are returned without retrying through mouse coordinates.
 
-**Linux:** Install the distribution AT-SPI bindings (`sudo apt install python3-pyatspi` on Ubuntu/Debian) and make them visible to the NimbleDesk Python environment. The native backend uses AT-SPI for semantic controls. Portable capture and input still require X11 and access to `DISPLAY`; PipeWire capture and the RemoteDesktop portal remain required for native Wayland input.
+**Linux:** Install the distribution AT-SPI bindings (`sudo apt install python3-pyatspi` on Ubuntu/Debian) and make them visible to the NimbleDesk Python environment. The native backend uses AT-SPI for semantic controls. On X11, capture and input use the portable backend and require access to `DISPLAY`. On Wayland, NimbleDesk automatically uses the XDG ScreenCast and RemoteDesktop portals; install `xdg-desktop-portal`, the portal backend for the desktop, `gstreamer1.0-tools`, and `gstreamer1.0-pipewire`. The first observation opens the desktop's standard consent dialog. Only the monitors selected there are exposed, and denying the dialog leaves screen, pointer, and keyboard capabilities disabled.
 
 ## Generate highlight clips
 

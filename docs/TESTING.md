@@ -57,6 +57,8 @@ A purpose-built fixture application must show buttons, text fields, scroll conta
 
 The matrix covers mixed display scaling, multiple monitors, negative virtual coordinates, rotation, different keyboard layouts, focus changes, permission denial/revocation, sleep/wake, app crashes, and emergency cancellation. Dedicated machines are required because virtual CI does not accurately reproduce every capture and accessibility API.
 
+For a Wayland fixture run, install the desktop's XDG portal backend and GStreamer PipeWire plugin, set `NIMBLEDESK_BACKEND=native`, and keep `XDG_SESSION_TYPE=wayland`. The first observation must show the compositor-owned monitor and remote-control consent dialog. Test capture on every selected stream, absolute motion on monitors with positive and negative origins, buttons, smooth drag, continuous scroll, Unicode text, hotkeys, consent denial, session revocation, and emergency release. The backend must report denied permissions without advertising capture or input when the user cancels sharing.
+
 ## 4. Real application workflows
 
 Each application adapter owns versioned fixtures and projects. Video-editor tests import deterministic generated media, build a timeline, save, render, reopen, revise, and cancel a job. FFprobe validates technical output and the adapter exports a timeline report that is compared with the requested edit plan.

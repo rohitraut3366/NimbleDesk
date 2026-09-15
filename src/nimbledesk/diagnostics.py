@@ -35,7 +35,14 @@ def build_diagnostic_bundle(output: Path, data_directory: Path | None = None) ->
         "desktop": os.getenv("XDG_CURRENT_DESKTOP"),
         "tools": {
             tool: _tool_status(tool)
-            for tool in ("ffmpeg", "ffprobe", "whisper", "tesseract")
+            for tool in (
+                "ffmpeg",
+                "ffprobe",
+                "whisper",
+                "tesseract",
+                "gst-launch-1.0",
+                "xdg-desktop-portal",
+            )
         },
         "runtime": _runtime_status(runtime),
         "daemon": _daemon_health(runtime / "connection.json"),

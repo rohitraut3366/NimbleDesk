@@ -209,6 +209,7 @@ def _build_linux(executable: Path, output: Path, version: str, work: Path) -> Pa
         "Maintainer: NimbleDesk <releases@nimbledesk.local>\n"
         "Section: utils\n"
         "Priority: optional\n"
+        "Recommends: ffmpeg, gstreamer1.0-tools, gstreamer1.0-pipewire, xdg-desktop-portal\n"
         "Description: Local desktop automation and creative media runtime\n",
         encoding="utf-8",
     )

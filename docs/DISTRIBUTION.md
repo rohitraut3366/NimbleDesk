@@ -40,7 +40,7 @@ uv run --extra bundle python packaging/build_bundle.py
 uv run --extra bundle python packaging/build_installer.py --version 0.1.0
 ```
 
-The builders write an archive and a native installer under `artifacts/`: a macOS application package, per-user Windows MSI, or Debian package. CI builds, installs, executes, and uninstalls each artifact on a clean hosted OS image. The executable includes NimbleDesk and its Python runtime. FFmpeg/FFprobe, optional Whisper/Tesseract, DaVinci Resolve, and operating-system accessibility or portal components remain host dependencies and are diagnosed at runtime.
+The builders write an archive and a native installer under `artifacts/`: a macOS application package, per-user Windows MSI, or Debian package. CI builds, installs, executes, and uninstalls each artifact on a clean hosted OS image. The executable includes NimbleDesk and its Python runtime. FFmpeg/FFprobe, optional Whisper/Tesseract, DaVinci Resolve, accessibility services, XDG Desktop Portal, and GStreamer PipeWire support remain host dependencies and are diagnosed at runtime.
 
 ## Signed updates and rollback
 

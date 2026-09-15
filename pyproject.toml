@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "cryptography>=45,<51",
+  "dbus-next>=0.2.3,<1; sys_platform == 'linux'",
   "mcp[cli]>=1.6,<2",
   "numpy>=2,<3",
   "pillow>=10,<12",

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from time import time
 
-from nimbledesk.backends.portable import PortableDesktopBackend
 from nimbledesk.backends.semantic import SemanticProvider
+from nimbledesk.ports import DesktopBackend
 from nimbledesk.protocol.models import (
     ActionRequest,
     ActionResult,
@@ -21,7 +21,7 @@ from nimbledesk.protocol.models import (
 class NativeDesktopBackend:
     """Composes native semantic accessibility with portable capture and input."""
 
-    def __init__(self, portable: PortableDesktopBackend, semantic: SemanticProvider) -> None:
+    def __init__(self, portable: DesktopBackend, semantic: SemanticProvider) -> None:
         self._portable = portable
         self._semantic = semantic
         self._observation_id: str | None = None
@@ -55,7 +55,7 @@ class NativeDesktopBackend:
                 "elements": semantic.elements,
                 "active_application_id": semantic.active_application_id,
                 "focused_window_id": semantic.focused_window_id,
-                "warnings": semantic.warnings,
+                "warnings": (*portable.warnings, *semantic.warnings),
             }
         )
         self._observation_id = observation.observation_id
