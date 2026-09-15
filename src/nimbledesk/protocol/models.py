@@ -72,6 +72,12 @@ class RiskLevel(StrEnum):
     CRITICAL = "critical"
 
 
+class PolicyDecision(StrEnum):
+    ALLOW = "allow"
+    DENY = "deny"
+    REQUIRE_CONFIRMATION = "require_confirmation"
+
+
 class Point(ProtocolModel):
     x: int
     y: int
