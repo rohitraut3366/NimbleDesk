@@ -2,11 +2,14 @@ import platform
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from nimbledesk.adapters.models import AdapterCommand, AdapterManifest
 from nimbledesk.adapters.runner import (
     AdapterError,
     IsolatedAdapterRunner,
+    _macos_sandbox_profile,
+    _sandboxed_worker_command,
     _strict_adapter_result,
 )
 from nimbledesk.backends.adapters import AdapterDesktopBackend, AdapterRegistry
@@ -104,6 +107,77 @@ def test_adapter_rejects_symlinked_path_arguments(tmp_path: Path) -> None:
             "inspect",
             {"project": str(linked)},
             granted_paths=(tmp_path,),
+        )
+
+
+@pytest.mark.skipif(platform.system() != "Darwin", reason="requires macOS sandbox-exec")
+def test_adapter_runs_inside_macos_sandbox(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    manifest = _manifest().model_copy(update={"isolation": "sandboxed"})
+
+    result = IsolatedAdapterRunner().execute(
+        manifest,
+        "inspect",
+        {"project": str(project)},
+        granted_paths=(tmp_path,),
+    )
+
+    assert result.success
+    assert result.result == {"received": {"project": str(project)}}
+
+
+def test_linux_sandbox_disables_network_and_binds_only_declared_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "output"
+    output.mkdir()
+    manifest = _manifest().model_copy(
+        update={
+            "isolation": "sandboxed",
+            "writable_path_arguments": ("project",),
+        }
+    )
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr("nimbledesk.adapters.runner.shutil.which", lambda _name: "/usr/bin/bwrap")
+
+    command = _sandboxed_worker_command(
+        ["python", "worker.py"],
+        manifest,
+        {"project": str(output)},
+        (tmp_path,),
+        tmp_path / "scratch",
+    )
+
+    assert command[0] == "/usr/bin/bwrap"
+    assert "--unshare-net" in command
+    bind_index = command.index(str(output))
+    assert command[bind_index - 1] == "--bind"
+    assert command[-3:] == ["--", "python", "worker.py"]
+
+
+def test_macos_sandbox_profile_limits_reads_and_network(tmp_path: Path) -> None:
+    granted = tmp_path / "granted"
+    writable = granted / "output"
+    scratch = tmp_path / "scratch"
+    profile = _macos_sandbox_profile((granted,), (writable,), scratch, False)
+
+    assert f'(subpath "{granted}")' in profile
+    assert f'(allow file-write* (subpath "{writable}"))' in profile
+    assert "(allow network*)" not in profile
+
+
+def test_manifest_rejects_undeclared_writable_path_argument() -> None:
+    with pytest.raises(ValidationError, match="must be declared path arguments"):
+        AdapterManifest(
+            adapter_id="nimbledesk.invalid",
+            version="1.0.0",
+            vendor="NimbleDesk",
+            entrypoint="nimbledesk.adapters.fixture:handle",
+            supported_platforms=frozenset({platform.system()}),
+            commands={"inspect": AdapterCommand(risk="observe", read_only=True)},
+            isolation="sandboxed",
+            writable_path_arguments=("output",),
         )
 
 

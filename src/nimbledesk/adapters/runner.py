@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -46,14 +47,43 @@ class IsolatedAdapterRunner:
         }
         environment["PYTHONNOUSERSITE"] = "1"
         payload = invocation.model_dump_json().encode("utf-8")
-        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        with (
+            tempfile.TemporaryDirectory(prefix="nimbledesk-adapter-") as scratch_name,
+            tempfile.TemporaryFile() as stdout_file,
+            tempfile.TemporaryFile() as stderr_file,
+        ):
+            scratch = Path(scratch_name)
+            environment.update(
+                {
+                    "HOME": str(scratch),
+                    "TMPDIR": str(scratch),
+                    "TEMP": str(scratch),
+                    "TMP": str(scratch),
+                    "XDG_CACHE_HOME": str(scratch / "cache"),
+                    "PYTHONPATH": os.pathsep.join(path for path in sys.path if path),
+                }
+            )
+            worker_command = [
+                str(Path(sys.executable).resolve()),
+                "-m",
+                "nimbledesk.adapters.worker",
+                manifest.entrypoint,
+            ]
+            if manifest.isolation == "sandboxed":
+                worker_command = _sandboxed_worker_command(
+                    worker_command,
+                    manifest,
+                    arguments,
+                    granted_paths,
+                    scratch,
+                )
             process = subprocess.Popen(
-                [sys.executable, "-m", "nimbledesk.adapters.worker", manifest.entrypoint],
+                worker_command,
                 stdin=subprocess.PIPE,
                 stdout=stdout_file,
                 stderr=stderr_file,
                 env=environment,
-                cwd=tempfile.gettempdir(),
+                cwd=scratch,
             )
             assert process.stdin is not None
             process.stdin.write(payload)
@@ -138,3 +168,99 @@ def _strict_adapter_result(payload: bytes) -> AdapterResult:
         raise
     except Exception as error:
         raise AdapterError("adapter returned an invalid response") from error
+
+
+def _sandboxed_worker_command(
+    worker_command: list[str],
+    manifest: AdapterManifest,
+    arguments: dict[str, object],
+    granted_paths: tuple[Path, ...],
+    scratch: Path,
+) -> list[str]:
+    current_platform = platform.system()
+    writable_paths = tuple(
+        _canonical_without_symlinks(
+            Path(str(arguments[name])), f"writable adapter path argument {name}"
+        )
+        for name in manifest.writable_path_arguments
+        if name in arguments
+    )
+    if current_platform == "Darwin":
+        sandbox = shutil.which("sandbox-exec")
+        if sandbox is None:
+            raise AdapterError("sandboxed adapters require sandbox-exec on macOS")
+        profile = scratch / "adapter.sb"
+        profile.write_text(
+            _macos_sandbox_profile(granted_paths, writable_paths, scratch, manifest.network_access),
+            encoding="utf-8",
+        )
+        return [sandbox, "-f", str(profile), *worker_command]
+    if current_platform == "Linux":
+        bubblewrap = shutil.which("bwrap")
+        if bubblewrap is None:
+            raise AdapterError("sandboxed adapters require bubblewrap on Linux")
+        command = [
+            bubblewrap,
+            "--die-with-parent",
+            "--new-session",
+            "--ro-bind",
+            "/",
+            "/",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--bind",
+            str(scratch),
+            str(scratch),
+        ]
+        if not manifest.network_access:
+            command.append("--unshare-net")
+        for path in writable_paths:
+            command.extend(("--bind", str(path), str(path)))
+        return [*command, "--", *worker_command]
+    raise AdapterError("sandboxed adapters are not available on this platform")
+
+
+def _macos_sandbox_profile(
+    granted_paths: tuple[Path, ...],
+    writable_paths: tuple[Path, ...],
+    scratch: Path,
+    network_access: bool,
+) -> str:
+    readable = {
+        Path("/System"),
+        Path("/usr"),
+        Path("/Library"),
+        Path("/private/etc"),
+        Path("/private/var/db/timezone"),
+        Path(sys.base_prefix),
+        Path(sys.prefix),
+        Path(__file__).resolve().parents[2],
+        scratch,
+        *(_canonical_without_symlinks(path, "granted path") for path in granted_paths),
+    }
+    lines = [
+        "(version 1)",
+        "(deny default)",
+        "(allow process*)",
+        "(allow sysctl-read)",
+        "(allow mach-lookup)",
+        "(allow ipc-posix-shm)",
+        '(allow file-read* (literal "/"))',
+    ]
+    lines.extend(
+        f'(allow file-read* file-map-executable (subpath "{_sandbox_path(path)}"))'
+        for path in readable
+    )
+    lines.append(f'(allow file-write* (subpath "{_sandbox_path(scratch)}"))')
+    lines.extend(
+        f'(allow file-write* (subpath "{_sandbox_path(path)}"))' for path in writable_paths
+    )
+    if network_access:
+        lines.append("(allow network*)")
+    return "\n".join(lines) + "\n"
+
+
+def _sandbox_path(path: Path) -> str:
+    return str(path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
