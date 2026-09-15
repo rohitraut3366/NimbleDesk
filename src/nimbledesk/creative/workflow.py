@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from nimbledesk.creative.davinci import DaVinciResult, connect_to_resolve, execute_in_davinci
 from nimbledesk.creative.fcpxml import export_fcpxml
 from nimbledesk.creative.gaming import detect_game_events, load_game_pack, write_events
 from nimbledesk.creative.models import CreativeBrief, EditPlan
@@ -28,6 +29,7 @@ class CreationResult(BaseModel):
     render_path: Path | None
     transcript_path: Path | None
     events_path: Path | None
+    davinci: DaVinciResult | None = None
     plan: EditPlan
 
 
@@ -47,6 +49,8 @@ class CreationWorkflow:
         language: str | None = None,
         music_catalog: Path | None = None,
         render: bool = True,
+        execute_davinci: bool = False,
+        render_in_davinci: bool = False,
     ) -> CreationResult:
         output_directory.mkdir(parents=True, exist_ok=True)
         events = list(load_events(supplied_events))
@@ -89,6 +93,15 @@ class CreationWorkflow:
         render_path = output_directory / "final.mp4" if render else None
         if render_path:
             render_edit_plan(plan, render_path)
+        davinci = None
+        if execute_davinci:
+            davinci = execute_in_davinci(
+                connect_to_resolve(),
+                plan,
+                timeline_path,
+                output_directory,
+                render=render_in_davinci,
+            )
         return CreationResult(
             output_directory=output_directory,
             plan_path=plan_path,
@@ -96,6 +109,7 @@ class CreationWorkflow:
             render_path=render_path,
             transcript_path=transcript_path,
             events_path=events_path,
+            davinci=davinci,
             plan=plan,
         )
 

@@ -43,6 +43,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--language")
     parser.add_argument("--music-catalog", type=Path, help="Licensed local music catalog JSON")
     parser.add_argument("--plan-only", action="store_true", help="Skip the final FFmpeg render")
+    parser.add_argument(
+        "--davinci",
+        action="store_true",
+        help="Import the generated timeline into a running DaVinci Resolve instance",
+    )
+    parser.add_argument(
+        "--davinci-render",
+        action="store_true",
+        help="Import and render the timeline in DaVinci Resolve",
+    )
     return parser.parse_args()
 
 
@@ -77,6 +87,8 @@ def main() -> None:
         language=arguments.language,
         music_catalog=arguments.music_catalog,
         render=not arguments.plan_only,
+        execute_davinci=arguments.davinci or arguments.davinci_render,
+        render_in_davinci=arguments.davinci_render,
     )
     print(
         json.dumps(
@@ -88,6 +100,7 @@ def main() -> None:
                 "events": str(result.events_path) if result.events_path else None,
                 "duration_seconds": result.plan.duration_seconds,
                 "review_items": [item.model_dump() for item in result.plan.review_items],
+                "davinci": result.davinci.model_dump(mode="json") if result.davinci else None,
             },
             indent=2,
         )
