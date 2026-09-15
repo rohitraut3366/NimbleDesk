@@ -172,6 +172,16 @@ class DesktopObservation(ProtocolModel):
     warnings: tuple[str, ...] = ()
 
 
+class ScreenCapture(ProtocolModel):
+    protocol_version: Literal["1.0.0"] = PROTOCOL_VERSION
+    observation_id: str
+    mime_type: Literal["image/png"] = "image/png"
+    width: Annotated[int, Field(gt=0)]
+    height: Annotated[int, Field(gt=0)]
+    sha256: str = Field(min_length=64, max_length=64)
+    data_base64: str
+
+
 class ActionRequest(ProtocolModel):
     protocol_version: Literal["1.0.0"] = PROTOCOL_VERSION
     action_id: str = Field(default_factory=lambda: str(uuid4()))

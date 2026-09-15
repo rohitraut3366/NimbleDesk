@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from nimbledesk.daemon.runtime import DesktopRuntime
-from nimbledesk.protocol.models import ActionRequest, SessionConfig, SessionState
+from nimbledesk.protocol.models import ActionRequest, Rectangle, SessionConfig, SessionState
 from nimbledesk.protocol.rpc import ConnectionInfo, RequestAuthenticator, RpcRequest, RpcResponse
 
 MAXIMUM_REQUEST_BYTES = 1_048_576
@@ -77,6 +77,15 @@ class DaemonTransport:
         if method == "desktop_observe":
             observation = self._runtime.observe(str(params["session_id"]))
             return observation.model_dump(mode="json")
+        if method == "screen_capture":
+            region_data = params.get("region")
+            region = Rectangle.model_validate(region_data) if region_data else None
+            capture = self._runtime.capture(
+                str(params["session_id"]),
+                str(params["observation_id"]),
+                region,
+            )
+            return capture.model_dump(mode="json")
         if method == "action_execute":
             result = self._runtime.execute(ActionRequest.model_validate(params["action"]))
             return result.model_dump(mode="json")

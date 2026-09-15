@@ -55,9 +55,17 @@ async def test_client_reaches_runtime_through_authenticated_transport() -> None:
             {"reason": "transport test", "config": {"input_enabled": False}},
         )
         observation = await client.call("desktop_observe", {"session_id": session["session_id"]})
+        capture = await client.call(
+            "screen_capture",
+            {
+                "session_id": session["session_id"],
+                "observation_id": observation["observation_id"],
+            },
+        )
 
     assert health == {"status": "ok"}
     assert observation["platform"] == "simulator"
+    assert capture["mime_type"] == "image/png"
 
 
 @pytest.mark.asyncio

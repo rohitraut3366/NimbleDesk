@@ -14,6 +14,8 @@ from nimbledesk.protocol.models import (
     ActionStatus,
     DesktopObservation,
     PolicyDecision,
+    Rectangle,
+    ScreenCapture,
     Session,
     SessionConfig,
     SessionState,
@@ -55,6 +57,22 @@ class DesktopRuntime:
 
     def approve(self, approval_id: str) -> str:
         return self._approvals.approve(approval_id)
+
+    def capture(
+        self,
+        session_id: str,
+        observation_id: str,
+        region: Rectangle | None = None,
+    ) -> ScreenCapture:
+        session = self._sessions.get(session_id)
+        if session.state is SessionState.STOPPED:
+            raise SessionError("session is stopped")
+        observation = self._observations.get(session_id)
+        if observation is None or observation.observation_id != observation_id:
+            raise ValueError("capture requires the latest observation")
+        if time() >= observation.expires_at:
+            raise ValueError("observation has expired")
+        return self._backend.capture(observation_id, region)
 
     def execute(self, action: ActionRequest) -> ActionResult:
         started_at = time()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from nimbledesk.protocol.models import (
@@ -18,9 +19,18 @@ class PolicyOutcome:
 
 
 class ActionPolicy:
+    def __init__(self, host_input_enabled: bool | None = None) -> None:
+        self._host_input_enabled = (
+            _environment_flag("NIMBLEDESK_ENABLE_INPUT")
+            if host_input_enabled is None
+            else host_input_enabled
+        )
+
     def evaluate(self, session: Session, action: ActionRequest, approved: bool) -> PolicyOutcome:
         if session.state is not SessionState.ACTIVE:
             return PolicyOutcome(PolicyDecision.DENY, f"session is {session.state}")
+        if action.kind is not ActionKind.WAIT and not self._host_input_enabled:
+            return PolicyOutcome(PolicyDecision.DENY, "desktop input is disabled by the host")
         if action.kind is not ActionKind.WAIT and not session.config.input_enabled:
             return PolicyOutcome(PolicyDecision.DENY, "desktop input is disabled for this session")
         if (
@@ -38,3 +48,7 @@ class ActionPolicy:
                 "application command requires exact-action approval",
             )
         return PolicyOutcome(PolicyDecision.ALLOW, "action allowed")
+
+
+def _environment_flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}

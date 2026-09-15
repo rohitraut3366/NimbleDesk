@@ -24,7 +24,7 @@ def make_runtime(audit_path: Path | None = None) -> tuple[DesktopRuntime, Simula
         DesktopRuntime(
             backend=backend,
             sessions=SessionManager(),
-            policy=ActionPolicy(),
+            policy=ActionPolicy(host_input_enabled=True),
             approvals=ApprovalManager(),
             audit=AuditLog(audit_path),
         ),

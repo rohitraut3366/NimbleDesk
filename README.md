@@ -1,100 +1,84 @@
 # NimbleDesk
 
-A local, cross-platform platform that lets a tool-capable AI understand and operate desktop applications. The current scaffold exposes screen capture, cursor position, mouse movement and clicks, scrolling, typing, key presses, and hotkeys through MCP. The final architecture is documented in `PLAN.md`.
+NimbleDesk is a local, model-agnostic runtime for AI agents that understand and operate desktop applications. The product architecture covers native macOS, Windows, and Linux automation, semantic UI inspection, media intelligence, creative planning, application adapters, approvals, and auditable execution.
 
-Supported platforms:
+The current implementation establishes the secure runtime foundation:
 
-- macOS
-- Windows 10 and 11
-- Linux desktops using X11
+- Strict, versioned protocol models and target types.
+- Separate privileged daemon and unprivileged MCP gateway.
+- HMAC-authenticated, replay-protected loopback RPC.
+- Bounded sessions with host and session input gates.
+- Fresh-observation and active-window preconditions.
+- Exact-action, expiring, single-use approvals.
+- Hash-chained audit events with sensitive argument redaction.
+- Deterministic simulator backend.
+- Explicitly selected portable PyAutoGUI fallback for screenshots and input.
 
-Wayland intentionally restricts global screen and input access. Some Wayland environments can run the server through XWayland, but full native Wayland support will require a portal or compositor-specific backend.
+See [PLAN.md](PLAN.md) for the full end-to-end architecture and implementation gates.
 
-The server starts with input disabled. Screenshots and screen metadata still work, but mouse and keyboard actions require `LAPTOP_CONTROL_ENABLE_INPUT=1`. PyAutoGUI's corner fail-safe is also enabled: moving the pointer to a screen corner stops automation.
+## Development
 
-## Install
-
-Python 3.11 or newer is required.
-
-```bash
-cd laptop-control-mcp
-python3 -m venv .venv
-.venv/bin/pip install -e .
-```
-
-### macOS permissions
-
-Grant the terminal or AI client these permissions in **System Settings → Privacy & Security**:
-
-- **Screen & System Audio Recording** for screenshots
-- **Accessibility** for mouse and keyboard control
-
-Restart the client after changing permissions.
-
-### Windows permissions
-
-No additional permission is normally required. Run the AI client at the same privilege level as the apps it controls. Windows prevents a normal process from controlling an administrator-elevated app.
-
-### Linux setup
-
-Use an X11 desktop session and install the screenshot helper supplied by your distribution. For example:
+Python 3.12 and [uv](https://docs.astral.sh/uv/) are required.
 
 ```bash
-# Ubuntu or Debian
-sudo apt install python3-tk python3-dev scrot
+uv sync --extra dev
+uv run --extra dev pytest
+uv run --extra dev mypy
+uv run --extra dev ruff check .
 ```
 
-Check `echo $XDG_SESSION_TYPE`; `x11` is supported by this first version. On Wayland, switch to an X11 login session until a native backend is added.
+## Run safely with the simulator
 
-## Connect an AI client
+The daemon uses the simulator by default. It cannot control the real desktop.
 
-Add a local MCP server to the client's configuration. Use the full paths on your machine:
+```bash
+NIMBLEDESK_RUNTIME_DIR=/tmp/nimbledesk-runtime uv run nimbledesk-daemon
+```
+
+Configure an MCP client in a second process:
 
 ```json
 {
   "mcpServers": {
-    "laptop-control": {
-      "command": "/absolute/path/laptop-control-mcp/.venv/bin/laptop-control-mcp",
+    "nimbledesk": {
+      "command": "/absolute/path/NimbleDesk/.venv/bin/nimbledesk-mcp",
       "env": {
-        "LAPTOP_CONTROL_ENABLE_INPUT": "1"
+        "NIMBLEDESK_CONNECTION_FILE": "/tmp/nimbledesk-runtime/connection.json"
       }
     }
   }
 }
 ```
 
-Leave out the `env` entry for a read-only setup that can only inspect the display.
+Implemented MCP tools are `health`, `session_start`, `desktop_observe`, `take_screenshot`, `click`, `session_pause`, and `session_stop`.
 
-An effective model instruction is:
+## Enable the portable desktop backend
 
-> Use the laptop-control tools to complete the task. Take a screenshot before each action, use screen coordinates from the latest screenshot, make one state-changing action at a time, then take another screenshot to verify the result. Ask me before submitting forms, sending messages, purchasing, deleting data, or entering credentials.
-
-## Available tools
-
-| Tool | Purpose |
-| --- | --- |
-| `platform_info` | Report the operating system, input mode, and Linux session type |
-| `take_screenshot` | Capture the full display or a cropped region |
-| `screen_size` | Get display dimensions |
-| `cursor_position` | Get the current pointer position |
-| `move_mouse` | Move to an absolute coordinate |
-| `click` | Left, middle, or right click |
-| `scroll` | Scroll up or down |
-| `type_text` | Type into the focused control |
-| `press_key` | Press a named key one or more times |
-| `hotkey` | Press a key combination |
-| `wait` | Let the interface settle before inspecting it again |
-
-## Safety boundaries
-
-- Input is opt-in through an environment variable.
-- Coordinates and action sizes are bounded and validated.
-- Every PyAutoGUI action pauses briefly.
-- Moving the pointer to any corner triggers PyAutoGUI's emergency stop.
-- The server does not expose a shell, filesystem, clipboard, or network access.
-
-Run the tests with:
+Real desktop input is disabled unless the human starts the daemon with both the portable backend and host input authority:
 
 ```bash
-.venv/bin/pytest
+NIMBLEDESK_BACKEND=portable \
+NIMBLEDESK_ENABLE_INPUT=1 \
+NIMBLEDESK_RUNTIME_DIR=/tmp/nimbledesk-runtime \
+uv run nimbledesk-daemon
 ```
+
+The MCP caller must also request an input-enabled session. A caller cannot override a disabled host gate.
+
+PyAutoGUI's corner fail-safe is enabled. Moving the pointer to a screen corner interrupts automation. Pausing or stopping a session releases common modifier keys and all mouse buttons.
+
+### macOS permissions
+
+Grant the daemon's terminal or packaged application **Screen & System Audio Recording** and **Accessibility** in **System Settings → Privacy & Security**.
+
+### Windows permissions
+
+No additional permission is normally required. Windows prevents a normal process from controlling an administrator-elevated application.
+
+### Linux permissions
+
+The portable backend initially supports X11. Native PipeWire, RemoteDesktop portal, and AT-SPI providers are planned for Wayland.
+
+## Security boundary
+
+The MCP gateway has no backend imports and no direct desktop authority. The daemon validates all requests and binds only to `127.0.0.1`. Its generated connection file contains a per-run secret and is written with user-only permissions. The simulator remains the default backend so running development commands cannot accidentally move the pointer or type.
