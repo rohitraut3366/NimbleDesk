@@ -55,6 +55,21 @@ Use this only in a dedicated test desktop with no sensitive dialog active. The t
 
 A purpose-built fixture application must show buttons, text fields, scroll containers, menus, dialogs, drag targets, multiple windows, password fields, and a machine-readable event log. The same black-box suite runs against native macOS, Windows, Linux X11, and Linux Wayland backends.
 
+NimbleDesk ships that fixture. Start it in the dedicated desktop session before starting the native
+daemon:
+
+```bash
+uv run nimbledesk-fixture \
+  --state evidence/fixture-state.json \
+  --events evidence/fixture-events.jsonl
+```
+
+The window exposes a named counter button, public text field, password field, checkbox, 100-item
+scroll list, modal dialog, and drag canvas. `fixture-state.json` is replaced atomically after every
+recognized operation, while `fixture-events.jsonl` records timestamped state transitions. Password
+content is never written; only its length is recorded. Use these files as the postcondition oracle
+instead of treating a successful input API return as proof that the UI changed.
+
 The matrix covers mixed display scaling, multiple monitors, negative virtual coordinates, rotation, different keyboard layouts, focus changes, permission denial/revocation, sleep/wake, app crashes, and emergency cancellation. Dedicated machines are required because virtual CI does not accurately reproduce every capture and accessibility API.
 
 For a Wayland fixture run, install the desktop's XDG portal backend and GStreamer PipeWire plugin, set `NIMBLEDESK_BACKEND=native`, and keep `XDG_SESSION_TYPE=wayland`. The first observation must show the compositor-owned monitor and remote-control consent dialog. Test capture on every selected stream, absolute motion on monitors with positive and negative origins, buttons, smooth drag, continuous scroll, Unicode text, hotkeys, consent denial, session revocation, and emergency release. The backend must report denied permissions without advertising capture or input when the user cancels sharing.

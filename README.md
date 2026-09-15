@@ -678,6 +678,16 @@ uv run nimbledesk-smoke \
 
 See [docs/TESTING.md](docs/TESTING.md) for the complete simulator, OS backend, real-application, media-quality, and release test strategy.
 
+For physical native-backend qualification, launch the included cross-platform fixture application.
+It exposes known accessible controls, scrolling, a modal dialog, a password field, and a drag target,
+then records machine-readable postconditions without storing the password value:
+
+```bash
+uv run nimbledesk-fixture \
+  --state evidence/fixture-state.json \
+  --events evidence/fixture-events.jsonl
+```
+
 Measure event recognition against a labeled corpus with the release qualification command:
 
 ```bash

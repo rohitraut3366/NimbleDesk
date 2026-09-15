@@ -50,6 +50,7 @@ nimbledesk-revise = "nimbledesk.creative.revision_cli:main"
 nimbledesk-approve = "nimbledesk.daemon.approval_cli:main"
 nimbledesk-diagnostics = "nimbledesk.diagnostics:main"
 nimbledesk-qualify = "nimbledesk.testing.qualification:main"
+nimbledesk-fixture = "nimbledesk.testing.fixture_app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nimbledesk"]

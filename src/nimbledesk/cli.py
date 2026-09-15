@@ -19,6 +19,7 @@ from nimbledesk.gateway.server import main as gateway_main
 from nimbledesk.media.cli import main as highlights_main
 from nimbledesk.media.photo_cli import main as photos_main
 from nimbledesk.service import main as service_main
+from nimbledesk.testing.fixture_app import main as fixture_main
 from nimbledesk.testing.qualification import main as qualification_main
 from nimbledesk.testing.smoke import main as smoke_main
 from nimbledesk.ui.server import main as studio_main
@@ -39,6 +40,7 @@ COMMANDS: dict[str, Callable[[], None]] = {
     "service": service_main,
     "diagnostics": diagnostics_main,
     "qualify": qualification_main,
+    "fixture": fixture_main,
     "update": update_main,
 }
 
