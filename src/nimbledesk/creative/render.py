@@ -22,7 +22,6 @@ def render_edit_plan(
     command = ["ffmpeg", "-y", "-v", "error", "-i", str(plan.source_path)]
     next_input = 1
     filters: list[str] = []
-    concat_inputs: list[str] = []
     for index, segment in enumerate(plan.segments):
         source = segment.source_range
         rate = segment.speed.rate
@@ -129,11 +128,7 @@ def render_edit_plan(
                 f"atrim=duration={segment.timeline_duration_seconds:.3f}[a{index}]"
             )
         filters.append(audio_filter)
-        concat_inputs.append(f"[v{index}][a{index}]")
-    filters.append(
-        "".join(concat_inputs)
-        + f"concat=n={len(plan.segments)}:v=1:a=1[vbase][abase]"
-    )
+    _compile_timeline(plan, filters)
 
     video_output = "[vbase]"
     if plan.captions:
@@ -227,6 +222,39 @@ def write_srt(cues: tuple[CaptionCue, ...], output_path: Path) -> None:
         for index, cue in enumerate(cues, start=1)
     ]
     output_path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
+
+
+def _compile_timeline(plan: EditPlan, filters: list[str]) -> None:
+    video_label = "v0"
+    audio_label = "a0"
+    compiled_duration = plan.segments[0].timeline_duration_seconds
+    for index, segment in enumerate(plan.segments[1:], start=1):
+        next_video = f"v{index}"
+        next_audio = f"a{index}"
+        output_video = f"vchain{index}"
+        output_audio = f"achain{index}"
+        if segment.visual.transition_in == "cross_dissolve":
+            duration = segment.visual.transition_duration_seconds
+            offset = compiled_duration - duration
+            filters.append(
+                f"[{video_label}][{next_video}]xfade=transition=fade:"
+                f"duration={duration:.3f}:offset={offset:.3f}[{output_video}]"
+            )
+            filters.append(
+                f"[{audio_label}][{next_audio}]acrossfade=d={duration:.3f}:"
+                f"c1=tri:c2=tri[{output_audio}]"
+            )
+            compiled_duration += segment.timeline_duration_seconds - duration
+        else:
+            filters.append(
+                f"[{video_label}][{audio_label}][{next_video}][{next_audio}]"
+                f"concat=n=2:v=1:a=1[{output_video}][{output_audio}]"
+            )
+            compiled_duration += segment.timeline_duration_seconds
+        video_label = output_video
+        audio_label = output_audio
+    filters.append(f"[{video_label}]null[vbase]")
+    filters.append(f"[{audio_label}]anull[abase]")
 
 
 def _subtitle_filter(subtitle_path: Path, frame_height: int) -> str:

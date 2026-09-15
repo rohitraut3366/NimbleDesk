@@ -107,6 +107,7 @@ class SpeedTreatment(CreativeModel):
 
 class VisualTreatment(CreativeModel):
     transition_in: Literal["cut", "cross_dissolve", "dip_to_black"] = "cut"
+    transition_duration_seconds: Annotated[float, Field(ge=0.1, le=2)] = 0.35
     punch_in_scale: Annotated[float, Field(ge=1, le=2)] = 1
     color_look: str = "natural_contrast"
     exposure_adjustment_stops: Annotated[float, Field(ge=-2, le=2)] = 0

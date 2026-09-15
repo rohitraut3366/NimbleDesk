@@ -104,34 +104,53 @@ def _fit_duration(segments: tuple[EditSegment, ...], target: float) -> tuple[Edi
         locked_after = sum(
             item.timeline_duration_seconds for item in segments[index + 1 :] if item.locked
         )
+        overlap = (
+            segment.visual.transition_duration_seconds
+            if selected and segment.visual.transition_in == "cross_dissolve"
+            else 0
+        )
         available = target - cursor - locked_after
+        timeline_contribution = segment.timeline_duration_seconds - overlap
         if segment.locked:
             selected.append(segment)
-            cursor += segment.timeline_duration_seconds
+            cursor += timeline_contribution
             continue
         if available < 0.5:
             continue
-        if segment.timeline_duration_seconds <= available:
+        if timeline_contribution <= available:
             selected.append(segment)
-            cursor += segment.timeline_duration_seconds
+            cursor += timeline_contribution
             continue
-        source_duration = available * segment.speed.rate
+        source_duration = (available + overlap) * segment.speed.rate
         trimmed_range = segment.source_range.model_copy(
             update={"end_seconds": segment.source_range.start_seconds + source_duration}
         )
         trimmed = segment.model_copy(update={"source_range": trimmed_range})
         selected.append(trimmed)
-        cursor += trimmed.timeline_duration_seconds
+        cursor += trimmed.timeline_duration_seconds - overlap
     return tuple(selected)
 
 
 def _reflow(segments: tuple[EditSegment, ...]) -> tuple[EditSegment, ...]:
     result: list[EditSegment] = []
     cursor = 0.0
-    for segment in segments:
-        updated = segment.model_copy(update={"timeline_start_seconds": round(cursor, 3)})
+    for index, segment in enumerate(segments):
+        if index == 0 and segment.visual.transition_in == "cross_dissolve":
+            segment = segment.model_copy(
+                update={
+                    "visual": segment.visual.model_copy(update={"transition_in": "cut"})
+                }
+            )
+        overlap = (
+            segment.visual.transition_duration_seconds
+            if segment.visual.transition_in == "cross_dissolve"
+            else 0
+        )
+        updated = segment.model_copy(
+            update={"timeline_start_seconds": round(cursor - overlap, 3)}
+        )
         result.append(updated)
-        cursor += updated.timeline_duration_seconds
+        cursor = updated.timeline_start_seconds + updated.timeline_duration_seconds
     return tuple(result)
 
 

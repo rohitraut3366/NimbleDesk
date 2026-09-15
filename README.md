@@ -69,7 +69,7 @@ uv sync --extra dev --extra native
 
 ## Create a finished video
 
-The creation workflow is the main end-to-end entry point. It analyzes the source, incorporates supplied or automatically detected semantic events, transcribes dialogue when requested, ranks moments, creates a reviewable edit plan, selects licensed music, renders a finished review MP4 with readable burned captions, retains an editable SRT sidecar, and exports a DaVinci Resolve timeline.
+The creation workflow is the main end-to-end entry point. It analyzes the source, incorporates supplied or automatically detected semantic events, transcribes dialogue when requested, ranks moments, creates a reviewable edit plan, selects licensed music, renders a finished review MP4 with readable burned captions, retains an editable SRT sidecar, and exports a DaVinci Resolve timeline. Planned cross-dissolves compile as synchronized video and constant-power audio overlaps instead of being approximated as cuts.
 
 ```bash
 uv run nimbledesk-create gameplay.mp4 output/my-video \

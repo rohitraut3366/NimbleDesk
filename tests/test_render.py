@@ -17,6 +17,7 @@ from nimbledesk.creative.models import (
     TimeRange,
     VisualTreatment,
 )
+from nimbledesk.media.ffmpeg import probe_media
 from nimbledesk.media.models import MediaMetadata
 
 
@@ -181,6 +182,53 @@ def test_ffmpeg_renders_burned_captions_when_libass_is_available(tmp_path: Path)
     assert output.with_suffix(".srt").is_file()
 
 
+def test_timeline_compiler_builds_video_and_audio_cross_dissolve(tmp_path: Path) -> None:
+    plan = _two_segment_cross_dissolve_plan(tmp_path / "source.mp4")
+    filters: list[str] = []
+
+    renderer._compile_timeline(plan, filters)
+
+    graph = ";".join(filters)
+    assert "xfade=transition=fade:duration=0.350:offset=1.650" in graph
+    assert "acrossfade=d=0.350:c1=tri:c2=tri" in graph
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_ffmpeg_renders_cross_dissolve_with_expected_duration(tmp_path: Path) -> None:
+    filters = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-filters"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if not any("xfade" in line.split()[:2] for line in filters.splitlines()):
+        pytest.skip("ffmpeg was built without the xfade filter")
+    source = tmp_path / "source.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=640x360:rate=24:duration=4",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        check=True,
+    )
+    output = tmp_path / "cross-dissolve.mp4"
+
+    renderer.render_edit_plan(_two_segment_cross_dissolve_plan(source), output)
+
+    assert probe_media(output).duration_seconds == pytest.approx(3.65, abs=0.1)
+
+
 def _single_segment_plan(
     source: Path, captions: tuple[CaptionCue, ...] = ()
 ) -> EditPlan:
@@ -203,3 +251,19 @@ def _single_segment_plan(
         captions=captions,
         delivery=DeliverySpec(width=640, height=360, frame_rate=24),
     )
+
+
+def _two_segment_cross_dissolve_plan(source: Path) -> EditPlan:
+    first = _single_segment_plan(source).segments[0]
+    second = first.model_copy(
+        update={
+            "segment_id": "segment-002",
+            "role": "payoff",
+            "source_range": TimeRange(start_seconds=2, end_seconds=4),
+            "timeline_start_seconds": 1.65,
+            "visual": first.visual.model_copy(
+                update={"transition_in": "cross_dissolve"}
+            ),
+        }
+    )
+    return _single_segment_plan(source).model_copy(update={"segments": (first, second)})

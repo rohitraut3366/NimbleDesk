@@ -41,11 +41,17 @@ def validate_edit_plan(plan: EditPlan, source: MediaMetadata) -> PlanValidationR
                     segment.segment_id,
                 )
             )
-        if abs(segment.timeline_start_seconds - timeline_cursor) > 0.02:
+        transition_overlap = (
+            segment.visual.transition_duration_seconds
+            if segment.visual.transition_in == "cross_dissolve"
+            else 0
+        )
+        expected_start = max(0, timeline_cursor - transition_overlap)
+        if abs(segment.timeline_start_seconds - expected_start) > 0.02:
             issues.append(
                 _issue(
                     "timeline_gap_or_overlap",
-                    "Timeline segments must be contiguous and non-overlapping",
+                    "Timeline segment placement must match its incoming transition",
                     segment.segment_id,
                 )
             )
@@ -58,11 +64,19 @@ def validate_edit_plan(plan: EditPlan, source: MediaMetadata) -> PlanValidationR
                     segment_id=segment.segment_id,
                 )
             )
-        if segment.visual.transition_in == "cross_dissolve":
+        if transition_overlap and segment is plan.segments[0]:
             issues.append(
                 _issue(
-                    "unsupported_transition",
-                    "Cross-dissolve timing is not yet supported by the render compiler",
+                    "invalid_transition",
+                    "The first segment cannot have an incoming cross-dissolve",
+                    segment.segment_id,
+                )
+            )
+        if transition_overlap >= segment.timeline_duration_seconds:
+            issues.append(
+                _issue(
+                    "invalid_transition",
+                    "Cross-dissolve duration must be shorter than the incoming segment",
                     segment.segment_id,
                 )
             )

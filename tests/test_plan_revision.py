@@ -72,6 +72,50 @@ def test_validation_rejects_source_overrun_and_timeline_gap(tmp_path: Path) -> N
     }
 
 
+def test_validation_accepts_cross_dissolve_overlap(tmp_path: Path) -> None:
+    plan = _plan(tmp_path)
+    second = plan.segments[1].model_copy(
+        update={
+            "timeline_start_seconds": 9.65,
+            "visual": plan.segments[1].visual.model_copy(
+                update={"transition_in": "cross_dissolve"}
+            ),
+        }
+    )
+    third = plan.segments[2].model_copy(update={"timeline_start_seconds": 19.65})
+    plan = plan.model_copy(update={"segments": (plan.segments[0], second, third)})
+
+    report = validate_edit_plan(plan, _metadata(tmp_path))
+
+    assert report.valid
+    assert report.measured_duration_seconds == 29.65
+
+
+def test_revision_preserves_and_reflows_cross_dissolve(tmp_path: Path) -> None:
+    plan = _plan(tmp_path)
+    second = plan.segments[1].model_copy(
+        update={
+            "timeline_start_seconds": 9.65,
+            "visual": plan.segments[1].visual.model_copy(
+                update={"transition_in": "cross_dissolve"}
+            ),
+        }
+    )
+    third = plan.segments[2].model_copy(update={"timeline_start_seconds": 19.65})
+    plan = plan.model_copy(update={"segments": (plan.segments[0], second, third)})
+
+    revision = revise_edit_plan(
+        plan,
+        PlanRevisionRequest(target_duration_seconds=25),
+    )
+
+    assert revision.plan.segments[1].timeline_start_seconds == 9.65
+    assert revision.plan.segments[1].visual.transition_in == "cross_dissolve"
+    assert revision.plan.segments[2].timeline_start_seconds == 19.65
+    assert revision.plan.duration_seconds == 25
+    assert validate_edit_plan(revision.plan, _metadata(tmp_path)).valid
+
+
 def test_revision_remaps_sound_cue_with_its_segment(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     sound_path = tmp_path / "impact.wav"
