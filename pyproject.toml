@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "mcp[cli]>=1.6,<2",
+  "numpy>=2,<3",
   "pillow>=10,<12",
   "pydantic>=2.11,<3",
   "pyautogui>=0.9.54,<1",
@@ -27,6 +28,7 @@ dev = [
 nimbledesk-mcp = "nimbledesk.gateway.server:main"
 nimbledesk-daemon = "nimbledesk.daemon.server:main"
 nimbledesk-smoke = "nimbledesk.testing.smoke:main"
+nimbledesk-highlights = "nimbledesk.media.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nimbledesk"]

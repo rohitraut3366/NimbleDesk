@@ -2,6 +2,33 @@
 
 NimbleDesk is a local, model-agnostic runtime for AI agents that understand and operate desktop applications. The product architecture covers native macOS, Windows, and Linux automation, semantic UI inspection, media intelligence, creative planning, application adapters, approvals, and auditable execution.
 
+## Generate highlight clips
+
+NimbleDesk can analyze a long video using motion and audio energy, combine that evidence with optional game/replay timeline events, rank separated moments, render clips, validate every output with FFprobe, and write an editable JSON manifest.
+
+```bash
+uv run nimbledesk-highlights gameplay.mp4 output/highlights \
+  --count 10 \
+  --lead-in 8 \
+  --aftermath 12 \
+  --minimum-separation 20
+```
+
+For reliable game-specific events, pass a JSON event list exported by a game integration, replay parser, or manual markers:
+
+```json
+[
+  {
+    "time_seconds": 125.4,
+    "event_type": "grenade_kill",
+    "label": "Triple grenade kill",
+    "importance": 1.0
+  }
+]
+```
+
+Use it with `--events events.json`. Without events, the current generic detector finds audiovisual activity peaks. Game-specific HUD/OCR and semantic detectors remain part of the next media-intelligence stages.
+
 The current implementation establishes the secure runtime foundation:
 
 - Strict, versioned protocol models and target types.
