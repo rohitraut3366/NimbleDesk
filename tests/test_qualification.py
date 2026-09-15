@@ -23,7 +23,13 @@ def test_event_benchmark_measures_per_type_accuracy_and_boundary_error() -> None
         TimelineEvent(time_seconds=80, event_type="kill"),
     )
 
-    report = qualification.benchmark_events(expected, detected, tolerance_seconds=3)
+    report = qualification.benchmark_events(
+        expected,
+        detected,
+        tolerance_seconds=3,
+        corpus_id="ranked-fps-session-01",
+        source_duration_seconds=7_200,
+    )
 
     assert report.matched == 2
     assert report.precision == 0.666667
@@ -33,6 +39,8 @@ def test_event_benchmark_measures_per_type_accuracy_and_boundary_error() -> None
     assert report.event_types["clutch"].f1 == 1
     assert report.missed[0].time_seconds == 50
     assert report.false_positives[0].time_seconds == 80
+    assert report.corpus_id == "ranked-fps-session-01"
+    assert report.source_duration_seconds == 7_200
 
 
 def test_event_benchmark_handles_empty_corpus() -> None:
@@ -91,7 +99,14 @@ def test_ranking_benchmark_measures_order_diversity_and_context() -> None:
         ),
     )
 
-    report = qualification.benchmark_ranking(expected, detected, cutoff=3, tolerance_seconds=3)
+    report = qualification.benchmark_ranking(
+        expected,
+        detected,
+        cutoff=3,
+        tolerance_seconds=3,
+        corpus_id="ranked-fps-session-01",
+        source_duration_seconds=7_200,
+    )
 
     assert report.precision_at_k == 0.666667
     assert report.recall_at_k == 0.666667
@@ -100,6 +115,7 @@ def test_ranking_benchmark_measures_order_diversity_and_context() -> None:
     assert report.event_type_coverage == 0.666667
     assert report.context_retention == 0
     assert report.missed_moment_ids == ("kill-1",)
+    assert report.corpus_id == "ranked-fps-session-01"
 
 
 @pytest.mark.asyncio

@@ -712,6 +712,8 @@ uv run nimbledesk-smoke \
 ```
 
 See [docs/TESTING.md](docs/TESTING.md) for the complete simulator, OS backend, real-application, media-quality, and release test strategy.
+The exact operating-system, desktop, DaVinci Resolve, and corpus qualification matrix is declared
+in [docs/SUPPORT.md](docs/SUPPORT.md).
 
 For physical native-backend qualification, launch the included cross-platform fixture application.
 It exposes known accessible controls, scrolling, a modal dialog, a password field, and a drag target,

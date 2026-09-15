@@ -38,6 +38,8 @@ class EventMatch(QualificationModel):
 
 class EventBenchmarkReport(QualificationModel):
     report_version: str = "1.0.0"
+    corpus_id: str | None = None
+    source_duration_seconds: Annotated[float, Field(gt=0)] | None = None
     tolerance_seconds: Annotated[float, Field(gt=0)]
     expected: Annotated[int, Field(ge=0)]
     detected: Annotated[int, Field(ge=0)]
@@ -73,6 +75,8 @@ class RankingMatch(QualificationModel):
 
 class RankingBenchmarkReport(QualificationModel):
     report_version: str = "1.0.0"
+    corpus_id: str | None = None
+    source_duration_seconds: Annotated[float, Field(gt=0)] | None = None
     cutoff: Annotated[int, Field(ge=1)]
     tolerance_seconds: Annotated[float, Field(gt=0)]
     expected_relevant: Annotated[int, Field(ge=0)]
@@ -109,6 +113,9 @@ def benchmark_events(
     expected: tuple[TimelineEvent, ...],
     detected: tuple[TimelineEvent, ...],
     tolerance_seconds: float,
+    *,
+    corpus_id: str | None = None,
+    source_duration_seconds: float | None = None,
 ) -> EventBenchmarkReport:
     if tolerance_seconds <= 0:
         raise ValueError("event matching tolerance must be positive")
@@ -145,6 +152,8 @@ def benchmark_events(
     precision, recall, f1 = _rates(len(matches), len(expected), len(detected))
     errors = [match.boundary_error_seconds for match in matches]
     return EventBenchmarkReport(
+        corpus_id=corpus_id,
+        source_duration_seconds=source_duration_seconds,
         tolerance_seconds=tolerance_seconds,
         expected=len(expected),
         detected=len(detected),
@@ -166,6 +175,9 @@ def benchmark_ranking(
     detected: tuple[HighlightCandidate, ...],
     cutoff: int,
     tolerance_seconds: float,
+    *,
+    corpus_id: str | None = None,
+    source_duration_seconds: float | None = None,
 ) -> RankingBenchmarkReport:
     if cutoff < 1 or tolerance_seconds <= 0:
         raise ValueError("ranking cutoff and matching tolerance must be positive")
@@ -214,6 +226,8 @@ def benchmark_ranking(
         match.context_retained for match in matches if match.context_retained is not None
     ]
     return RankingBenchmarkReport(
+        corpus_id=corpus_id,
+        source_duration_seconds=source_duration_seconds,
         cutoff=cutoff,
         tolerance_seconds=tolerance_seconds,
         expected_relevant=len(expected),
@@ -406,6 +420,8 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     events.add_argument("--expected", required=True, type=Path)
     events.add_argument("--detected", required=True, type=Path)
     events.add_argument("--tolerance-seconds", type=float, default=3)
+    events.add_argument("--corpus-id")
+    events.add_argument("--source-duration-seconds", type=float)
     events.add_argument("--output", type=Path)
     ranking = commands.add_parser(
         "ranking", help="measure highlight ranking, diversity, and context retention"
@@ -414,6 +430,8 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     ranking.add_argument("--detected", required=True, type=Path)
     ranking.add_argument("--cutoff", type=int, default=10)
     ranking.add_argument("--tolerance-seconds", type=float, default=5)
+    ranking.add_argument("--corpus-id")
+    ranking.add_argument("--source-duration-seconds", type=float)
     ranking.add_argument("--output", type=Path)
     endurance = commands.add_parser("endurance", help="exercise a running daemon over time")
     endurance.add_argument("--connection-file", required=True, type=Path)
@@ -433,6 +451,8 @@ def main(arguments: list[str] | None = None) -> None:
             _load_events(parsed.expected),
             _load_events(parsed.detected),
             parsed.tolerance_seconds,
+            corpus_id=parsed.corpus_id,
+            source_duration_seconds=parsed.source_duration_seconds,
         )
     elif parsed.command == "ranking":
         report = benchmark_ranking(
@@ -440,6 +460,8 @@ def main(arguments: list[str] | None = None) -> None:
             _load_candidates(parsed.detected),
             parsed.cutoff,
             parsed.tolerance_seconds,
+            corpus_id=parsed.corpus_id,
+            source_duration_seconds=parsed.source_duration_seconds,
         )
     else:
         report = asyncio.run(

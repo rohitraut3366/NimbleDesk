@@ -114,6 +114,9 @@ Physical fixture reports record the operating-system release, desktop environmen
 backend, capabilities, and permission state. DaVinci reports record the operating-system release
 and the Resolve version returned by its scripting API. Keep these fields in sanitized release
 evidence so a passing result cannot be mistaken for qualification of a different target version.
+Use the target IDs and minimum corpus mix declared in [SUPPORT.md](SUPPORT.md). Pass
+`--corpus-id` and `--source-duration-seconds` to both `nimbledesk qualify events` and
+`nimbledesk qualify ranking`; the identifiers must match for reports derived from the same source.
 
 ## 5. Media intelligence and creative quality
 
