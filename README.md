@@ -16,6 +16,7 @@ The current release combines portable PyAutoGUI capture/input with native semant
 - Automatic game-event recognition with phrase, regex, and temporal inference rules in built-in or custom domain packs.
 - Local Whisper transcription or supplied time-aligned transcripts.
 - Explainable edit plans covering story order, pacing, speed, punch-ins, color, captions, and music.
+- Executed animated punch-ins, dip-to-black entrances, and frame-blended or motion-compensated slow motion.
 - Motion-guided per-segment reframing for vertical and square deliveries instead of blind center crops.
 - Licensed local music-catalog ranking and timeline mixing.
 - Finished FFmpeg review renders and DaVinci Resolve-importable FCPXML timelines.
@@ -297,7 +298,7 @@ uv run nimbledesk-ui
 
 Open `http://127.0.0.1:8765`, enter absolute source/output paths, choose the creative brief, and start a background job. The page reports the analysis, transcription, planning, render, and DaVinci stages, shows generated output paths, and can cancel queued or running work. Clear **Render review MP4** when you want to inspect and approve the plan before spending time on a render. When the desktop daemon is running, exact application actions awaiting a human decision appear at the top with their adapter, command, complete arguments, expiry, and Approve/Reject controls.
 
-When a plan completes, expand **Review and revise decisions**. Each segment shows its role, source range, speed, color treatment, strongest confidence, and the evidence used to select it. Check the segments you approve; checked segments are locked so later duration, pace, and color changes cannot alter their source selection or treatment. Choose the new target, pace, and color look, then select optional MP4 rendering or Resolve import and click **Build revision**. NimbleDesk writes each version under `<original-output>/revisions/` with its own `edit_plan.json`, `plan_diff.json`, `validation.json`, FCPXML timeline, and optional render. Revisions are normal durable jobs, so they are cancellable and remain visible after restarting the console.
+When a plan completes, expand **Review and revise decisions**. Each segment shows its role, source range, speed, color treatment, punch-in scale, crop anchor, strongest confidence, and the evidence used to select it. Check the segments you approve; checked segments are locked so later duration, pace, and color changes cannot alter their source selection or treatment. Choose the new target, pace, and color look, then select optional MP4 rendering or Resolve import and click **Build revision**. NimbleDesk writes each version under `<original-output>/revisions/` with its own `edit_plan.json`, `plan_diff.json`, `validation.json`, FCPXML timeline, and optional render. Revisions are normal durable jobs, so they are cancellable and remain visible after restarting the console.
 
 Use **Create from photos** with a photo or folder to run perceptual duplicate removal, technical-quality ranking, conservative correction, selection, and contact-sheet generation as a durable background job. Enable the optional MP4 slideshow when needed. Photo analysis and correction check cancellation between assets, and cancellation terminates the FFmpeg slideshow process.
 

@@ -28,21 +28,47 @@ def render_edit_plan(
             segment.visual.exposure_adjustment_stops,
             segment.visual.saturation_multiplier,
         )
-        video_filter = (
-            f"[0:v]trim=start={source.start_seconds:.3f}:end={source.end_seconds:.3f},"
-            f"setpts=(PTS-STARTPTS)/{rate:.6f},"
-            f"scale={plan.delivery.width}:{plan.delivery.height}:"
-            "force_original_aspect_ratio=increase,"
-            f"crop={plan.delivery.width}:{plan.delivery.height}:"
-            f"x=(in_w-out_w)*{segment.visual.reframe_center_x:.6f}:"
-            f"y=(in_h-out_h)*{segment.visual.reframe_center_y:.6f},"
-            f"{color_filter},format=yuv420p[v{index}]"
+        video_steps = [
+            f"[0:v]trim=start={source.start_seconds:.3f}:end={source.end_seconds:.3f}",
+            f"setpts=(PTS-STARTPTS)/{rate:.6f}",
+        ]
+        if segment.speed.interpolation == "frame_blend":
+            video_steps.append(
+                f"minterpolate=fps={plan.delivery.frame_rate:.6f}:mi_mode=blend"
+            )
+        elif segment.speed.interpolation == "optical_flow":
+            video_steps.append(
+                f"minterpolate=fps={plan.delivery.frame_rate:.6f}:"
+                "mi_mode=mci:mc_mode=aobmc:me_mode=bidir"
+            )
+        video_steps.extend(
+            (
+                f"scale={plan.delivery.width}:{plan.delivery.height}:"
+                "force_original_aspect_ratio=increase",
+                f"crop={plan.delivery.width}:{plan.delivery.height}:"
+                f"x=(in_w-out_w)*{segment.visual.reframe_center_x:.6f}:"
+                f"y=(in_h-out_h)*{segment.visual.reframe_center_y:.6f}",
+                color_filter,
+            )
         )
+        if segment.visual.punch_in_scale > 1:
+            scale = segment.visual.punch_in_scale
+            ramp_frames = max(1, round(plan.delivery.frame_rate * 0.35))
+            video_steps.append(
+                f"zoompan=z='1+({scale:.6f}-1)*min(on/{ramp_frames},1)':"
+                "x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:"
+                f"s={plan.delivery.width}x{plan.delivery.height}:"
+                f"fps={plan.delivery.frame_rate:.6f}"
+            )
+        if segment.visual.transition_in == "dip_to_black":
+            video_steps.append("fade=t=in:st=0:d=0.25:color=black")
+        video_steps.extend((f"fps={plan.delivery.frame_rate:.6f}", f"format=yuv420p[v{index}]"))
+        video_filter = ",".join(video_steps)
         filters.append(video_filter)
         if metadata.has_audio:
             audio_filter = (
                 f"[0:a]atrim=start={source.start_seconds:.3f}:end={source.end_seconds:.3f},"
-                f"asetpts=PTS-STARTPTS,atempo={rate:.6f}[a{index}]"
+                f"asetpts=PTS-STARTPTS,{_atempo_filter(rate)}[a{index}]"
             )
         else:
             audio_filter = (
@@ -161,6 +187,19 @@ def _color_filter(look: str, exposure_stops: float, saturation_multiplier: float
         f"eq=brightness={brightness:.4f}:contrast={contrast:.4f}:"
         f"saturation={saturation:.4f}"
     )
+
+
+def _atempo_filter(rate: float) -> str:
+    factors: list[float] = []
+    remaining = rate
+    while remaining < 0.5:
+        factors.append(0.5)
+        remaining /= 0.5
+    while remaining > 2:
+        factors.append(2)
+        remaining /= 2
+    factors.append(remaining)
+    return ",".join(f"atempo={factor:.6f}" for factor in factors)
 
 
 def _srt_time(seconds: float) -> str:

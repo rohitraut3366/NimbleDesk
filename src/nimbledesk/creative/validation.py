@@ -58,6 +58,14 @@ def validate_edit_plan(plan: EditPlan, source: MediaMetadata) -> PlanValidationR
                     segment_id=segment.segment_id,
                 )
             )
+        if segment.visual.transition_in == "cross_dissolve":
+            issues.append(
+                _issue(
+                    "unsupported_transition",
+                    "Cross-dissolve timing is not yet supported by the render compiler",
+                    segment.segment_id,
+                )
+            )
         timeline_cursor = segment.timeline_start_seconds + segment.timeline_duration_seconds
     if timeline_cursor > plan.brief.target_duration_seconds + 0.05:
         issues.append(_issue("target_duration", "Timeline exceeds the requested target duration"))
