@@ -19,6 +19,11 @@ from nimbledesk.creative.transcription import (
     transcribe_with_whisper,
     write_transcript,
 )
+from nimbledesk.creative.validation import (
+    PlanValidationError,
+    validate_edit_plan,
+    write_validation_report,
+)
 from nimbledesk.media.models import AnalysisConfig, TimelineEvent
 from nimbledesk.media.pipeline import HighlightPipeline, load_events
 
@@ -29,6 +34,7 @@ class CreationResult(BaseModel):
     output_directory: Path
     content_index_path: Path
     plan_path: Path
+    validation_path: Path
     timeline_path: Path
     render_path: Path | None
     transcript_path: Path | None
@@ -120,8 +126,13 @@ class CreationWorkflow:
             content_index=content_index,
         )
         plan_path = output_directory / "edit_plan.json"
+        validation_path = output_directory / "validation.json"
         timeline_path = output_directory / "davinci_timeline.fcpxml"
         write_edit_plan(plan, plan_path)
+        validation = validate_edit_plan(plan, content_index.asset.metadata)
+        write_validation_report(validation, validation_path)
+        if not validation.valid:
+            raise PlanValidationError(validation)
         export_fcpxml(plan, timeline_path)
         token.check()
         report("rendering review video", 0.75)
@@ -144,6 +155,7 @@ class CreationWorkflow:
             output_directory=output_directory,
             content_index_path=content_index_path,
             plan_path=plan_path,
+            validation_path=validation_path,
             timeline_path=timeline_path,
             render_path=render_path,
             transcript_path=transcript_path,

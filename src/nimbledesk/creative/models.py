@@ -125,6 +125,7 @@ class EditSegment(CreativeModel):
     visual: VisualTreatment
     score: Annotated[float, Field(ge=0)]
     evidence: tuple[Evidence, ...]
+    locked: bool = False
 
     @property
     def timeline_duration_seconds(self) -> float:
@@ -146,6 +147,8 @@ class CaptionCue(CreativeModel):
     timeline_range: TimeRange
     text: str
     speaker: str | None = None
+    segment_id: str | None = None
+    source_range: TimeRange | None = None
 
 
 class ReviewItem(CreativeModel):
@@ -179,3 +182,35 @@ class EditPlan(CreativeModel):
             return 0
         last = self.segments[-1]
         return last.timeline_start_seconds + last.timeline_duration_seconds
+
+
+class ValidationIssue(CreativeModel):
+    severity: Literal["warning", "blocking"]
+    code: str
+    message: str
+    segment_id: str | None = None
+
+
+class PlanValidationReport(CreativeModel):
+    valid: bool
+    issues: tuple[ValidationIssue, ...]
+    measured_duration_seconds: float
+
+
+class PlanRevisionRequest(CreativeModel):
+    target_duration_seconds: Annotated[float, Field(ge=5, le=14_400)] | None = None
+    pace: Pace | None = None
+    color_look: str | None = None
+    lock_segment_ids: tuple[str, ...] = ()
+    unlock_segment_ids: tuple[str, ...] = ()
+
+
+class PlanChange(CreativeModel):
+    path: str
+    before: object
+    after: object
+
+
+class PlanRevisionResult(CreativeModel):
+    plan: EditPlan
+    changes: tuple[PlanChange, ...]

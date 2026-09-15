@@ -94,6 +94,7 @@ def main() -> None:
         json.dumps(
             {
                 "plan": str(result.plan_path),
+                "validation": str(result.validation_path),
                 "content_index": str(result.content_index_path),
                 "davinci_timeline": str(result.timeline_path),
                 "render": str(result.render_path) if result.render_path else None,

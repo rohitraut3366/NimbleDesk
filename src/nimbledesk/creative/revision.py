@@ -1,0 +1,201 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from nimbledesk.creative.models import (
+    CaptionCue,
+    EditPlan,
+    EditSegment,
+    PlanChange,
+    PlanRevisionRequest,
+    PlanRevisionResult,
+    SpeedTreatment,
+    TimeRange,
+)
+from nimbledesk.creative.planner import plan_music_cue
+
+
+def revise_edit_plan(plan: EditPlan, request: PlanRevisionRequest) -> PlanRevisionResult:
+    segment_ids = {segment.segment_id for segment in plan.segments}
+    requested_ids = set(request.lock_segment_ids) | set(request.unlock_segment_ids)
+    unknown = requested_ids - segment_ids
+    if unknown:
+        raise ValueError("unknown segment IDs: " + ", ".join(sorted(unknown)))
+    overlap = set(request.lock_segment_ids) & set(request.unlock_segment_ids)
+    if overlap:
+        raise ValueError("segments cannot be locked and unlocked together: " + ", ".join(overlap))
+
+    brief_updates: dict[str, object] = {}
+    if request.target_duration_seconds is not None:
+        brief_updates["target_duration_seconds"] = request.target_duration_seconds
+    if request.pace is not None:
+        brief_updates["pace"] = request.pace
+    if request.color_look is not None:
+        brief_updates["color_look"] = request.color_look
+    brief = plan.brief.model_copy(update=brief_updates)
+
+    treated = tuple(_revise_treatment(segment, request) for segment in plan.segments)
+    target = brief.target_duration_seconds
+    if sum(segment.timeline_duration_seconds for segment in treated if segment.locked) > target:
+        raise ValueError("locked segments exceed the revised target duration")
+    selected = _fit_duration(treated, target)
+    reflowed = _reflow(selected)
+    captions = _remap_captions(plan.captions, reflowed)
+    music_cue = (
+        plan_music_cue(plan.music_cue.asset, _duration(reflowed), brief, reflowed)
+        if plan.music_cue and reflowed
+        else None
+    )
+    revised = plan.model_copy(
+        update={
+            "brief": brief,
+            "segments": reflowed,
+            "captions": captions,
+            "music_cue": music_cue,
+        }
+    )
+    return PlanRevisionResult(plan=revised, changes=_diff(plan, revised))
+
+
+def write_revision(result: PlanRevisionResult, plan_path: Path, diff_path: Path) -> None:
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_path.write_text(result.plan.model_dump_json(indent=2), encoding="utf-8")
+    diff_path.write_text(
+        PlanRevisionResult(plan=result.plan, changes=result.changes).model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+
+
+def _revise_treatment(segment: EditSegment, request: PlanRevisionRequest) -> EditSegment:
+    locked = segment.locked
+    if segment.segment_id in request.lock_segment_ids:
+        locked = True
+    if segment.segment_id in request.unlock_segment_ids:
+        locked = False
+    if locked:
+        return segment.model_copy(update={"locked": locked})
+    speed = segment.speed
+    if request.pace is not None:
+        rate = speed.rate
+        if request.pace.value == "fast" and rate >= 1:
+            rate = 1.25
+        elif request.pace.value in {"calm", "balanced"} and rate > 1:
+            rate = 1
+        speed = SpeedTreatment(
+            rate=rate,
+            interpolation=speed.interpolation,
+            preserve_pitch=speed.preserve_pitch,
+            rationale=f"revised for {request.pace.value} pace",
+        )
+    visual = segment.visual
+    if request.color_look is not None:
+        visual = visual.model_copy(update={"color_look": request.color_look})
+    return segment.model_copy(update={"locked": locked, "speed": speed, "visual": visual})
+
+
+def _fit_duration(segments: tuple[EditSegment, ...], target: float) -> tuple[EditSegment, ...]:
+    selected: list[EditSegment] = []
+    cursor = 0.0
+    for index, segment in enumerate(segments):
+        locked_after = sum(
+            item.timeline_duration_seconds for item in segments[index + 1 :] if item.locked
+        )
+        available = target - cursor - locked_after
+        if segment.locked:
+            selected.append(segment)
+            cursor += segment.timeline_duration_seconds
+            continue
+        if available < 0.5:
+            continue
+        if segment.timeline_duration_seconds <= available:
+            selected.append(segment)
+            cursor += segment.timeline_duration_seconds
+            continue
+        source_duration = available * segment.speed.rate
+        trimmed_range = segment.source_range.model_copy(
+            update={"end_seconds": segment.source_range.start_seconds + source_duration}
+        )
+        trimmed = segment.model_copy(update={"source_range": trimmed_range})
+        selected.append(trimmed)
+        cursor += trimmed.timeline_duration_seconds
+    return tuple(selected)
+
+
+def _reflow(segments: tuple[EditSegment, ...]) -> tuple[EditSegment, ...]:
+    result: list[EditSegment] = []
+    cursor = 0.0
+    for segment in segments:
+        updated = segment.model_copy(update={"timeline_start_seconds": round(cursor, 3)})
+        result.append(updated)
+        cursor += updated.timeline_duration_seconds
+    return tuple(result)
+
+
+def _remap_captions(
+    captions: tuple[CaptionCue, ...], segments: tuple[EditSegment, ...]
+) -> tuple[CaptionCue, ...]:
+    by_id = {segment.segment_id: segment for segment in segments}
+    remapped: list[CaptionCue] = []
+    for caption in captions:
+        if caption.segment_id is None or caption.source_range is None:
+            continue
+        segment = by_id.get(caption.segment_id)
+        if segment is None:
+            continue
+        start = max(caption.source_range.start_seconds, segment.source_range.start_seconds)
+        end = min(caption.source_range.end_seconds, segment.source_range.end_seconds)
+        if end <= start:
+            continue
+        timeline_start = segment.timeline_start_seconds + (
+            start - segment.source_range.start_seconds
+        ) / segment.speed.rate
+        timeline_end = segment.timeline_start_seconds + (
+            end - segment.source_range.start_seconds
+        ) / segment.speed.rate
+        remapped.append(
+            caption.model_copy(
+                update={
+                    "timeline_range": TimeRange(
+                        start_seconds=round(timeline_start, 3),
+                        end_seconds=round(timeline_end, 3),
+                    )
+                }
+            )
+        )
+    return tuple(remapped)
+
+
+def _duration(segments: tuple[EditSegment, ...]) -> float:
+    if not segments:
+        return 0
+    last = segments[-1]
+    return last.timeline_start_seconds + last.timeline_duration_seconds
+
+
+def _diff(before: EditPlan, after: EditPlan) -> tuple[PlanChange, ...]:
+    changes: list[PlanChange] = []
+    _walk_diff("", before.model_dump(mode="json"), after.model_dump(mode="json"), changes)
+    return tuple(changes)
+
+
+def _walk_diff(path: str, before: Any, after: Any, changes: list[PlanChange]) -> None:
+    if type(before) is not type(after):
+        changes.append(PlanChange(path=path or "/", before=before, after=after))
+        return
+    if isinstance(before, dict):
+        for key in sorted(set(before) | set(after)):
+            child_path = f"{path}/{key}"
+            if key not in before or key not in after:
+                changes.append(
+                    PlanChange(path=child_path, before=before.get(key), after=after.get(key))
+                )
+            else:
+                _walk_diff(child_path, before[key], after[key], changes)
+        return
+    if isinstance(before, list):
+        if before != after:
+            changes.append(PlanChange(path=path or "/", before=before, after=after))
+        return
+    if before != after:
+        changes.append(PlanChange(path=path or "/", before=before, after=after))

@@ -85,6 +85,7 @@ The command never changes the source. Its output directory contains:
 - `final.mp4`: validated H.264/AAC review render.
 - `final.srt`: captions when a transcript overlaps selected moments.
 - `edit_plan.json`: source ranges and explainable story, speed, visual, color, music, caption, evidence, confidence, and review decisions.
+- `validation.json`: the mandatory source, timeline, duration, caption, music, and review gate applied before execution.
 - `davinci_timeline.fcpxml`: editable timeline for DaVinci Resolve.
 - `transcript.json`: normalized transcript when speech is available.
 - `detected_events.json`: merged automatic and supplied events.
@@ -98,6 +99,23 @@ With `content_kind=auto`, detected gameplay events select gameplay treatment, an
 Every creation fingerprints the source and builds time-aligned motion, audio energy/silence, color/exposure, shot-boundary, transcript-semantic, and combined semantic tracks. Each point has a rational source range, confidence, evidence, analyzer/version, and configuration hash. Transcript questions, reactions, instructions, and payoffs become semantic moments; domain-pack events and coincident audiovisual action remain separate evidence.
 
 The index adapts its coarse sampling rate for recordings over 30 minutes and over two hours. Tracks are written atomically under `analysis/index`. Re-running the same output reuses unchanged tracks. Changing a transcript or event file rebuilds the semantic track while retaining valid motion, audio, color, and shot analysis. Changing the source fingerprint invalidates dependent tracks. Source media is always read-only.
+
+### Validate and revise a plan
+
+Every newly generated plan is validated before NimbleDesk exports a timeline or starts a render. Execution stops when a source range exceeds the indexed asset, timeline segments overlap or leave gaps, the target duration is exceeded, captions or music exceed their bounds, a music file/license is unavailable, or a blocking review item remains. Warnings and measured duration are retained in `validation.json`.
+
+Revise an existing plan while preserving selected decisions:
+
+```bash
+uv run nimbledesk-revise output/my-video/edit_plan.json output/revision-2 \
+  --duration 45 \
+  --pace fast \
+  --color-look vivid \
+  --lock segment-002 \
+  --render
+```
+
+Use `--lock` or `--unlock` more than once. Locked segments retain their source selection, speed, visual treatment, and evidence while unlocked content is retimed or removed to meet the new duration. Caption timing and beat alignment are recalculated after timeline changes. The revision directory contains a new `edit_plan.json`, `plan_diff.json`, `validation.json`, FCPXML timeline, and optional render. Use `--davinci` or `--davinci-render` to send the validated revision to Resolve.
 
 ### Creation options
 

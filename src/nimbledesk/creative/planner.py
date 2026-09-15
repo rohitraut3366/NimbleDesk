@@ -84,7 +84,7 @@ def build_edit_plan(
     captions = _map_captions(tuple(segments), transcripts) if brief.captions else ()
     music_asset = recommend_music(brief, music_assets, timeline_cursor)
     music_cue = (
-        _music_cue(music_asset, timeline_cursor, brief, tuple(segments))
+        plan_music_cue(music_asset, timeline_cursor, brief, tuple(segments))
         if music_asset
         else None
     )
@@ -190,12 +190,14 @@ def _map_captions(
                     ),
                     text=transcript.text.strip(),
                     speaker=transcript.speaker,
+                    segment_id=segment.segment_id,
+                    source_range=TimeRange(start_seconds=start, end_seconds=end),
                 )
             )
     return tuple(cues)
 
 
-def _music_cue(
+def plan_music_cue(
     asset: MusicAsset,
     duration: float,
     brief: CreativeBrief,

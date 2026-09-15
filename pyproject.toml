@@ -35,6 +35,7 @@ nimbledesk-photos = "nimbledesk.media.photo_cli:main"
 nimbledesk-create = "nimbledesk.creative.cli:main"
 nimbledesk-ui = "nimbledesk.ui.server:main"
 nimbledesk-music-index = "nimbledesk.creative.music_cli:main"
+nimbledesk-revise = "nimbledesk.creative.revision_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nimbledesk"]

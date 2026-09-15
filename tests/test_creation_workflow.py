@@ -84,6 +84,7 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
     result = CreationWorkflow().create(source, output, brief, music_catalog=catalog)
 
     assert result.plan_path.is_file()
+    assert result.validation_path.is_file()
     assert result.content_index_path.is_file()
     assert result.timeline_path.is_file()
     assert result.render_path is not None
