@@ -12,7 +12,7 @@ The current release runs on macOS, Windows, and Linux X11 through a portable PyA
 - An authenticated, replay-protected loopback connection between the MCP server and daemon.
 - A deterministic simulator that exercises the complete control flow without touching the desktop.
 - Generic video highlight detection from motion and audio peaks, plus optional supplied timeline events.
-- Automatic game-event OCR with a built-in shooter pack or a custom game pack.
+- Automatic game-event recognition with phrase, regex, and temporal inference rules in built-in or custom domain packs.
 - Local Whisper transcription or supplied time-aligned transcripts.
 - Explainable edit plans covering story order, pacing, speed, punch-ins, color, captions, and music.
 - Licensed local music-catalog ranking and timeline mixing.
@@ -23,7 +23,7 @@ The current release runs on macOS, Windows, and Linux X11 through a portable PyA
 - Recursive photo discovery, perceptual duplicate removal, technical ranking, light correction, a contact sheet, and an optional MP4 slideshow.
 - Token-budgeted observations and size-bounded screenshots.
 
-Automatic game recognition currently uses configurable OCR phrases and audiovisual evidence; accuracy depends on the game, HUD, language, crop, and capture quality. Model-based vision packs, native semantic OS backends, subject-tracked vertical reframing, signed installers, and automated tests on physical Windows/Linux/macOS machines remain release-hardening work described in [PLAN.md](PLAN.md).
+Automatic game recognition currently uses configurable OCR phrases and patterns, temporal event inference, and audiovisual evidence; accuracy depends on the game, HUD, language, crop, and capture quality. Model-based vision packs, native semantic OS backends, subject-tracked vertical reframing, signed installers, and automated tests on physical Windows/Linux/macOS machines remain release-hardening work described in [PLAN.md](PLAN.md).
 
 ## Requirements
 
@@ -189,7 +189,7 @@ To use another transcription engine, provide normalized JSON:
 
 ### Automatic game events
 
-`--game-ocr` samples frames with FFmpeg, runs Tesseract, and matches the built-in shooter phrases for kills, multi-kills, grenade kills, clutches, narrow survivals, and victories. Consecutive duplicate HUD messages are collapsed. Combine `--game-ocr` with telemetry or manual `--events` when available; the workflow merges both evidence sources.
+`--game-ocr` samples frames with FFmpeg, runs Tesseract, and applies the built-in shooter domain pack. It recognizes exact HUD phrases and configurable regular expressions. It then analyzes the event sequence: nearby kills become a multi-kill, and a kill or victory soon after critical health becomes a clutch. Per-event cooldowns collapse OCR copies while retaining distinct rapid kills. Combine `--game-ocr` with telemetry or manual `--events` when available; the workflow merges both evidence sources.
 
 A custom pack controls sampling, crop, phrases, and importance:
 
@@ -202,11 +202,18 @@ A custom pack controls sampling, crop, phrases, and importance:
     "kill": ["eliminated"],
     "clutch": ["clutch", "last player standing"]
   },
-  "importance": {"kill": 0.75, "clutch": 1.0}
+  "patterns": {
+    "kill": ["\\b(?:killed|eliminated)\\s+[a-z0-9_]"],
+    "narrow_survival": ["\\b(?:[1-9]|1[0-5])\\s*(?:hp|health)\\b"]
+  },
+  "importance": {"kill": 0.75, "clutch": 1.0},
+  "cooldown_seconds": {"kill": 1.5},
+  "multi_kill_window_seconds": 8,
+  "clutch_window_seconds": 20
 }
 ```
 
-The optional crop uses FFmpeg's `crop=width:height:x:y` expression and should cover the game's kill feed or event banner.
+The optional crop uses FFmpeg's `crop=width:height:x:y` expression and should cover the game's kill feed or event banner. Pattern values are Python regular expressions evaluated case-insensitively against normalized OCR text. Keep them specific to visible HUD grammar to reduce false matches.
 
 ### Licensed music selection
 

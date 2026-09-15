@@ -19,7 +19,11 @@ class GamePack(BaseModel):
     sample_interval_seconds: float = Field(default=2, ge=0.25, le=30)
     crop: str | None = None
     phrases: dict[str, tuple[str, ...]]
+    patterns: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     importance: dict[str, float] = Field(default_factory=dict)
+    cooldown_seconds: dict[str, float] = Field(default_factory=dict)
+    multi_kill_window_seconds: float = Field(default=8, ge=1, le=30)
+    clutch_window_seconds: float = Field(default=20, ge=1, le=60)
 
 
 DEFAULT_GAME_PACK = GamePack(
@@ -32,6 +36,18 @@ DEFAULT_GAME_PACK = GamePack(
         "victory": ("victory", "winner", "round won"),
         "kill": ("eliminated", "enemy killed", "you killed"),
     },
+    patterns={
+        "kill": (
+            r"\b(?:killed|eliminated|knocked|downed|fragged)\s+[a-z0-9_]",
+            r"[a-z0-9_]\s+(?:was\s+)?(?:killed|eliminated|knocked|downed)",
+        ),
+        "grenade_kill": (r"\b(?:grenade|frag|semtex|molotov)\b.*\b(?:kill|eliminat)",),
+        "narrow_survival": (
+            r"\b(?:[1-9]|1[0-5])\s*(?:hp|health)\b",
+            r"\b(?:critical|low)\s+(?:hp|health)\b",
+        ),
+        "victory": (r"\b(?:victory|winner|champion|round\s+won|you\s+win)\b",),
+    },
     importance={
         "multi_kill": 1,
         "grenade_kill": 1,
@@ -40,6 +56,7 @@ DEFAULT_GAME_PACK = GamePack(
         "victory": 0.9,
         "kill": 0.75,
     },
+    cooldown_seconds={"kill": 1.5, "narrow_survival": 8},
 )
 
 
@@ -102,8 +119,7 @@ def _ocr_frames(
     tesseract: str,
     cancelled: CancellationCheck | None,
 ) -> tuple[TimelineEvent, ...]:
-    events: list[TimelineEvent] = []
-    last_seen: dict[str, float] = {}
+    samples: list[tuple[float, str]] = []
     for index, frame in enumerate(frames):
         completed = run_cancellable(
             [tesseract, str(frame), "stdout", "--psm", "11"],
@@ -113,9 +129,28 @@ def _ocr_frames(
             continue
         normalized = re.sub(r"\s+", " ", completed.stdout.casefold())
         timestamp = index * pack.sample_interval_seconds
-        for event_type, phrases in pack.phrases.items():
-            matched = next((phrase for phrase in phrases if phrase.casefold() in normalized), None)
-            if matched is None or timestamp - last_seen.get(event_type, -60) < 5:
+        samples.append((timestamp, normalized))
+    return detect_events_from_ocr_samples(tuple(samples), pack)
+
+
+def detect_events_from_ocr_samples(
+    samples: tuple[tuple[float, str], ...],
+    pack: GamePack,
+) -> tuple[TimelineEvent, ...]:
+    """Turn normalized OCR samples into direct and temporally inferred game events."""
+    events: list[TimelineEvent] = []
+    last_seen: dict[str, float] = {}
+    event_types = set(pack.phrases) | set(pack.patterns)
+    for timestamp, sample in samples:
+        normalized = re.sub(r"\s+", " ", sample.casefold())
+        for event_type in sorted(event_types):
+            matched = _match_event(
+                normalized,
+                pack.phrases.get(event_type, ()),
+                pack.patterns.get(event_type, ()),
+            )
+            cooldown = pack.cooldown_seconds.get(event_type, 5)
+            if matched is None or timestamp - last_seen.get(event_type, -60) < cooldown:
                 continue
             events.append(
                 TimelineEvent(
@@ -126,4 +161,79 @@ def _ocr_frames(
                 )
             )
             last_seen[event_type] = timestamp
-    return tuple(events)
+    return _infer_compound_events(tuple(events), pack)
+
+
+def _match_event(
+    text: str,
+    phrases: tuple[str, ...],
+    patterns: tuple[str, ...],
+) -> str | None:
+    phrase = next((candidate for candidate in phrases if candidate.casefold() in text), None)
+    if phrase:
+        return phrase
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(0)
+    return None
+
+
+def _infer_compound_events(
+    direct_events: tuple[TimelineEvent, ...], pack: GamePack
+) -> tuple[TimelineEvent, ...]:
+    events = list(direct_events)
+    kills = [event for event in direct_events if event.event_type == "kill"]
+    for index, kill in enumerate(kills):
+        recent_kills = [
+            candidate
+            for candidate in kills[: index + 1]
+            if kill.time_seconds - candidate.time_seconds <= pack.multi_kill_window_seconds
+        ]
+        if len(recent_kills) < 2 or _near_event(events, "multi_kill", kill.time_seconds, 2):
+            continue
+        events.append(
+            TimelineEvent(
+                time_seconds=kill.time_seconds,
+                event_type="multi_kill",
+                label=f"Inferred {len(recent_kills)}-kill streak",
+                importance=min(1, 0.82 + 0.06 * len(recent_kills)),
+            )
+        )
+    danger_events = [
+        event for event in direct_events if event.event_type == "narrow_survival"
+    ]
+    payoffs = [
+        event
+        for event in direct_events
+        if event.event_type in {"kill", "multi_kill", "victory"}
+    ]
+    for danger in danger_events:
+        payoff = next(
+            (
+                event
+                for event in payoffs
+                if 0 <= event.time_seconds - danger.time_seconds <= pack.clutch_window_seconds
+            ),
+            None,
+        )
+        if payoff is None or _near_event(events, "clutch", payoff.time_seconds, 5):
+            continue
+        events.append(
+            TimelineEvent(
+                time_seconds=payoff.time_seconds,
+                event_type="clutch",
+                label="Inferred clutch after critical health",
+                importance=1,
+            )
+        )
+    return tuple(sorted(events, key=lambda event: (event.time_seconds, event.event_type)))
+
+
+def _near_event(
+    events: list[TimelineEvent], event_type: str, timestamp: float, tolerance: float
+) -> bool:
+    return any(
+        event.event_type == event_type and abs(event.time_seconds - timestamp) <= tolerance
+        for event in events
+    )

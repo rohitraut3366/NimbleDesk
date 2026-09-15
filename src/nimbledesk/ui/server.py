@@ -504,6 +504,8 @@ _HTML = """<!doctype html>
       <label>Mood<input name="mood" value="engaging"></label>
       <label>Transcript JSON<input name="transcript" placeholder="Optional"></label>
       <label>Licensed music catalog JSON<input name="music" placeholder="Optional"></label>
+      <label>Timeline events JSON<input name="events" placeholder="Optional"></label>
+      <label>Game domain pack JSON<input name="gamePack" placeholder="Optional"></label>
     </div>
     <div class="checks">
       <label><input name="gameOcr" type="checkbox"> Detect game events</label>
@@ -525,7 +527,8 @@ form.addEventListener('submit', async event => {
       target_duration_seconds:Number(data.get('duration')),aspect_ratio:data.get('ratio'),
       pace:data.get('pace'),mood:data.get('mood'),clip_count:10,captions:true,music:true,
       color_look:'natural_contrast',mandatory_event_types:[],excluded_event_types:[]},
-    transcript:optional('transcript'),music_catalog:optional('music'),
+    transcript:optional('transcript'),music_catalog:optional('music'),events:optional('events'),
+    game_pack:optional('gamePack'),
     game_ocr:data.has('gameOcr'),transcribe:data.has('transcribe'),whisper_model:'small',
     ffmpeg_render:data.has('ffmpegRender'),davinci:data.has('davinci'),
     davinci_render:data.has('davinciRender')};
