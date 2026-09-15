@@ -2,11 +2,12 @@
 
 NimbleDesk is a local, model-agnostic runtime for AI models that need to see and operate desktop applications. It also includes command-line workflows for finding highlights in long videos and selecting, correcting, and arranging photos.
 
-The current release runs on macOS, Windows, and Linux X11 through a portable PyAutoGUI backend. It separates the model-facing MCP server from the privileged desktop daemon, requires explicit input authority, rejects actions based on stale observations, and records attempted actions in a redacted audit log.
+The current release combines portable PyAutoGUI capture/input with native semantic accessibility through macOS AX, Windows UI Automation, or Linux AT-SPI. Portable Linux capture and input currently require X11. NimbleDesk separates the model-facing MCP server from the privileged desktop daemon, requires explicit input authority, rejects actions based on stale observations, and records attempted actions in a redacted audit log.
 
 ## What works today
 
 - Desktop observation and bounded screenshots.
+- Focused-window and semantic-control observation with observation-bound element invocation.
 - Mouse movement, clicks, dragging, scrolling, text entry, key presses, and hotkeys.
 - Bounded sessions with pause, resume, stop, application allowlists, action limits, and expiry.
 - An authenticated, replay-protected loopback connection between the MCP server and daemon.
@@ -23,7 +24,7 @@ The current release runs on macOS, Windows, and Linux X11 through a portable PyA
 - Recursive photo discovery, perceptual duplicate removal, technical ranking, light correction, a contact sheet, and an optional MP4 slideshow.
 - Token-budgeted observations and size-bounded screenshots.
 
-Automatic game recognition currently uses configurable OCR phrases and patterns, temporal event inference, and audiovisual evidence; accuracy depends on the game, HUD, language, crop, and capture quality. Model-based vision packs, native semantic OS backends, subject-tracked vertical reframing, signed installers, and automated tests on physical Windows/Linux/macOS machines remain release-hardening work described in [PLAN.md](PLAN.md).
+Automatic game recognition currently uses configurable OCR phrases and patterns, temporal event inference, and audiovisual evidence; accuracy depends on the game, HUD, language, crop, and capture quality. Model-based vision packs, native Wayland capture/input, subject-tracked vertical reframing, signed installers, and automated tests on physical Windows/Linux/macOS machines remain release-hardening work described in [PLAN.md](PLAN.md).
 
 ## Requirements
 
@@ -60,7 +61,7 @@ uv sync
 All examples below run from the repository root. `uv run` automatically uses the project environment. To install the development tools as well:
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --extra native
 ```
 
 ## Create a finished video
@@ -377,7 +378,7 @@ Coordinates are logical desktop coordinates from `desktop_observe`. Element IDs 
 This mode exposes observations and screenshots while the host gate rejects mouse and keyboard actions:
 
 ```bash
-NIMBLEDESK_BACKEND=portable \
+NIMBLEDESK_BACKEND=native \
 NIMBLEDESK_RUNTIME_DIR=/tmp/nimbledesk-runtime \
 uv run nimbledesk-daemon
 ```
@@ -394,7 +395,7 @@ uv run nimbledesk-smoke \
 Input requires two independent grants: the human must set the daemon's host flag, and the MCP caller must request an input-enabled session.
 
 ```bash
-NIMBLEDESK_BACKEND=portable \
+NIMBLEDESK_BACKEND=native \
 NIMBLEDESK_ENABLE_INPUT=1 \
 NIMBLEDESK_RUNTIME_DIR=/tmp/nimbledesk-runtime \
 uv run nimbledesk-daemon
@@ -414,11 +415,11 @@ Run real input tests only on a dedicated test desktop with no sensitive or destr
 
 ### Operating-system permissions
 
-**macOS:** Grant the terminal or packaged process **Screen & System Audio Recording** for screenshots and **Accessibility** for mouse and keyboard control in **System Settings → Privacy & Security**. Restart the daemon after changing permissions.
+**macOS:** Install the `native` extra, then grant the terminal or packaged process **Screen & System Audio Recording** for screenshots and **Accessibility** for semantic controls, mouse, and keyboard in **System Settings → Privacy & Security**. Restart the daemon after changing permissions. The native backend uses macOS AX and reports `denied` until the exact daemon process is trusted.
 
-**Windows:** A normal process can control applications running at the same integrity level. It cannot control an application launched as administrator; run both at the same level. No additional permission is normally needed.
+**Windows:** Install the `native` extra to enable UI Automation through `pywinauto`. A normal process can control applications running at the same integrity level. It cannot control an application launched as administrator; run both at the same level. UIA failures are returned without retrying through mouse coordinates.
 
-**Linux:** The portable backend supports X11. Make sure the process has access to `DISPLAY`. Native Wayland support through PipeWire, the RemoteDesktop portal, and AT-SPI is planned and is not implemented in this release.
+**Linux:** Install the distribution AT-SPI bindings (`sudo apt install python3-pyatspi` on Ubuntu/Debian) and make them visible to the NimbleDesk Python environment. The native backend uses AT-SPI for semantic controls. Portable capture and input still require X11 and access to `DISPLAY`; PipeWire capture and the RemoteDesktop portal remain required for native Wayland input.
 
 ## Generate highlight clips
 

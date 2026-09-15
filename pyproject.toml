@@ -19,6 +19,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+native = [
+  "pyobjc-framework-ApplicationServices>=10,<13; sys_platform == 'darwin'",
+  "pywinauto>=0.6.9,<1; sys_platform == 'win32'",
+]
 dev = [
   "mypy>=1.15,<2",
   "pytest>=8,<9",

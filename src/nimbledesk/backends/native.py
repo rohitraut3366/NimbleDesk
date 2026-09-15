@@ -1,0 +1,94 @@
+from __future__ import annotations
+
+from time import time
+
+from nimbledesk.backends.portable import PortableDesktopBackend
+from nimbledesk.backends.semantic import SemanticProvider
+from nimbledesk.protocol.models import (
+    ActionRequest,
+    ActionResult,
+    ActionStatus,
+    Capability,
+    CaptureOptions,
+    DesktopObservation,
+    ElementTarget,
+    PermissionState,
+    Rectangle,
+    ScreenCapture,
+)
+
+
+class NativeDesktopBackend:
+    """Composes native semantic accessibility with portable capture and input."""
+
+    def __init__(self, portable: PortableDesktopBackend, semantic: SemanticProvider) -> None:
+        self._portable = portable
+        self._semantic = semantic
+
+    @property
+    def backend_id(self) -> str:
+        return f"native:{self._semantic.provider_id}+{self._portable.backend_id}"
+
+    @property
+    def capabilities(self) -> frozenset[Capability]:
+        capabilities = set(self._portable.capabilities)
+        if self._semantic.available:
+            capabilities.update({Capability.WINDOWS, Capability.ACCESSIBILITY})
+        return frozenset(capabilities)
+
+    def observe(self) -> DesktopObservation:
+        portable = self._portable.observe()
+        semantic = self._semantic.observe()
+        permissions = dict(portable.permissions)
+        permissions[Capability.ACCESSIBILITY] = semantic.permission
+        permissions[Capability.WINDOWS] = (
+            PermissionState.GRANTED
+            if semantic.windows
+            else semantic.permission
+        )
+        return portable.model_copy(
+            update={
+                "capabilities": self.capabilities,
+                "permissions": permissions,
+                "windows": semantic.windows,
+                "elements": semantic.elements,
+                "active_application_id": semantic.active_application_id,
+                "focused_window_id": semantic.focused_window_id,
+                "warnings": semantic.warnings,
+            }
+        )
+
+    def capture(
+        self,
+        observation_id: str,
+        region: Rectangle | None = None,
+        options: CaptureOptions | None = None,
+    ) -> ScreenCapture:
+        return self._portable.capture(observation_id, region, options)
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        if not isinstance(request.target, ElementTarget):
+            return self._portable.execute(request)
+        started_at = time()
+        try:
+            self._semantic.invoke(request.target.element_id)
+        except (RuntimeError, ValueError) as error:
+            return ActionResult(
+                action_id=request.action_id,
+                status=ActionStatus.FAILED,
+                message=str(error),
+                started_at=started_at,
+                finished_at=time(),
+                data={"backend": self.backend_id},
+            )
+        return ActionResult(
+            action_id=request.action_id,
+            status=ActionStatus.COMPLETED,
+            message="Semantic element invoked",
+            started_at=started_at,
+            finished_at=time(),
+            data={"backend": self.backend_id},
+        )
+
+    def cancel_input(self) -> None:
+        self._portable.cancel_input()

@@ -7,7 +7,12 @@ from contextlib import suppress
 from importlib import import_module
 from pathlib import Path
 
-from nimbledesk.backends import PortableDesktopBackend, SimulatorBackend
+from nimbledesk.backends import (
+    NativeDesktopBackend,
+    PortableDesktopBackend,
+    SimulatorBackend,
+    system_semantic_provider,
+)
 from nimbledesk.daemon.approvals import ApprovalManager
 from nimbledesk.daemon.audit import AuditLog
 from nimbledesk.daemon.policy import ActionPolicy
@@ -28,6 +33,11 @@ def build_runtime(runtime_dir: Path) -> DesktopRuntime:
     backend: DesktopBackend
     if backend_name == "portable":
         backend = PortableDesktopBackend(import_module("pyautogui"))
+    elif backend_name == "native":
+        backend = NativeDesktopBackend(
+            PortableDesktopBackend(import_module("pyautogui")),
+            system_semantic_provider(),
+        )
     elif backend_name == "simulator":
         backend = SimulatorBackend()
     else:
