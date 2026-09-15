@@ -365,11 +365,14 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `press_key` | `session_id`, `observation_id`, `key` | `presses=1`; `interval=0.1`; accepts PyAutoGUI names such as `enter`, `tab`, `escape`, `backspace`, and `f5`. |
 | `hotkey` | `session_id`, `observation_id`, `keys` | Example: `["command", "s"]` on macOS or `["ctrl", "s"]` elsewhere. |
 | `wait` | `session_id`, `seconds` | Waits for an interface or animation to settle; maximum 10 seconds per call. |
+| `application_command` | `session_id`, `observation_id`, `adapter_id`, `command`, `arguments` | Executes an installed subprocess adapter after exact-action approval; pass the returned token as `approval_token` on the repeated call. |
 | `session_pause` | `session_id` | Pauses input and releases common modifier keys and mouse buttons. |
 | `session_resume` | `session_id` | Restores the original session limits; a stopped session cannot resume. |
 | `session_stop` | `session_id` | Permanently stops the session and releases input. |
 
 Coordinates are logical desktop coordinates from `desktop_observe`. Element IDs are valid only for the observation that returned them. The daemon verifies the observation is fresh and, when supplied, that the active application and focused window still match. PyAutoGUI's corner fail-safe remains enabled: move the pointer to a screen corner to interrupt portable automation.
+
+Application adapters are disabled until a manifest and its Python package are installed. See [docs/ADAPTERS.md](docs/ADAPTERS.md) for the manifest, worker contract, path grants, approval flow, and isolation limits.
 
 ## Use the real desktop
 

@@ -5,7 +5,10 @@ from nimbledesk.backends.simulator import SimulatorBackend
 
 __all__ = [
     "NativeDesktopBackend",
+    "AdapterDesktopBackend",
     "PortableDesktopBackend",
     "SimulatorBackend",
     "system_semantic_provider",
+    "registry_for_host",
 ]
+from nimbledesk.backends.adapters import AdapterDesktopBackend, registry_for_host

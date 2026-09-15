@@ -8,9 +8,11 @@ from importlib import import_module
 from pathlib import Path
 
 from nimbledesk.backends import (
+    AdapterDesktopBackend,
     NativeDesktopBackend,
     PortableDesktopBackend,
     SimulatorBackend,
+    registry_for_host,
     system_semantic_provider,
 )
 from nimbledesk.daemon.approvals import ApprovalManager
@@ -42,6 +44,10 @@ def build_runtime(runtime_dir: Path) -> DesktopRuntime:
         backend = SimulatorBackend()
     else:
         raise ValueError(f"unknown NIMBLEDESK_BACKEND: {backend_name}")
+    adapter_directory = Path(
+        os.getenv("NIMBLEDESK_ADAPTER_DIR", str(Path.home() / ".nimbledesk" / "adapters"))
+    )
+    backend = AdapterDesktopBackend(backend, registry_for_host(adapter_directory))
     return DesktopRuntime(
         backend=backend,
         sessions=SessionManager(),

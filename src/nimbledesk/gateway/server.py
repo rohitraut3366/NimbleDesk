@@ -297,6 +297,26 @@ async def wait(session_id: str, seconds: float) -> dict[str, Any]:
 
 
 @mcp.tool()
+async def application_command(
+    session_id: str,
+    observation_id: str,
+    adapter_id: str,
+    command: str,
+    arguments: dict[str, Any],
+    approval_token: str | None = None,
+) -> dict[str, Any]:
+    """Run an installed adapter command; first call returns an exact-action approval request."""
+    action = ActionRequest(
+        session_id=session_id,
+        source_observation_id=observation_id,
+        kind=ActionKind.APP_COMMAND,
+        arguments={"adapter_id": adapter_id, "command": command, "arguments": arguments},
+        approval_token=approval_token,
+    )
+    return await client().call("action_execute", {"action": action.model_dump(mode="json")})
+
+
+@mcp.tool()
 async def session_pause(session_id: str) -> dict[str, Any]:
     """Pause a session and release any held desktop input."""
     return await client().call(

@@ -62,3 +62,29 @@ async def test_gateway_builds_semantic_element_action(monkeypatch: pytest.Monkey
         "element_id": "create-button",
     }
     assert action["source_observation_id"] == "observation"
+
+
+@pytest.mark.asyncio
+async def test_gateway_builds_approved_application_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recording_client = RecordingClient()
+    monkeypatch.setattr(gateway, "client", lambda: recording_client)
+
+    await gateway.application_command(
+        session_id="session",
+        observation_id="observation",
+        adapter_id="example.editor",
+        command="render",
+        arguments={"timeline": "main"},
+        approval_token="approved-token",
+    )
+
+    action = recording_client.params["action"]
+    assert action["kind"] == "app_command"
+    assert action["arguments"] == {
+        "adapter_id": "example.editor",
+        "command": "render",
+        "arguments": {"timeline": "main"},
+    }
+    assert action["approval_token"] == "approved-token"

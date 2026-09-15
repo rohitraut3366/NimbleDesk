@@ -108,7 +108,17 @@ class DesktopRuntime:
 
         try:
             self._sessions.consume_action(action.session_id)
-            result = self._backend.execute(action)
+            execution_action = action
+            if action.kind is ActionKind.APP_COMMAND:
+                execution_action = action.model_copy(
+                    update={
+                        "arguments": {
+                            **action.arguments,
+                            "_trusted_granted_paths": list(session.config.granted_paths),
+                        }
+                    }
+                )
+            result = self._backend.execute(execution_action)
         except (SessionError, ValueError, RuntimeError) as error:
             return self._finish(action, ActionStatus.FAILED, str(error), started_at)
         self._audit.record(action, result)
