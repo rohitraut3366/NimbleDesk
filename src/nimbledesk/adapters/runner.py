@@ -10,6 +10,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import IO, Protocol
 
 from nimbledesk.adapters.models import AdapterInvocation, AdapterManifest, AdapterResult
 
@@ -19,6 +20,19 @@ MAXIMUM_STDERR_BYTES = 65_536
 
 class AdapterError(RuntimeError):
     pass
+
+
+class AdapterProcess(Protocol):
+    stdin: IO[bytes] | None
+    returncode: int | None
+
+    def poll(self) -> int | None: ...
+
+    def terminate(self) -> None: ...
+
+    def kill(self) -> None: ...
+
+    def wait(self, timeout: float | None = None) -> int: ...
 
 
 class IsolatedAdapterRunner:
@@ -77,17 +91,32 @@ class IsolatedAdapterRunner:
                     granted_paths,
                     scratch,
                 )
-            process = subprocess.Popen(
-                worker_command,
-                stdin=subprocess.PIPE,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                env=environment,
-                cwd=scratch,
-            )
-            assert process.stdin is not None
-            process.stdin.write(payload)
-            process.stdin.close()
+            process: AdapterProcess
+            if manifest.isolation == "sandboxed" and platform.system() == "Windows":
+                request_path = scratch / "request.json"
+                request_path.write_bytes(payload)
+                environment["NIMBLEDESK_ADAPTER_REQUEST"] = str(request_path)
+                from nimbledesk.adapters.windows_process import start_windows_restricted_process
+
+                process = start_windows_restricted_process(
+                    worker_command,
+                    stdout_file=stdout_file,
+                    stderr_file=stderr_file,
+                    environment=environment,
+                    cwd=scratch,
+                )
+            else:
+                process = subprocess.Popen(
+                    worker_command,
+                    stdin=subprocess.PIPE,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    env=environment,
+                    cwd=scratch,
+                )
+                assert process.stdin is not None
+                process.stdin.write(payload)
+                process.stdin.close()
             deadline = time.monotonic() + specification.timeout_seconds
             while process.poll() is None:
                 if cancelled and cancelled():
@@ -112,12 +141,16 @@ class IsolatedAdapterRunner:
             stdout = stdout_file.read(MAXIMUM_RESPONSE_BYTES + 1)
             stderr = stderr_file.read(MAXIMUM_STDERR_BYTES + 1)
             if len(stdout) > MAXIMUM_RESPONSE_BYTES:
+                _close_process(process)
                 raise AdapterError("adapter response exceeded the one-megabyte limit")
             if len(stderr) > MAXIMUM_STDERR_BYTES:
+                _close_process(process)
                 raise AdapterError("adapter stderr exceeded the 64-kilobyte limit")
             if process.returncode != 0:
                 message = stderr[:8_192].decode("utf-8", errors="replace").strip()
+                _close_process(process)
                 raise AdapterError(message or f"adapter worker exited with {process.returncode}")
+            _close_process(process)
         return _strict_adapter_result(stdout)
 
     @staticmethod
@@ -136,12 +169,14 @@ class IsolatedAdapterRunner:
                 raise AdapterError(f"adapter path is outside session grants: {name}")
 
     @staticmethod
-    def _wait_or_kill(process: subprocess.Popen[bytes]) -> None:
+    def _wait_or_kill(process: AdapterProcess) -> None:
         try:
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+        finally:
+            _close_process(process)
 
 
 def _canonical_without_symlinks(path: Path, description: str) -> Path:
@@ -229,7 +264,15 @@ def _sandboxed_worker_command(
         if manifest.network_access:
             command.append("--share-net")
         return [*command, "--", *worker_command]
+    if current_platform == "Windows":
+        return worker_command
     raise AdapterError("sandboxed adapters are not available on this platform")
+
+
+def _close_process(process: AdapterProcess) -> None:
+    close = getattr(process, "close", None)
+    if close is not None:
+        close()
 
 
 def _macos_sandbox_profile(

@@ -24,6 +24,12 @@ NimbleDesk adapters expose documented application APIs without adding editor-spe
 
 The entrypoint receives `command: str` and `arguments: dict` and returns a JSON-compatible dictionary. It runs in a separate worker process with a minimal environment, no user-site packages, a temporary working directory, a deadline, cancellation, one-megabyte stdout, and 64-kilobyte stderr limits enforced while the process runs. Duplicate JSON keys, unknown fields, malformed output, oversized output, crashes, and hangs fail the action without crashing the daemon. Declare every file argument in `path_arguments`; the runtime rejects symbolic-link components and paths outside the session's canonical `granted_paths` before starting the worker.
 
+Sandboxed Windows workers also run with maximum token privileges removed inside a one-process,
+512 MiB Job Object configured to terminate the worker when the job handle closes. This contains
+crashes, child-process attempts, resource exhaustion, and daemon cancellation. Windows
+AppContainer path and network brokering remains a release qualification gate; do not install an
+unreviewed Windows adapter until that gate is complete.
+
 An MCP client calls `application_command`. The first call returns `confirmation_required` and an `approval_id`. The approval operation is deliberately absent from the model-facing MCP tools. Review the adapter, command, complete arguments, and expiry in NimbleDesk Studio, then select **Approve exact action** or **Reject**. A terminal fallback is available:
 
 ```bash

@@ -43,6 +43,7 @@ def _manifest() -> AdapterManifest:
                 required_arguments=("seconds",),
             ),
             "huge": AdapterCommand(risk="observe", read_only=True),
+            "windows_security": AdapterCommand(risk="observe", read_only=True),
         },
     )
 
@@ -180,6 +181,32 @@ def test_linux_sandbox_only_shares_network_when_declared(
 
     assert "--unshare-all" in command
     assert "--share-net" in command
+
+
+def test_windows_sandbox_uses_restricted_process_launcher(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    manifest = _manifest().model_copy(update={"isolation": "sandboxed"})
+    monkeypatch.setattr(platform, "system", lambda: "Windows")
+
+    command = _sandboxed_worker_command(
+        ["python", "worker.py"], manifest, {}, (), scratch
+    )
+
+    assert command == ["python", "worker.py"]
+
+
+@pytest.mark.skipif(platform.system() != "Windows", reason="requires Windows security APIs")
+def test_adapter_runs_inside_windows_restricted_job() -> None:
+    manifest = _manifest().model_copy(update={"isolation": "sandboxed"})
+
+    result = IsolatedAdapterRunner().execute(manifest, "windows_security", {})
+
+    assert result.success
+    assert result.result["child_process_created"] is False
+    assert set(result.result["enabled_privileges"]) <= {"SeChangeNotifyPrivilege"}
 
 
 def test_macos_sandbox_profile_limits_reads_and_network(tmp_path: Path) -> None:
