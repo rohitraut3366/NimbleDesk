@@ -80,6 +80,7 @@ def test_render_compiles_speed_interpolation_punch_in_and_dip(
     monkeypatch.setattr(renderer, "require_media_tools", lambda: None)
     monkeypatch.setattr(renderer, "probe_media", lambda _path: metadata)
     monkeypatch.setattr(renderer, "run_cancellable", capture)
+    monkeypatch.setattr(renderer, "_ffmpeg_supports_filter", lambda _name: True)
 
     renderer.render_edit_plan(plan, tmp_path / "final.mp4")
 
@@ -127,6 +128,7 @@ def test_render_writes_captions_before_ffmpeg_and_maps_captioned_video(
     monkeypatch.setattr(renderer, "require_media_tools", lambda: None)
     monkeypatch.setattr(renderer, "probe_media", lambda _path: metadata)
     monkeypatch.setattr(renderer, "run_cancellable", capture)
+    monkeypatch.setattr(renderer, "_ffmpeg_supports_filter", lambda _name: True)
 
     renderer.render_edit_plan(plan, tmp_path / "final.mp4")
 
@@ -138,16 +140,7 @@ def test_render_writes_captions_before_ffmpeg_and_maps_captioned_video(
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
-def test_ffmpeg_renders_burned_captions_when_libass_is_available(tmp_path: Path) -> None:
-    filters = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-filters"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    if not any("subtitles" in line.split()[:2] for line in filters.splitlines()):
-        pytest.skip("ffmpeg was built without the subtitles/libass filter")
-
+def test_ffmpeg_renders_burned_captions_with_portable_fallback(tmp_path: Path) -> None:
     source = tmp_path / "source.mp4"
     subprocess.run(
         [
@@ -180,6 +173,8 @@ def test_ffmpeg_renders_burned_captions_when_libass_is_available(tmp_path: Path)
 
     assert output.stat().st_size > 0
     assert output.with_suffix(".srt").is_file()
+    if not renderer._ffmpeg_supports_filter("subtitles"):
+        assert (output.parent / "graphics" / "caption-0001.png").is_file()
 
 
 def test_timeline_compiler_builds_video_and_audio_cross_dissolve(tmp_path: Path) -> None:

@@ -86,7 +86,7 @@ uv run nimbledesk-create gameplay.mp4 output/my-video \
 
 The command never changes the source. Its output directory contains:
 
-- `final.mp4`: validated H.264/AAC review render with planned captions burned in for consistent review on every player.
+- `final.mp4`: validated H.264/AAC review render with planned captions burned in for consistent review on every player. NimbleDesk uses libass when available and portable transparent caption cards otherwise.
 - `final.srt`: editable captions when a transcript overlaps selected moments. Long passages are split into at most two roughly 42-character lines and timed proportionally to their source range.
 - `edit_plan.json`: source ranges and explainable story, speed, visual, color, music, caption, evidence, confidence, and review decisions.
 - `validation.json`: the mandatory source, timeline, duration, caption, music, and review gate applied before execution.

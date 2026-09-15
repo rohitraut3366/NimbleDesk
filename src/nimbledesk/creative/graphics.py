@@ -5,7 +5,7 @@ from typing import Literal
 
 from PIL import Image, ImageDraw, ImageFont
 
-GraphicKind = Literal["title", "lower_third"]
+GraphicKind = Literal["title", "lower_third", "caption"]
 
 
 def write_text_graphic(
@@ -20,8 +20,10 @@ def write_text_graphic(
     draw = ImageDraw.Draw(image)
     if kind == "title":
         _draw_title(draw, text, width, height)
-    else:
+    elif kind == "lower_third":
         _draw_lower_third(draw, text, width, height)
+    else:
+        _draw_caption(draw, text, width, height)
     image.save(output_path)
     return output_path
 
@@ -78,6 +80,36 @@ def _draw_lower_third(draw: ImageDraw.ImageDraw, text: str, width: int, height: 
         text,
         font=font,
         fill=(255, 255, 255, 255),
+    )
+
+
+def _draw_caption(draw: ImageDraw.ImageDraw, text: str, width: int, height: int) -> None:
+    font = _font(max(20, min(72, round(height * 0.045))))
+    bounds = draw.multiline_textbbox(
+        (0, 0), text, font=font, spacing=round(height * 0.008), align="center"
+    )
+    text_width = bounds[2] - bounds[0]
+    text_height = bounds[3] - bounds[1]
+    padding_x = round(width * 0.025)
+    padding_y = round(height * 0.014)
+    left = (width - text_width) / 2 - padding_x
+    bottom = height * 0.91
+    top = bottom - text_height - 2 * padding_y
+    right = (width + text_width) / 2 + padding_x
+    draw.rounded_rectangle(
+        (left, top, right, bottom),
+        radius=round(height * 0.012),
+        fill=(0, 0, 0, 190),
+    )
+    draw.multiline_text(
+        ((width - text_width) / 2, top + padding_y - bounds[1]),
+        text,
+        font=font,
+        fill=(255, 255, 255, 255),
+        stroke_width=max(1, round(height * 0.002)),
+        stroke_fill=(0, 0, 0, 255),
+        spacing=round(height * 0.008),
+        align="center",
     )
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -134,10 +135,34 @@ def render_edit_plan(
     if plan.captions:
         subtitle_path = output_path.with_suffix(".srt")
         write_srt(plan.captions, subtitle_path)
-        filters.append(
-            f"[vbase]{_subtitle_filter(subtitle_path, plan.delivery.height)}[vfinal]"
-        )
-        video_output = "[vfinal]"
+        if _ffmpeg_supports_filter("subtitles"):
+            filters.append(
+                f"[vbase]{_subtitle_filter(subtitle_path, plan.delivery.height)}[vfinal]"
+            )
+            video_output = "[vfinal]"
+        else:
+            previous_label = "vbase"
+            for index, caption_cue in enumerate(plan.captions):
+                graphic_path = output_path.parent / "graphics" / f"caption-{index + 1:04d}.png"
+                write_text_graphic(
+                    caption_cue.text,
+                    "caption",
+                    plan.delivery.width,
+                    plan.delivery.height,
+                    graphic_path,
+                )
+                command.extend(["-loop", "1", "-i", str(graphic_path)])
+                graphic_label = f"caption{index}"
+                output_label = f"vcaption{index}"
+                filters.append(f"[{next_input}:v]format=rgba[{graphic_label}]")
+                filters.append(
+                    f"[{previous_label}][{graphic_label}]overlay=0:0:enable='between(t,"
+                    f"{caption_cue.timeline_range.start_seconds:.3f},"
+                    f"{caption_cue.timeline_range.end_seconds:.3f})'[{output_label}]"
+                )
+                previous_label = output_label
+                next_input += 1
+            video_output = f"[{previous_label}]"
 
     audio_output = "[abase]"
     if plan.music_cue:
@@ -274,6 +299,18 @@ def _escape_ffmpeg_filter_value(value: str) -> str:
     for character in (":", "'", "[", "]", ",", ";"):
         escaped = escaped.replace(character, f"\\{character}")
     return escaped
+
+
+def _ffmpeg_supports_filter(name: str) -> bool:
+    completed = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-filters"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return False
+    return any(name in line.split()[:2] for line in completed.stdout.splitlines())
 
 
 def _color_filter(look: str, exposure_stops: float, saturation_multiplier: float) -> str:
