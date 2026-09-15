@@ -9,6 +9,7 @@ from nimbledesk.adapters.runner import (
     AdapterError,
     IsolatedAdapterRunner,
     _macos_sandbox_profile,
+    _sandbox_path,
     _sandboxed_worker_command,
     _strict_adapter_result,
 )
@@ -162,8 +163,8 @@ def test_macos_sandbox_profile_limits_reads_and_network(tmp_path: Path) -> None:
     scratch = tmp_path / "scratch"
     profile = _macos_sandbox_profile((granted,), (writable,), scratch, False)
 
-    assert f'(subpath "{granted}")' in profile
-    assert f'(allow file-write* (subpath "{writable}"))' in profile
+    assert f'(subpath "{_sandbox_path(granted)}")' in profile
+    assert f'(allow file-write* (subpath "{_sandbox_path(writable)}"))' in profile
     assert "(allow network*)" not in profile
 
 
