@@ -8,7 +8,7 @@ import pytest
 from pytest import MonkeyPatch
 
 import nimbledesk.testing.qualification as qualification
-from nimbledesk.media.models import TimelineEvent
+from nimbledesk.media.models import HighlightCandidate, TimelineEvent
 
 
 def test_event_benchmark_measures_per_type_accuracy_and_boundary_error() -> None:
@@ -42,6 +42,64 @@ def test_event_benchmark_handles_empty_corpus() -> None:
     assert report.recall == 1
     assert report.f1 == 1
     assert report.p95_boundary_error_seconds is None
+
+
+def test_ranking_benchmark_measures_order_diversity_and_context() -> None:
+    expected = (
+        qualification.HighlightAnnotation(
+            moment_id="clutch-1",
+            peak_seconds=30,
+            event_type="clutch",
+            relevance=5,
+            context_start_seconds=24,
+            context_end_seconds=35,
+        ),
+        qualification.HighlightAnnotation(
+            moment_id="kill-1", peak_seconds=60, event_type="kill", relevance=3
+        ),
+        qualification.HighlightAnnotation(
+            moment_id="survival-1",
+            peak_seconds=90,
+            event_type="narrow_survival",
+            relevance=4,
+        ),
+    )
+    detected = (
+        HighlightCandidate(
+            rank=1,
+            start_seconds=25,
+            end_seconds=34,
+            peak_seconds=31,
+            score=1,
+            reasons=("semantic event",),
+        ),
+        HighlightCandidate(
+            rank=2,
+            start_seconds=84,
+            end_seconds=100,
+            peak_seconds=91,
+            score=0.9,
+            reasons=("semantic event",),
+        ),
+        HighlightCandidate(
+            rank=3,
+            start_seconds=110,
+            end_seconds=120,
+            peak_seconds=115,
+            score=0.8,
+            reasons=("motion",),
+        ),
+    )
+
+    report = qualification.benchmark_ranking(expected, detected, cutoff=3, tolerance_seconds=3)
+
+    assert report.precision_at_k == 0.666667
+    assert report.recall_at_k == 0.666667
+    assert report.mean_average_precision == 0.666667
+    assert report.normalized_discounted_cumulative_gain > 0.8
+    assert report.event_type_coverage == 0.666667
+    assert report.context_retention == 0
+    assert report.missed_moment_ids == ("kill-1",)
 
 
 @pytest.mark.asyncio

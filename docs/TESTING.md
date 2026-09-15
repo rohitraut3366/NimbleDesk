@@ -95,6 +95,20 @@ uv run nimbledesk-qualify events \
   --output evidence/event-benchmark.json
 ```
 
+Store human-labeled highlight moments with `moment_id`, `peak_seconds`, `event_type`, relevance
+from 1–5, and optional required context bounds. Compare them with a generated
+`analysis/highlights.json` manifest to measure precision@k, recall@k, mean average precision,
+normalized discounted cumulative gain, event-type coverage, and context retention:
+
+```bash
+uv run nimbledesk-qualify ranking \
+  --expected corpus/expected-highlights.json \
+  --detected output/analysis/highlights.json \
+  --cutoff 10 \
+  --tolerance-seconds 5 \
+  --output evidence/ranking-benchmark.json
+```
+
 Creative quality also needs blinded human review. Reviewers compare variants for hook, clarity, pacing, emotion, novelty, and overall preference without seeing which planner produced them. No heuristic is treated as proof that content will become popular. With user permission, normalized retention and engagement data may inform later experiments.
 
 ## Release gate

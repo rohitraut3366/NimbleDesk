@@ -12,7 +12,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 
 from nimbledesk.client import DaemonClient
-from nimbledesk.media.models import TimelineEvent
+from nimbledesk.media.models import HighlightCandidate, HighlightManifest, TimelineEvent
 from nimbledesk.testing.smoke import _move_and_restore_pointer, validate_capture
 
 
@@ -51,6 +51,41 @@ class EventBenchmarkReport(QualificationModel):
     matches: tuple[EventMatch, ...]
     missed: tuple[TimelineEvent, ...]
     false_positives: tuple[TimelineEvent, ...]
+
+
+class HighlightAnnotation(QualificationModel):
+    moment_id: str
+    peak_seconds: Annotated[float, Field(ge=0)]
+    event_type: str
+    relevance: Annotated[int, Field(ge=1, le=5)] = 1
+    context_start_seconds: Annotated[float, Field(ge=0)] | None = None
+    context_end_seconds: Annotated[float, Field(gt=0)] | None = None
+
+
+class RankingMatch(QualificationModel):
+    rank: Annotated[int, Field(ge=1)]
+    moment_id: str
+    event_type: str
+    relevance: Annotated[int, Field(ge=1, le=5)]
+    peak_error_seconds: Annotated[float, Field(ge=0)]
+    context_retained: bool | None
+
+
+class RankingBenchmarkReport(QualificationModel):
+    report_version: str = "1.0.0"
+    cutoff: Annotated[int, Field(ge=1)]
+    tolerance_seconds: Annotated[float, Field(gt=0)]
+    expected_relevant: Annotated[int, Field(ge=0)]
+    returned: Annotated[int, Field(ge=0)]
+    matched: Annotated[int, Field(ge=0)]
+    precision_at_k: Annotated[float, Field(ge=0, le=1)]
+    recall_at_k: Annotated[float, Field(ge=0, le=1)]
+    mean_average_precision: Annotated[float, Field(ge=0, le=1)]
+    normalized_discounted_cumulative_gain: Annotated[float, Field(ge=0, le=1)]
+    event_type_coverage: Annotated[float, Field(ge=0, le=1)]
+    context_retention: Annotated[float, Field(ge=0, le=1)] | None
+    matches: tuple[RankingMatch, ...]
+    missed_moment_ids: tuple[str, ...]
 
 
 class EnduranceReport(QualificationModel):
@@ -123,6 +158,95 @@ def benchmark_events(
         matches=tuple(matches),
         missed=tuple(missed),
         false_positives=false_positives,
+    )
+
+
+def benchmark_ranking(
+    expected: tuple[HighlightAnnotation, ...],
+    detected: tuple[HighlightCandidate, ...],
+    cutoff: int,
+    tolerance_seconds: float,
+) -> RankingBenchmarkReport:
+    if cutoff < 1 or tolerance_seconds <= 0:
+        raise ValueError("ranking cutoff and matching tolerance must be positive")
+    ranked = tuple(sorted(detected, key=lambda candidate: candidate.rank)[:cutoff])
+    unmatched = set(range(len(expected)))
+    matches: list[RankingMatch] = []
+    precisions: list[float] = []
+    relevance_by_rank: list[int] = []
+    for rank, candidate in enumerate(ranked, start=1):
+        candidates = [
+            (abs(annotation.peak_seconds - candidate.peak_seconds), index)
+            for index, annotation in enumerate(expected)
+            if index in unmatched
+            and abs(annotation.peak_seconds - candidate.peak_seconds) <= tolerance_seconds
+        ]
+        if not candidates:
+            relevance_by_rank.append(0)
+            continue
+        peak_error, expected_index = min(candidates)
+        unmatched.remove(expected_index)
+        annotation = expected[expected_index]
+        retained = _context_retained(annotation, candidate)
+        matches.append(
+            RankingMatch(
+                rank=rank,
+                moment_id=annotation.moment_id,
+                event_type=annotation.event_type,
+                relevance=annotation.relevance,
+                peak_error_seconds=round(peak_error, 6),
+                context_retained=retained,
+            )
+        )
+        relevance_by_rank.append(annotation.relevance)
+        precisions.append(len(matches) / rank)
+    returned = len(ranked)
+    precision = len(matches) / returned if returned else float(not expected)
+    recall = len(matches) / len(expected) if expected else float(not ranked)
+    average_precision = sum(precisions) / len(expected) if expected else float(not ranked)
+    ideal_relevance = sorted((item.relevance for item in expected), reverse=True)[:cutoff]
+    ideal_gain = _discounted_cumulative_gain(ideal_relevance)
+    gain = _discounted_cumulative_gain(relevance_by_rank)
+    expected_types = {item.event_type for item in expected}
+    matched_types = {match.event_type for match in matches}
+    type_coverage = len(matched_types) / len(expected_types) if expected_types else 1
+    context_results = [
+        match.context_retained for match in matches if match.context_retained is not None
+    ]
+    return RankingBenchmarkReport(
+        cutoff=cutoff,
+        tolerance_seconds=tolerance_seconds,
+        expected_relevant=len(expected),
+        returned=returned,
+        matched=len(matches),
+        precision_at_k=round(precision, 6),
+        recall_at_k=round(recall, 6),
+        mean_average_precision=round(average_precision, 6),
+        normalized_discounted_cumulative_gain=(round(gain / ideal_gain, 6) if ideal_gain else 1),
+        event_type_coverage=round(type_coverage, 6),
+        context_retention=(
+            round(sum(bool(value) for value in context_results) / len(context_results), 6)
+            if context_results
+            else None
+        ),
+        matches=tuple(matches),
+        missed_moment_ids=tuple(expected[index].moment_id for index in sorted(unmatched)),
+    )
+
+
+def _context_retained(
+    annotation: HighlightAnnotation, candidate: HighlightCandidate
+) -> bool | None:
+    if annotation.context_start_seconds is None and annotation.context_end_seconds is None:
+        return None
+    start = annotation.context_start_seconds or annotation.peak_seconds
+    end = annotation.context_end_seconds or annotation.peak_seconds
+    return candidate.start_seconds <= start and candidate.end_seconds >= end
+
+
+def _discounted_cumulative_gain(relevance: list[int]) -> float:
+    return float(
+        sum((2**value - 1) / math.log2(rank + 1) for rank, value in enumerate(relevance, 1))
     )
 
 
@@ -251,6 +375,20 @@ def _load_events(path: Path) -> tuple[TimelineEvent, ...]:
     return tuple(TimelineEvent.model_validate(event) for event in payload)
 
 
+def _load_annotations(path: Path) -> tuple[HighlightAnnotation, ...]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        raise ValueError(f"{path} must contain a JSON list")
+    return tuple(HighlightAnnotation.model_validate(item) for item in payload)
+
+
+def _load_candidates(path: Path) -> tuple[HighlightCandidate, ...]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(payload, list):
+        return tuple(HighlightCandidate.model_validate(item) for item in payload)
+    return HighlightManifest.model_validate(payload).candidates
+
+
 def _write_report(report: QualificationModel, output: Path | None) -> None:
     content = report.model_dump_json(indent=2)
     if output is None:
@@ -269,6 +407,14 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     events.add_argument("--detected", required=True, type=Path)
     events.add_argument("--tolerance-seconds", type=float, default=3)
     events.add_argument("--output", type=Path)
+    ranking = commands.add_parser(
+        "ranking", help="measure highlight ranking, diversity, and context retention"
+    )
+    ranking.add_argument("--expected", required=True, type=Path)
+    ranking.add_argument("--detected", required=True, type=Path)
+    ranking.add_argument("--cutoff", type=int, default=10)
+    ranking.add_argument("--tolerance-seconds", type=float, default=5)
+    ranking.add_argument("--output", type=Path)
     endurance = commands.add_parser("endurance", help="exercise a running daemon over time")
     endurance.add_argument("--connection-file", required=True, type=Path)
     endurance.add_argument("--hours", type=float, default=8)
@@ -286,6 +432,13 @@ def main(arguments: list[str] | None = None) -> None:
         report = benchmark_events(
             _load_events(parsed.expected),
             _load_events(parsed.detected),
+            parsed.tolerance_seconds,
+        )
+    elif parsed.command == "ranking":
+        report = benchmark_ranking(
+            _load_annotations(parsed.expected),
+            _load_candidates(parsed.detected),
+            parsed.cutoff,
             parsed.tolerance_seconds,
         )
     else:
