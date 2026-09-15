@@ -15,8 +15,10 @@ from nimbledesk.protocol.models import (
     ActionRequest,
     CaptureOptions,
     CoordinateTarget,
+    ElementTarget,
     Point,
     ResponseBudget,
+    Target,
 )
 
 mcp = FastMCP("NimbleDesk")
@@ -60,12 +62,14 @@ async def desktop_observe(
     session_id: str,
     max_estimated_text_tokens: int = 2_000,
     max_windows: int = 10,
+    max_elements: int = 100,
 ) -> dict[str, Any]:
     """Observe displays, cursor, focused application, windows, and capabilities."""
     observation = await client().call("desktop_observe", {"session_id": session_id})
     budget = ResponseBudget(
         max_estimated_text_tokens=max_estimated_text_tokens,
         max_windows=max_windows,
+        max_elements=max_elements,
     )
     return compact_observation(observation, budget)
 
@@ -134,6 +138,26 @@ async def click(
         expected_application_id=expected_application_id,
         expected_window_id=expected_window_id,
         arguments={"button": button, "clicks": clicks, "interval": interval},
+    )
+
+
+@mcp.tool()
+async def click_element(
+    session_id: str,
+    observation_id: str,
+    element_id: str,
+    expected_application_id: str | None = None,
+    expected_window_id: str | None = None,
+) -> dict[str, Any]:
+    """Invoke a semantic UI element from the latest accessibility observation."""
+    return await _execute_action(
+        session_id=session_id,
+        observation_id=observation_id,
+        kind=ActionKind.CLICK,
+        target=ElementTarget(observation_id=observation_id, element_id=element_id),
+        expected_application_id=expected_application_id,
+        expected_window_id=expected_window_id,
+        arguments={"button": "left", "clicks": 1},
     )
 
 
@@ -304,7 +328,7 @@ async def _execute_action(
     observation_id: str | None,
     kind: ActionKind,
     arguments: dict[str, Any],
-    target: CoordinateTarget | None = None,
+    target: Target | None = None,
     expected_application_id: str | None = None,
     expected_window_id: str | None = None,
 ) -> dict[str, Any]:

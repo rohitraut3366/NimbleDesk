@@ -41,3 +41,24 @@ async def test_gateway_builds_observation_bound_action(monkeypatch: pytest.Monke
     assert action["expected_application_id"] == "fixture.app"
     assert action["expected_window_id"] == "fixture-window"
     assert action["target"]["point"] == {"x": 10, "y": 20}
+
+
+@pytest.mark.asyncio
+async def test_gateway_builds_semantic_element_action(monkeypatch: pytest.MonkeyPatch) -> None:
+    recording_client = RecordingClient()
+    monkeypatch.setattr(gateway, "client", lambda: recording_client)
+
+    await gateway.click_element(
+        session_id="session",
+        observation_id="observation",
+        element_id="create-button",
+        expected_application_id="fixture.app",
+    )
+
+    action = recording_client.params["action"]
+    assert action["target"] == {
+        "target_type": "element",
+        "observation_id": "observation",
+        "element_id": "create-button",
+    }
+    assert action["source_observation_id"] == "observation"

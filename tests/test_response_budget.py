@@ -37,6 +37,19 @@ def observation_with_windows(window_count: int) -> dict[str, object]:
             }
             for index in range(window_count)
         ],
+        "elements": [
+            {
+                "element_id": f"element-{index}",
+                "window_id": "window-0",
+                "role": "button",
+                "name": "Create a very long project " * 30,
+                "bounds": {"left": 10, "top": 10, "width": 100, "height": 30},
+                "enabled": True,
+                "focused": False,
+                "actions": ["invoke"],
+            }
+            for index in range(window_count * 5)
+        ],
         "warnings": [],
     }
 
@@ -48,8 +61,9 @@ def test_observation_limits_windows_and_reports_estimated_usage() -> None:
     )
 
     assert len(result["observation"]["windows"]) == 3
+    assert len(result["observation"]["elements"]) <= 100
     assert result["usage"]["estimated_text_tokens"] <= 1_000
-    assert result["usage"]["truncated_fields"] == ["windows"]
+    assert set(result["usage"]["truncated_fields"]) >= {"elements", "windows"}
 
 
 def test_small_budget_preserves_action_safety_fields() -> None:

@@ -341,9 +341,9 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 
 1. Call `health`.
 2. Call `session_start` with a clear reason. Set `input_enabled` to `true` only when input is intended.
-3. Call `desktop_observe` and retain its `observation_id`, active application, focused window, and display bounds.
+3. Call `desktop_observe` and retain its `observation_id`, active application, focused window, semantic elements, and display bounds.
 4. Call `take_screenshot` with that observation. Prefer a crop when the relevant region is known.
-5. Perform one bounded action using the latest observation ID. Include the expected application and window IDs when available.
+5. Prefer `click_element` when the observation contains the intended accessible control. Otherwise perform one bounded coordinate action using the latest observation ID. Include the expected application and window IDs when available.
 6. Observe again after each action that can change the interface. Do not reuse an old observation.
 7. Call `session_pause` if human intervention is needed, and `session_stop` when finished.
 
@@ -353,10 +353,11 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | --- | --- | --- |
 | `health` | None | Checks daemon availability. |
 | `session_start` | `reason` | `input_enabled=false`; `allowed_applications=[]`. Sessions default to 1,000 actions and one hour. |
-| `desktop_observe` | `session_id` | `max_estimated_text_tokens=2000` (128–100,000); `max_windows=10` (0–200). |
+| `desktop_observe` | `session_id` | `max_estimated_text_tokens=2000` (128–100,000); `max_windows=10` (0–200); `max_elements=100` (0–2,000). Reports truncation separately for windows and elements. |
 | `take_screenshot` | `session_id`, `observation_id` | Crop with all of `left`, `top`, `width`, `height`; `image_format=jpeg`; `max_width=1280`; `max_height=800`; `jpeg_quality=75`. |
 | `move_mouse` | `session_id`, `observation_id`, `x`, `y` | `duration=0.2`; expected application/window IDs. |
 | `click` | `session_id`, `observation_id`, `x`, `y` | `button=left`; `clicks=1`; `interval=0.1`; expected application/window IDs. |
+| `click_element` | `session_id`, `observation_id`, `element_id` | Invokes an observation-bound accessibility element; expected application/window IDs. Returns `capability_unavailable` when the selected backend has no semantic provider. |
 | `drag_to` | `session_id`, `observation_id`, `x`, `y` | Drags from the current pointer; `duration=0.5`; `button=left`; expected application/window IDs. |
 | `scroll` | `session_id`, `observation_id`, `amount` | Positive scrolls up and negative scrolls down; expected application/window IDs. |
 | `type_text` | `session_id`, `observation_id`, `text` | `interval=0.02`; expected application/window IDs. Text is redacted from the audit record. |
@@ -367,7 +368,7 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `session_resume` | `session_id` | Restores the original session limits; a stopped session cannot resume. |
 | `session_stop` | `session_id` | Permanently stops the session and releases input. |
 
-Coordinates are logical desktop coordinates from `desktop_observe`. The daemon verifies the observation is fresh and, when supplied, that the active application and focused window still match. PyAutoGUI's corner fail-safe remains enabled: move the pointer to a screen corner to interrupt portable automation.
+Coordinates are logical desktop coordinates from `desktop_observe`. Element IDs are valid only for the observation that returned them. The daemon verifies the observation is fresh and, when supplied, that the active application and focused window still match. PyAutoGUI's corner fail-safe remains enabled: move the pointer to a screen corner to interrupt portable automation.
 
 ## Use the real desktop
 

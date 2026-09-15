@@ -114,6 +114,19 @@ class Window(ProtocolModel):
     focused: bool = False
 
 
+class AccessibleElement(ProtocolModel):
+    element_id: str
+    window_id: str
+    role: str
+    name: str
+    bounds: Rectangle | None = None
+    value: str | None = None
+    enabled: bool = True
+    focused: bool = False
+    parent_id: str | None = None
+    actions: tuple[str, ...] = ()
+
+
 class CoordinateTarget(ProtocolModel):
     target_type: Literal["coordinate"] = "coordinate"
     point: Point
@@ -166,6 +179,7 @@ class DesktopObservation(ProtocolModel):
     displays: tuple[Display, ...]
     cursor: Point
     windows: tuple[Window, ...] = ()
+    elements: tuple[AccessibleElement, ...] = ()
     active_application_id: str | None = None
     focused_window_id: str | None = None
     screenshot_sha256: str | None = None
@@ -192,6 +206,7 @@ class CaptureOptions(ProtocolModel):
 class ResponseBudget(ProtocolModel):
     max_estimated_text_tokens: Annotated[int, Field(ge=128, le=100_000)] = 2_000
     max_windows: Annotated[int, Field(ge=0, le=200)] = 10
+    max_elements: Annotated[int, Field(ge=0, le=2_000)] = 100
 
 
 class ActionRequest(ProtocolModel):

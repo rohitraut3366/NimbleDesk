@@ -12,6 +12,7 @@ from nimbledesk.protocol.models import (
     ActionRequest,
     ActionStatus,
     CoordinateTarget,
+    ElementTarget,
     Point,
     SessionConfig,
     SessionState,
@@ -82,6 +83,27 @@ def test_valid_click_executes_and_is_audited(tmp_path: Path) -> None:
     record = json.loads(audit_path.read_text())
     assert record["request"]["action_id"] == action.action_id
     assert len(record["entry_hash"]) == 64
+
+
+def test_semantic_element_click_is_observation_bound() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("semantic fixture", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = ActionRequest(
+        session_id=session.session_id,
+        source_observation_id=observation.observation_id,
+        expected_window_id="fixture-window",
+        kind=ActionKind.CLICK,
+        target=ElementTarget(
+            observation_id=observation.observation_id,
+            element_id="fixture-create",
+        ),
+    )
+
+    result = runtime.execute(action)
+
+    assert result.status is ActionStatus.COMPLETED
+    assert backend.executed_actions == [action]
 
 
 def test_application_command_approval_is_exact_and_single_use() -> None:

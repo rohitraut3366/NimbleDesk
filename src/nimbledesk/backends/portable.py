@@ -17,6 +17,7 @@ from nimbledesk.protocol.models import (
     CoordinateTarget,
     DesktopObservation,
     Display,
+    ElementTarget,
     PermissionState,
     Point,
     Rectangle,
@@ -92,6 +93,13 @@ class PortableDesktopBackend:
 
     def execute(self, request: ActionRequest) -> ActionResult:
         started_at = time()
+        if isinstance(request.target, ElementTarget):
+            return self._result(
+                request,
+                ActionStatus.CAPABILITY_UNAVAILABLE,
+                "portable backend has no semantic accessibility provider",
+                started_at,
+            )
         handlers = {
             ActionKind.MOVE_POINTER: self._move_pointer,
             ActionKind.CLICK: self._click,

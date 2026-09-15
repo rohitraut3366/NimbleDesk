@@ -6,6 +6,7 @@ from PIL import Image
 
 from nimbledesk.backends.images import encode_capture
 from nimbledesk.protocol.models import (
+    AccessibleElement,
     ActionKind,
     ActionRequest,
     ActionResult,
@@ -15,6 +16,7 @@ from nimbledesk.protocol.models import (
     CoordinateTarget,
     DesktopObservation,
     Display,
+    ElementTarget,
     PermissionState,
     Point,
     Rectangle,
@@ -31,6 +33,7 @@ class SimulatorBackend:
         self._cursor = Point(x=100, y=100)
         self.executed_actions: list[ActionRequest] = []
         self.input_cancelled = False
+        self._observation_id: str | None = None
 
     @property
     def backend_id(self) -> str:
@@ -44,6 +47,7 @@ class SimulatorBackend:
                 Capability.POINTER,
                 Capability.KEYBOARD,
                 Capability.WINDOWS,
+                Capability.ACCESSIBILITY,
             }
         )
 
@@ -51,7 +55,7 @@ class SimulatorBackend:
         captured_at = time()
         self._sequence += 1
         display_bounds = Rectangle(left=0, top=0, width=1920, height=1080)
-        return DesktopObservation(
+        observation = DesktopObservation(
             sequence=self._sequence,
             captured_at=captured_at,
             expires_at=captured_at + 5,
@@ -77,12 +81,50 @@ class SimulatorBackend:
                     focused=True,
                 ),
             ),
+            elements=(
+                AccessibleElement(
+                    element_id="fixture-title",
+                    window_id="fixture-window",
+                    role="heading",
+                    name="NimbleDesk Fixture",
+                    bounds=Rectangle(left=140, top=140, width=300, height=40),
+                ),
+                AccessibleElement(
+                    element_id="fixture-create",
+                    window_id="fixture-window",
+                    role="button",
+                    name="Create",
+                    bounds=Rectangle(left=140, top=210, width=120, height=40),
+                    actions=("invoke",),
+                ),
+            ),
             active_application_id="fixture.app",
             focused_window_id="fixture-window",
         )
+        self._observation_id = observation.observation_id
+        return observation
 
     def execute(self, request: ActionRequest) -> ActionResult:
         started_at = time()
+        if isinstance(request.target, ElementTarget):
+            if request.target.observation_id != self._observation_id:
+                return self._result(
+                    request,
+                    ActionStatus.STALE_OBSERVATION,
+                    "Element observation is stale",
+                    started_at,
+                )
+            if request.target.element_id != "fixture-create":
+                return self._result(
+                    request, ActionStatus.FAILED, "Element is unknown or not actionable", started_at
+                )
+            self.executed_actions.append(request)
+            return self._result(
+                request,
+                ActionStatus.COMPLETED,
+                "Semantic element invoked by simulator",
+                started_at,
+            )
         if isinstance(request.target, CoordinateTarget):
             desktop = Rectangle(left=0, top=0, width=1920, height=1080)
             if not desktop.contains(request.target.point):

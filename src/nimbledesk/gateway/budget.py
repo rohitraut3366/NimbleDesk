@@ -20,6 +20,10 @@ def compact_observation(
     if len(windows) > budget.max_windows:
         truncated_fields.append("windows")
     windows = [_compact_window(window) for window in windows[: budget.max_windows]]
+    elements = observation.get("elements", [])
+    if len(elements) > budget.max_elements:
+        truncated_fields.append("elements")
+    elements = [_compact_element(element) for element in elements[: budget.max_elements]]
     summary = {
         "observation_id": observation["observation_id"],
         "sequence": observation["sequence"],
@@ -33,6 +37,7 @@ def compact_observation(
         "active_application_id": observation.get("active_application_id"),
         "focused_window_id": observation.get("focused_window_id"),
         "windows": windows,
+        "elements": elements,
         "warnings": [
             _truncate_text(str(warning)) for warning in observation.get("warnings", [])[:10]
         ],
@@ -71,7 +76,7 @@ def _shrink_to_budget(
     maximum_tokens: int,
     truncated_fields: list[str],
 ) -> None:
-    for field in ("windows", "permissions", "warnings"):
+    for field in ("elements", "windows", "permissions", "warnings"):
         if estimate_text_tokens(summary) <= maximum_tokens:
             return
         value = summary[field]
@@ -86,3 +91,17 @@ def _truncate_text(value: str) -> str:
     if len(value) <= MAXIMUM_LABEL_CHARACTERS:
         return value
     return value[: MAXIMUM_LABEL_CHARACTERS - 1] + "…"
+
+
+def _compact_element(element: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "element_id": element.get("element_id"),
+        "window_id": element.get("window_id"),
+        "role": _truncate_text(str(element.get("role", ""))),
+        "name": _truncate_text(str(element.get("name", ""))),
+        "bounds": element.get("bounds"),
+        "value": _truncate_text(str(element["value"])) if element.get("value") else None,
+        "enabled": bool(element.get("enabled", True)),
+        "focused": bool(element.get("focused")),
+        "actions": element.get("actions", []),
+    }

@@ -12,6 +12,7 @@ from nimbledesk.protocol.models import (
     ActionStatus,
     CaptureOptions,
     CoordinateTarget,
+    ElementTarget,
     Point,
     Rectangle,
 )
@@ -71,3 +72,17 @@ def test_click_reaches_automation_backend() -> None:
     assert automation.calls == [
         ("click", (100, 200), {"clicks": 2, "interval": 0.1, "button": "right"})
     ]
+
+
+def test_semantic_element_reports_unavailable_without_native_provider() -> None:
+    backend = PortableDesktopBackend(FakeAutomation())
+    request = ActionRequest(
+        session_id="session",
+        kind=ActionKind.CLICK,
+        target=ElementTarget(observation_id="observation", element_id="button"),
+    )
+
+    result = backend.execute(request)
+
+    assert result.status is ActionStatus.CAPABILITY_UNAVAILABLE
+    assert "semantic accessibility" in result.message
