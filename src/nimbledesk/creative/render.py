@@ -82,6 +82,15 @@ def render_edit_plan(
         + f"concat=n={len(plan.segments)}:v=1:a=1[vbase][abase]"
     )
 
+    video_output = "[vbase]"
+    if plan.captions:
+        subtitle_path = output_path.with_suffix(".srt")
+        write_srt(plan.captions, subtitle_path)
+        filters.append(
+            f"[vbase]{_subtitle_filter(subtitle_path, plan.delivery.height)}[vfinal]"
+        )
+        video_output = "[vfinal]"
+
     command = ["ffmpeg", "-y", "-v", "error", "-i", str(plan.source_path)]
     audio_output = "[abase]"
     next_input = 1
@@ -131,7 +140,7 @@ def render_edit_plan(
             "-filter_complex",
             ";".join(filters),
             "-map",
-            "[vbase]",
+            video_output,
             "-map",
             audio_output,
             "-c:v",
@@ -157,8 +166,6 @@ def render_edit_plan(
     if completed.returncode != 0:
         raise MediaToolError(completed.stderr.strip() or "creative render failed")
     probe_media(output_path)
-    if plan.captions:
-        write_srt(plan.captions, output_path.with_suffix(".srt"))
     return output_path
 
 
@@ -169,6 +176,25 @@ def write_srt(cues: tuple[CaptionCue, ...], output_path: Path) -> None:
         for index, cue in enumerate(cues, start=1)
     ]
     output_path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
+
+
+def _subtitle_filter(subtitle_path: Path, frame_height: int) -> str:
+    escaped_path = _escape_ffmpeg_filter_value(subtitle_path.resolve().as_posix())
+    font_size = max(18, min(72, round(frame_height * 0.045)))
+    outline = max(1, round(font_size * 0.08))
+    style = (
+        f"FontName=Arial,FontSize={font_size},PrimaryColour=&H00FFFFFF,"
+        "OutlineColour=&H90000000,BorderStyle=1,"
+        f"Outline={outline},Shadow=0,Alignment=2,MarginV={max(24, round(frame_height * 0.06))}"
+    )
+    return f"subtitles=filename='{escaped_path}':force_style='{style}'"
+
+
+def _escape_ffmpeg_filter_value(value: str) -> str:
+    escaped = value.replace("\\", "\\\\")
+    for character in (":", "'", "[", "]", ",", ";"):
+        escaped = escaped.replace(character, f"\\{character}")
+    return escaped
 
 
 def _color_filter(look: str, exposure_stops: float, saturation_multiplier: float) -> str:

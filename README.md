@@ -69,7 +69,7 @@ uv sync --extra dev --extra native
 
 ## Create a finished video
 
-The creation workflow is the main end-to-end entry point. It analyzes the source, incorporates supplied or automatically detected semantic events, transcribes dialogue when requested, ranks moments, creates a reviewable edit plan, selects licensed music, renders a finished review MP4, writes captions, and exports a DaVinci Resolve timeline.
+The creation workflow is the main end-to-end entry point. It analyzes the source, incorporates supplied or automatically detected semantic events, transcribes dialogue when requested, ranks moments, creates a reviewable edit plan, selects licensed music, renders a finished review MP4 with readable burned captions, retains an editable SRT sidecar, and exports a DaVinci Resolve timeline.
 
 ```bash
 uv run nimbledesk-create gameplay.mp4 output/my-video \
@@ -86,8 +86,8 @@ uv run nimbledesk-create gameplay.mp4 output/my-video \
 
 The command never changes the source. Its output directory contains:
 
-- `final.mp4`: validated H.264/AAC review render.
-- `final.srt`: captions when a transcript overlaps selected moments.
+- `final.mp4`: validated H.264/AAC review render with planned captions burned in for consistent review on every player.
+- `final.srt`: editable captions when a transcript overlaps selected moments. Long passages are split into at most two roughly 42-character lines and timed proportionally to their source range.
 - `edit_plan.json`: source ranges and explainable story, speed, visual, color, music, caption, evidence, confidence, and review decisions.
 - `validation.json`: the mandatory source, timeline, duration, caption, music, and review gate applied before execution.
 - `davinci_timeline.fcpxml`: editable timeline for DaVinci Resolve.

@@ -88,3 +88,61 @@ def test_planner_builds_treatments_captions_music_and_davinci_timeline(tmp_path:
     parsed = ElementTree.parse(timeline)
     assert parsed.find(".//project").attrib["name"] == "Best round"
     assert len(parsed.findall(".//asset-clip")) == 3
+
+
+def test_planner_splits_long_caption_into_readable_proportional_cues(tmp_path: Path) -> None:
+    source = tmp_path / "talk.mp4"
+    manifest = HighlightManifest(
+        source=MediaMetadata(
+            path=source,
+            duration_seconds=20,
+            width=1920,
+            height=1080,
+            frame_rate=30,
+            has_audio=True,
+            video_codec="h264",
+            audio_codec="aac",
+        ),
+        config=AnalysisConfig(),
+        candidates=(
+            HighlightCandidate(
+                rank=1,
+                start_seconds=2,
+                end_seconds=12,
+                peak_seconds=7,
+                score=1,
+                reasons=("spoken explanation",),
+            ),
+        ),
+        clips=(),
+    )
+    transcript = TranscriptSegment(
+        source_range=TimeRange(start_seconds=2, end_seconds=12),
+        text=(
+            "This deliberately long transcript needs several readable subtitle cues so viewers "
+            "can follow every sentence without a wall of text covering the video frame."
+        ),
+        speaker="Host",
+    )
+    brief = CreativeBrief(
+        content_kind="talking_head",
+        target_duration_seconds=12,
+        clip_count=1,
+        music=False,
+    )
+
+    plan = build_edit_plan(manifest, brief, (transcript,))
+
+    assert len(plan.captions) >= 2
+    assert all(len(line) <= 42 for cue in plan.captions for line in cue.text.splitlines())
+    assert all(cue.speaker == "Host" for cue in plan.captions)
+    assert all(cue.segment_id == "segment-001" for cue in plan.captions)
+    assert plan.captions[0].source_range is not None
+    assert plan.captions[-1].source_range is not None
+    assert plan.captions[0].source_range.start_seconds == 2
+    assert plan.captions[-1].source_range.end_seconds == 12
+    for previous, current in zip(plan.captions, plan.captions[1:], strict=False):
+        assert previous.timeline_range.end_seconds == current.timeline_range.start_seconds
+        assert previous.source_range is not None
+        assert current.source_range is not None
+        assert previous.source_range.end_seconds == current.source_range.start_seconds

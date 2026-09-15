@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import textwrap
 from pathlib import Path
 from typing import Literal
 
@@ -199,18 +200,74 @@ def _map_captions(
             timeline_end = segment.timeline_start_seconds + (
                 end - segment.source_range.start_seconds
             ) / segment.speed.rate
-            cues.append(
-                CaptionCue(
-                    timeline_range=TimeRange(
-                        start_seconds=round(timeline_start, 3),
-                        end_seconds=round(timeline_end, 3),
-                    ),
-                    text=transcript.text.strip(),
-                    speaker=transcript.speaker,
-                    segment_id=segment.segment_id,
-                    source_range=TimeRange(start_seconds=start, end_seconds=end),
+            cues.extend(
+                _split_caption_cues(
+                    transcript.text.strip(),
+                    timeline_start,
+                    timeline_end,
+                    start,
+                    end,
+                    transcript.speaker,
+                    segment.segment_id,
                 )
             )
+    return tuple(cues)
+
+
+def _split_caption_cues(
+    text: str,
+    timeline_start: float,
+    timeline_end: float,
+    source_start: float,
+    source_end: float,
+    speaker: str | None,
+    segment_id: str,
+) -> tuple[CaptionCue, ...]:
+    lines = textwrap.wrap(
+        " ".join(text.split()),
+        width=42,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+    chunks = ["\n".join(lines[index : index + 2]) for index in range(0, len(lines), 2)]
+    if not chunks:
+        return ()
+
+    weights = [max(1, len(chunk.replace("\n", " "))) for chunk in chunks]
+    total_weight = sum(weights)
+    consumed_weight = 0
+    cues: list[CaptionCue] = []
+    for index, (chunk, weight) in enumerate(zip(chunks, weights, strict=True)):
+        start_fraction = consumed_weight / total_weight
+        consumed_weight += weight
+        end_fraction = consumed_weight / total_weight
+        cue_timeline_start = timeline_start + (timeline_end - timeline_start) * start_fraction
+        cue_timeline_end = (
+            timeline_end
+            if index == len(chunks) - 1
+            else timeline_start + (timeline_end - timeline_start) * end_fraction
+        )
+        cue_source_start = source_start + (source_end - source_start) * start_fraction
+        cue_source_end = (
+            source_end
+            if index == len(chunks) - 1
+            else source_start + (source_end - source_start) * end_fraction
+        )
+        cues.append(
+            CaptionCue(
+                timeline_range=TimeRange(
+                    start_seconds=round(cue_timeline_start, 6),
+                    end_seconds=round(cue_timeline_end, 6),
+                ),
+                text=chunk,
+                speaker=speaker,
+                segment_id=segment_id,
+                source_range=TimeRange(
+                    start_seconds=round(cue_source_start, 6),
+                    end_seconds=round(cue_source_end, 6),
+                ),
+            )
+        )
     return tuple(cues)
 
 
