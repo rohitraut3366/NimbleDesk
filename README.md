@@ -713,6 +713,16 @@ uv run nimbledesk-fixture \
   --events evidence/fixture-events.jsonl
 ```
 
+With the fixture focused and the input-enabled native daemon running, execute the contract and
+retain its machine-readable report:
+
+```bash
+uv run nimbledesk-fixture-contract \
+  --connection-file ~/.nimbledesk/runtime/connection.json \
+  --state evidence/fixture-state.json \
+  --output evidence/fixture-contract.json
+```
+
 Measure event recognition against a labeled corpus with the release qualification command:
 
 ```bash

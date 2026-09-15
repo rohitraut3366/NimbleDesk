@@ -70,6 +70,22 @@ recognized operation, while `fixture-events.jsonl` records timestamped state tra
 content is never written; only its length is recorded. Use these files as the postcondition oracle
 instead of treating a successful input API return as proof that the UI changed.
 
+With the fixture focused and a native daemon running with host input enabled, run the automated
+contract in a second terminal:
+
+```bash
+uv run nimbledesk-fixture-contract \
+  --connection-file ~/.nimbledesk/runtime/connection.json \
+  --state evidence/fixture-state.json \
+  --output evidence/fixture-contract.json
+```
+
+The contract requires capture, pointer, keyboard, and accessibility capabilities. It validates a
+bounded capture hash, moves and restores the pointer, types into the initially focused public field,
+invokes named semantic button and checkbox controls, and checks fixture state after every action.
+It always stops its session and returns a nonzero status if an API reports success without the
+expected state change. Run it in a dedicated desktop because it performs real input.
+
 The matrix covers mixed display scaling, multiple monitors, negative virtual coordinates, rotation, different keyboard layouts, focus changes, permission denial/revocation, sleep/wake, app crashes, and emergency cancellation. Dedicated machines are required because virtual CI does not accurately reproduce every capture and accessibility API.
 
 For a Wayland fixture run, install the desktop's XDG portal backend and GStreamer PipeWire plugin, set `NIMBLEDESK_BACKEND=native`, and keep `XDG_SESSION_TYPE=wayland`. The first observation must show the compositor-owned monitor and remote-control consent dialog. Test capture on every selected stream, absolute motion on monitors with positive and negative origins, buttons, smooth drag, continuous scroll, Unicode text, hotkeys, consent denial, session revocation, and emergency release. The backend must report denied permissions without advertising capture or input when the user cancels sharing.
