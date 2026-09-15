@@ -67,6 +67,8 @@ All examples below run from the repository root. `uv run` automatically uses the
 uv sync --extra dev --extra native
 ```
 
+Three-platform CI also builds a standalone `nimbledesk` executable. Run `nimbledesk start` to launch the daemon and Studio together, or use its `daemon`, `mcp`, `studio`, `create`, `revise`, `highlights`, `photos`, `music-index`, `approve`, and `smoke` subcommands separately. See [distribution and bundle verification](docs/DISTRIBUTION.md).
+
 ## Create a finished video
 
 The creation workflow is the main end-to-end entry point. It analyzes the source, incorporates supplied or automatically detected semantic events, transcribes dialogue when requested, ranks moments, creates a reviewable edit plan, selects licensed music, renders a finished review MP4 with readable burned captions, retains an editable SRT sidecar, and exports a DaVinci Resolve timeline. Planned cross-dissolves compile as synchronized video and constant-power audio overlaps instead of being approximated as cuts.

@@ -29,8 +29,12 @@ dev = [
   "pytest-asyncio>=0.26,<1",
   "ruff>=0.11,<1",
 ]
+bundle = [
+  "pyinstaller>=6.11,<7",
+]
 
 [project.scripts]
+nimbledesk = "nimbledesk.cli:main"
 nimbledesk-mcp = "nimbledesk.gateway.server:main"
 nimbledesk-daemon = "nimbledesk.daemon.server:main"
 nimbledesk-smoke = "nimbledesk.testing.smoke:main"
