@@ -18,8 +18,8 @@ from nimbledesk.analysis.models import (
     TrackPoint,
 )
 from nimbledesk.creative.models import TranscriptSegment
-from nimbledesk.media.ffmpeg import MediaToolError, probe_media
-from nimbledesk.media.models import TimelineEvent
+from nimbledesk.media.ffmpeg import MediaToolError, check_media_integrity, probe_media
+from nimbledesk.media.models import MediaIntegrityReport, TimelineEvent
 from nimbledesk.media.process import (
     CancellationCheck,
     check_cancelled,
@@ -44,6 +44,10 @@ class ContentIndexer:
         report = progress or (lambda _stage, _value: None)
         cache_directory.mkdir(parents=True, exist_ok=True)
         asset = _asset_record(source, cache_directory / "asset.json")
+        integrity_path = cache_directory / "integrity.json"
+        integrity = _integrity_report(asset, integrity_path, cancelled)
+        if not integrity.valid:
+            raise MediaToolError(integrity.error or "media integrity validation failed")
         sample_rate = _sample_rate(asset.metadata.duration_seconds)
         configuration = {"sample_rate": sample_rate, "version": ANALYZER_VERSION}
         base_hash = _configuration_hash(asset.sha256, configuration)
@@ -120,6 +124,7 @@ class ContentIndexer:
             analyzer_metadata={
                 "sample_frames_per_second": sample_rate,
                 "hierarchical_profile": _profile(asset.metadata.duration_seconds),
+                "integrity_report": str(integrity_path),
             },
         )
         _atomic_write(cache_directory / "content_index.json", index.model_dump_json(indent=2))
@@ -152,6 +157,25 @@ def _asset_record(source: Path, cache_path: Path) -> AssetRecord:
     )
     _atomic_write(cache_path, asset.model_dump_json(indent=2))
     return asset
+
+
+def _integrity_report(
+    asset: AssetRecord,
+    path: Path,
+    cancelled: CancellationCheck | None,
+) -> MediaIntegrityReport:
+    if path.is_file():
+        cached = MediaIntegrityReport.model_validate_json(path.read_text(encoding="utf-8"))
+        if cached.source_sha256 == asset.sha256 and cached.valid:
+            return cached
+    report = check_media_integrity(
+        asset.path,
+        asset.metadata,
+        source_sha256=asset.sha256,
+        cancelled=cancelled,
+    )
+    _atomic_write(path, report.model_dump_json(indent=2))
+    return report
 
 
 def _motion_track(

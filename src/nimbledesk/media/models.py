@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,6 +19,33 @@ class MediaMetadata(MediaModel):
     has_audio: bool
     video_codec: str
     audio_codec: str | None = None
+    container: str = "unknown"
+    nominal_frame_rate: Annotated[float, Field(gt=0)] | None = None
+    variable_frame_rate: bool = False
+    time_base: str | None = None
+    pixel_aspect_ratio: str = "1:1"
+    rotation_degrees: Literal[0, 90, 180, 270] = 0
+    pixel_format: str | None = None
+    bit_depth: Annotated[int, Field(ge=1, le=64)] | None = None
+    color_range: str | None = None
+    color_primaries: str | None = None
+    color_transfer: str | None = None
+    color_space: str | None = None
+    hdr: bool = False
+    audio_channels: Annotated[int, Field(gt=0)] | None = None
+    audio_channel_layout: str | None = None
+    audio_sample_rate: Annotated[int, Field(gt=0)] | None = None
+    embedded_timecode: str | None = None
+    format_start_seconds: float = 0
+    bitrate: Annotated[int, Field(ge=0)] | None = None
+
+
+class MediaIntegrityReport(MediaModel):
+    source_sha256: str | None = None
+    valid: bool
+    video_decoded: bool
+    audio_decoded: bool
+    error: str | None = None
 
 
 class AnalysisConfig(MediaModel):
