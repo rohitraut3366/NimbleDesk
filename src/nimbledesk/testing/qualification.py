@@ -183,7 +183,8 @@ async def run_endurance(
     )
     session_id = str(session["session_id"])
     started_at = time.time()
-    deadline = time.monotonic() + duration_seconds
+    started_monotonic = time.monotonic()
+    deadline = started_monotonic + duration_seconds
     iterations = captures = input_round_trips = 0
     latencies: list[float] = []
     failures: list[str] = []
@@ -225,7 +226,7 @@ async def run_endurance(
         except Exception as error:
             failures.append(f"session cleanup: {type(error).__name__}: {error}")
     completed_at = time.time()
-    elapsed = completed_at - started_at
+    elapsed = time.monotonic() - started_monotonic
     return EnduranceReport(
         started_at=started_at,
         completed_at=completed_at,
