@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
 import time
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,9 @@ class DaVinciContractReport(DaVinciContractModel):
     report_version: str = "1.0.0"
     started_at: float
     completed_at: float
+    platform: str
+    platform_release: str
+    resolve_version: str | None
     qualification_project: str
     cases: tuple[DaVinciContractCase, ...]
     passed: bool
@@ -57,6 +61,7 @@ def run_davinci_contract(
     write_edit_plan(plan, plan_path)
     export_fcpxml(plan, timeline_path)
     cases: list[DaVinciContractCase] = []
+    resolve_version: str | None = None
     try:
         imported = execute_davinci_isolated(
             plan_path,
@@ -66,6 +71,7 @@ def run_davinci_contract(
             timeout_seconds=timeout_seconds,
         )
         _require_saved(imported)
+        resolve_version = imported.resolve_version
         if imported.timeline_reused:
             raise RuntimeError("new qualification plan unexpectedly reused an existing timeline")
         cases.append(_result_case("initial_import_and_save", imported))
@@ -145,6 +151,9 @@ def run_davinci_contract(
     return DaVinciContractReport(
         started_at=started_at,
         completed_at=time.time(),
+        platform=platform.system(),
+        platform_release=platform.platform(),
+        resolve_version=resolve_version,
         qualification_project=project_name,
         cases=tuple(cases),
         passed=len(cases) == 4 and all(case.passed for case in cases),
@@ -183,6 +192,7 @@ def _result_evidence(result: DaVinciResult) -> dict[str, Any]:
         "plan_fingerprint": result.plan_fingerprint,
         "timeline_reused": result.timeline_reused,
         "project_saved": result.project_saved,
+        "resolve_version": result.resolve_version,
         "render_job_id": result.render_job_id,
         "render_path": str(result.render_path) if result.render_path else None,
     }

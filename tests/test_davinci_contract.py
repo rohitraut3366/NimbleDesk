@@ -65,6 +65,7 @@ def test_davinci_contract_runs_import_render_revision_and_cancellation(
             plan_fingerprint=fingerprint,
             timeline_reused=calls == 2,
             project_saved=True,
+            resolve_version="20.2.1",
         )
 
     monkeypatch.setattr(davinci_contract, "execute_davinci_isolated", fake_execute)
@@ -79,6 +80,7 @@ def test_davinci_contract_runs_import_render_revision_and_cancellation(
     )
 
     assert report.passed
+    assert report.resolve_version == "20.2.1"
     assert calls == 4
     assert [case.name for case in report.cases] == [
         "initial_import_and_save",

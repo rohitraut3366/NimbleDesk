@@ -32,6 +32,7 @@ class DaVinciResult(BaseModel):
     plan_fingerprint: str | None = None
     timeline_reused: bool = False
     project_saved: bool = False
+    resolve_version: str | None = None
 
 
 class DaVinciWorkerResponse(BaseModel):
@@ -160,6 +161,7 @@ def execute_in_davinci(
     timeout_seconds: float = 3_600,
     cancelled: Callable[[], bool] | None = None,
 ) -> DaVinciResult:
+    resolve_version = _resolve_version(resolve)
     project_manager = resolve.GetProjectManager()
     if project_manager is None:
         raise DaVinciError("DaVinci Resolve did not provide a project manager")
@@ -202,6 +204,7 @@ def execute_in_davinci(
             plan_fingerprint=plan_fingerprint,
             timeline_reused=timeline_reused,
             project_saved=True,
+            resolve_version=resolve_version,
         )
 
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -252,7 +255,16 @@ def execute_in_davinci(
         plan_fingerprint=plan_fingerprint,
         timeline_reused=timeline_reused,
         project_saved=True,
+        resolve_version=resolve_version,
     )
+
+
+def _resolve_version(resolve: Any) -> str | None:
+    try:
+        version = str(resolve.GetVersionString()).strip()
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return version or None
 
 
 def _find_timeline(project: Any, timeline_name: str) -> Any | None:

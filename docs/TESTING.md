@@ -110,6 +110,11 @@ render. It writes `davinci-contract.json` and exits nonzero unless all four case
 
 GUI fallback operations retain before/after screenshots and semantic evidence. A test fails when it merely clicks the expected coordinate but does not produce the expected application state.
 
+Physical fixture reports record the operating-system release, desktop environment, session type,
+backend, capabilities, and permission state. DaVinci reports record the operating-system release
+and the Resolve version returned by its scripting API. Keep these fields in sanitized release
+evidence so a passing result cannot be mistaken for qualification of a different target version.
+
 ## 5. Media intelligence and creative quality
 
 Generated and licensed evaluation corpora contain labeled shots, speech, silence, music, kills, clutches, reactions, duplicate moments, photo bursts, technical defects, and known story structure. Automated metrics cover event precision/recall, boundary error, ranking quality, diversity, context retention, caption accuracy, loudness, color, pacing constraints, and render correctness.

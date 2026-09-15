@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import platform
 import time
 from collections.abc import Callable
@@ -32,6 +33,9 @@ class FixtureCase(FixtureContractModel):
 class FixtureContractReport(FixtureContractModel):
     report_version: str = "1.0.0"
     platform: str
+    platform_release: str
+    desktop_environment: str | None
+    session_type: str | None
     backend: str | None
     started_at: float
     completed_at: float
@@ -187,6 +191,9 @@ async def run_fixture_contract(
                 )
     return FixtureContractReport(
         platform=platform.system(),
+        platform_release=platform.platform(),
+        desktop_environment=os.getenv("XDG_CURRENT_DESKTOP"),
+        session_type=os.getenv("XDG_SESSION_TYPE"),
         backend=str(health.get("backend")) if health.get("backend") else None,
         started_at=started_at,
         completed_at=time.time(),

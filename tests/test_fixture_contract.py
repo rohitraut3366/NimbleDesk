@@ -124,6 +124,7 @@ async def test_fixture_contract_records_verified_native_workflow(
     )
 
     assert report.passed
+    assert report.platform_release
     assert report.backend == "native:fixture"
     assert {case.name for case in report.cases} == {
         "fixture_ready",
