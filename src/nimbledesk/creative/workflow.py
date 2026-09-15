@@ -14,6 +14,7 @@ from nimbledesk.creative.models import ContentKind, CreativeBrief, EditPlan, Tra
 from nimbledesk.creative.music import load_music_catalog
 from nimbledesk.creative.planner import build_edit_plan, write_edit_plan
 from nimbledesk.creative.render import render_edit_plan
+from nimbledesk.creative.sound import load_sound_catalog
 from nimbledesk.creative.transcription import (
     load_transcript,
     transcribe_with_whisper,
@@ -58,6 +59,7 @@ class CreationWorkflow:
         whisper_model: str = "small",
         language: str | None = None,
         music_catalog: Path | None = None,
+        sound_catalog: Path | None = None,
         render: bool = True,
         execute_davinci: bool = False,
         render_in_davinci: bool = False,
@@ -123,6 +125,7 @@ class CreationWorkflow:
             brief,
             transcripts=transcripts,
             music_assets=load_music_catalog(music_catalog),
+            sound_assets=load_sound_catalog(sound_catalog),
             content_index=content_index,
         )
         plan_path = output_directory / "edit_plan.json"

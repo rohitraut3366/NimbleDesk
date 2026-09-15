@@ -147,6 +147,25 @@ class MusicCue(CreativeModel):
     rationale: str
 
 
+class SoundAsset(CreativeModel):
+    path: Path
+    duration_seconds: Annotated[float, Field(gt=0)]
+    title: str
+    tags: tuple[str, ...]
+    license: str
+    attribution: str | None = None
+
+
+class SoundCue(CreativeModel):
+    asset: SoundAsset
+    source_range: TimeRange
+    timeline_range: TimeRange
+    gain_db: Annotated[float, Field(ge=-60, le=12)] = -12
+    segment_id: str
+    purpose: str
+    rationale: str
+
+
 class CaptionCue(CreativeModel):
     timeline_range: TimeRange
     text: str
@@ -176,6 +195,7 @@ class EditPlan(CreativeModel):
     brief: CreativeBrief
     segments: tuple[EditSegment, ...]
     music_cue: MusicCue | None = None
+    sound_cues: tuple[SoundCue, ...] = ()
     captions: tuple[CaptionCue, ...] = ()
     delivery: DeliverySpec
     review_items: tuple[ReviewItem, ...] = ()

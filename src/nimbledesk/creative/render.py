@@ -58,6 +58,7 @@ def render_edit_plan(
 
     command = ["ffmpeg", "-y", "-v", "error", "-i", str(plan.source_path)]
     audio_output = "[abase]"
+    next_input = 1
     if plan.music_cue:
         music = plan.music_cue
         command.extend(["-stream_loop", "-1", "-i", str(music.asset.path)])
@@ -78,6 +79,27 @@ def render_edit_plan(
             "dropout_transition=2[aout]"
         )
         audio_output = "[aout]"
+        next_input += 1
+    sound_labels: list[str] = []
+    for index, cue in enumerate(plan.sound_cues):
+        command.extend(["-i", str(cue.asset.path)])
+        gain = 10 ** (cue.gain_db / 20)
+        delay = round(cue.timeline_range.start_seconds * 1000)
+        label = f"sound{index}"
+        filters.append(
+            f"[{next_input}:a]atrim=start={cue.source_range.start_seconds:.3f}:"
+            f"duration={cue.timeline_range.duration_seconds:.3f},asetpts=PTS-STARTPTS,"
+            f"volume={gain:.6f},adelay={delay}|{delay}[{label}]"
+        )
+        sound_labels.append(f"[{label}]")
+        next_input += 1
+    if sound_labels:
+        filters.append(
+            audio_output
+            + "".join(sound_labels)
+            + f"amix=inputs={len(sound_labels) + 1}:duration=first:normalize=0[afinal]"
+        )
+        audio_output = "[afinal]"
     command.extend(
         [
             "-filter_complex",

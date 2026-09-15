@@ -73,6 +73,36 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
         ),
         encoding="utf-8",
     )
+    sound = tmp_path / "whoosh.wav"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=660:duration=0.5",
+            str(sound),
+        ],
+        check=True,
+    )
+    sound_catalog = tmp_path / "sounds.json"
+    sound_catalog.write_text(
+        json.dumps(
+            [
+                {
+                    "path": str(sound),
+                    "duration_seconds": 0.5,
+                    "title": "Licensed whoosh",
+                    "tags": ["whoosh", "hook"],
+                    "license": "test fixture",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
     output = tmp_path / "creation"
     brief = CreativeBrief(
         title="Fixture creation",
@@ -82,7 +112,13 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
         aspect_ratio="9:16",
     )
 
-    result = CreationWorkflow().create(source, output, brief, music_catalog=catalog)
+    result = CreationWorkflow().create(
+        source,
+        output,
+        brief,
+        music_catalog=catalog,
+        sound_catalog=sound_catalog,
+    )
 
     assert result.plan_path.is_file()
     assert result.validation_path.is_file()
@@ -99,6 +135,9 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
     assert "measured motion center" in result.plan.segments[0].visual.rationale
     assert result.plan.music_cue is not None
     assert result.plan.music_cue.beat_interval_seconds == 0.5
+    assert len(result.plan.sound_cues) == 1
+    assert result.plan.sound_cues[0].asset.title == "Licensed whoosh"
+    assert 'audioRole="effects"' in result.timeline_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")

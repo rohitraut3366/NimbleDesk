@@ -8,6 +8,8 @@ from nimbledesk.creative.models import (
     EditSegment,
     Evidence,
     PlanRevisionRequest,
+    SoundAsset,
+    SoundCue,
     SpeedTreatment,
     TimeRange,
     VisualTreatment,
@@ -68,6 +70,45 @@ def test_validation_rejects_source_overrun_and_timeline_gap(tmp_path: Path) -> N
         "source_bounds",
         "timeline_gap_or_overlap",
     }
+
+
+def test_revision_remaps_sound_cue_with_its_segment(tmp_path: Path) -> None:
+    plan = _plan(tmp_path)
+    sound_path = tmp_path / "impact.wav"
+    sound_path.write_bytes(b"fixture")
+    plan = plan.model_copy(
+        update={
+            "sound_cues": (
+                SoundCue(
+                    asset=SoundAsset(
+                        path=sound_path,
+                        duration_seconds=2,
+                        title="Impact",
+                        tags=("impact",),
+                        license="fixture",
+                    ),
+                    source_range=TimeRange(start_seconds=0, end_seconds=1),
+                    timeline_range=TimeRange(start_seconds=12, end_seconds=13),
+                    segment_id="segment-002",
+                    purpose="accent payoff",
+                    rationale="fixture",
+                ),
+            )
+        }
+    )
+
+    revision = revise_edit_plan(
+        plan,
+        PlanRevisionRequest(
+            target_duration_seconds=15,
+            pace="fast",
+            lock_segment_ids=("segment-002",),
+        ),
+    )
+
+    assert revision.plan.sound_cues[0].timeline_range == TimeRange(
+        start_seconds=7, end_seconds=8
+    )
 
 
 def _plan(tmp_path: Path) -> EditPlan:

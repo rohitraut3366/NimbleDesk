@@ -146,6 +146,7 @@ Use `--lock` or `--unlock` more than once. Locked segments retain their source s
 | `--whisper-model` | `small` | Whisper model name. Models download through Whisper on first use. |
 | `--language` | Auto | Optional Whisper language code. |
 | `--music-catalog` | None | JSON catalog of local music with explicit license metadata. |
+| `--sound-catalog` | None | JSON catalog of local sound effects with tags and explicit license metadata. |
 | `--plan-only` | Off | Analyze, plan, and export FCPXML without rendering `final.mp4`. |
 | `--davinci` | Off | Import the generated timeline into a running DaVinci Resolve instance. |
 | `--davinci-render` | Off | Import the timeline, render it in Resolve, and verify `davinci-final.mp4`. |
@@ -250,6 +251,25 @@ Use `--attribution` when the license requires a credit and `--contains-vocals` f
 ```
 
 The planner ranks mood, energy, duration, pace, and vocal competition. When measured tempo is available, it offsets the music source so a beat lands on the first payoff. The renderer applies the planned gain and side-chain compression so source dialogue/game audio ducks the music dynamically. The selected cue, license, source/timeline ranges, beat interval/alignment, ducking target, and rationale remain editable in `edit_plan.json`.
+
+### Licensed sound design
+
+Supply optional scene accents with `--sound-catalog sounds.json` or the matching Studio field:
+
+```json
+[
+  {
+    "path": "/absolute/path/sounds/impact.wav",
+    "duration_seconds": 1.2,
+    "title": "Licensed impact",
+    "tags": ["impact", "hit", "payoff"],
+    "license": "user-owned; worldwide social usage",
+    "attribution": null
+  }
+]
+```
+
+NimbleDesk matches tags to segment role and recorded evidence such as a grenade, kill, clutch, hook, payoff, or outro. It uses each asset once, places at most one cue per segment, and enforces at least two seconds between cues. Cue source/timeline ranges, gain, purpose, segment anchor, license, and rationale remain editable in `edit_plan.json`. FFmpeg mixes cues at their planned times and FCPXML exports them as separate effects-lane clips with editable gain. Plan validation rejects missing, unlicensed, out-of-range, or orphaned cues; revisions move retained cues with their segments.
 
 ### DaVinci Resolve execution
 

@@ -51,6 +51,7 @@ class CreateJobRequest(BaseModel):
     whisper_model: str = "small"
     language: str | None = None
     music_catalog: Path | None = None
+    sound_catalog: Path | None = None
     ffmpeg_render: bool = True
     davinci: bool = False
     davinci_render: bool = False
@@ -284,6 +285,7 @@ class JobService:
                     whisper_model=request.whisper_model,
                     language=request.language,
                     music_catalog=request.music_catalog,
+                    sound_catalog=request.sound_catalog,
                     render=request.ffmpeg_render,
                     execute_davinci=request.davinci or request.davinci_render,
                     render_in_davinci=request.davinci_render,
@@ -593,6 +595,7 @@ _HTML = """<!doctype html>
       <label>Mood<input name="mood" value="engaging"></label>
       <label>Transcript JSON<input name="transcript" placeholder="Optional"></label>
       <label>Licensed music catalog JSON<input name="music" placeholder="Optional"></label>
+      <label>Licensed sound catalog JSON<input name="sounds" placeholder="Optional"></label>
       <label>Timeline events JSON<input name="events" placeholder="Optional"></label>
       <label>Game domain pack JSON<input name="gamePack" placeholder="Optional"></label>
     </div>
@@ -633,7 +636,8 @@ form.addEventListener('submit', async event => {
       target_duration_seconds:Number(data.get('duration')),aspect_ratio:data.get('ratio'),
       pace:data.get('pace'),mood:data.get('mood'),clip_count:10,captions:true,music:true,
       color_look:'natural_contrast',mandatory_event_types:[],excluded_event_types:[]},
-    transcript:optional('transcript'),music_catalog:optional('music'),events:optional('events'),
+    transcript:optional('transcript'),music_catalog:optional('music'),sound_catalog:optional('sounds'),
+    events:optional('events'),
     game_pack:optional('gamePack'),
     game_ocr:data.has('gameOcr'),transcribe:data.has('transcribe'),whisper_model:'small',
     ffmpeg_render:data.has('ffmpegRender'),davinci:data.has('davinci'),

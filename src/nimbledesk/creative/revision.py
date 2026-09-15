@@ -10,6 +10,7 @@ from nimbledesk.creative.models import (
     PlanChange,
     PlanRevisionRequest,
     PlanRevisionResult,
+    SoundCue,
     SpeedTreatment,
     TimeRange,
 )
@@ -42,6 +43,7 @@ def revise_edit_plan(plan: EditPlan, request: PlanRevisionRequest) -> PlanRevisi
     selected = _fit_duration(treated, target)
     reflowed = _reflow(selected)
     captions = _remap_captions(plan.captions, reflowed)
+    sound_cues = _remap_sound_cues(plan, reflowed)
     music_cue = (
         plan_music_cue(plan.music_cue.asset, _duration(reflowed), brief, reflowed)
         if plan.music_cue and reflowed
@@ -52,6 +54,7 @@ def revise_edit_plan(plan: EditPlan, request: PlanRevisionRequest) -> PlanRevisi
             "brief": brief,
             "segments": reflowed,
             "captions": captions,
+            "sound_cues": sound_cues,
             "music_cue": music_cue,
         }
     )
@@ -171,6 +174,44 @@ def _duration(segments: tuple[EditSegment, ...]) -> float:
         return 0
     last = segments[-1]
     return last.timeline_start_seconds + last.timeline_duration_seconds
+
+
+def _remap_sound_cues(
+    plan: EditPlan, segments: tuple[EditSegment, ...]
+) -> tuple[SoundCue, ...]:
+    old_segments = {segment.segment_id: segment for segment in plan.segments}
+    new_segments = {segment.segment_id: segment for segment in segments}
+    result: list[SoundCue] = []
+    for cue in plan.sound_cues:
+        old_segment = old_segments.get(cue.segment_id)
+        new_segment = new_segments.get(cue.segment_id)
+        if old_segment is None or new_segment is None:
+            continue
+        relative_start = cue.timeline_range.start_seconds - old_segment.timeline_start_seconds
+        start = new_segment.timeline_start_seconds + min(
+            max(0, relative_start), max(0, new_segment.timeline_duration_seconds - 0.05)
+        )
+        available = (
+            new_segment.timeline_start_seconds + new_segment.timeline_duration_seconds - start
+        )
+        duration = min(cue.timeline_range.duration_seconds, available)
+        if duration <= 0.04:
+            continue
+        result.append(
+            cue.model_copy(
+                update={
+                    "source_range": TimeRange(
+                        start_seconds=cue.source_range.start_seconds,
+                        end_seconds=cue.source_range.start_seconds + duration,
+                    ),
+                    "timeline_range": TimeRange(
+                        start_seconds=round(start, 3),
+                        end_seconds=round(start + duration, 3),
+                    ),
+                }
+            )
+        )
+    return tuple(result)
 
 
 def _diff(before: EditPlan, after: EditPlan) -> tuple[PlanChange, ...]:

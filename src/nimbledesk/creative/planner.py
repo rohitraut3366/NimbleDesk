@@ -15,12 +15,14 @@ from nimbledesk.creative.models import (
     MusicAsset,
     MusicCue,
     ReviewItem,
+    SoundAsset,
     SpeedTreatment,
     TimeRange,
     TranscriptSegment,
     VisualTreatment,
 )
 from nimbledesk.creative.music import recommend_music
+from nimbledesk.creative.sound import plan_sound_cues
 from nimbledesk.media.models import HighlightCandidate, HighlightManifest
 
 
@@ -29,6 +31,7 @@ def build_edit_plan(
     brief: CreativeBrief,
     transcripts: tuple[TranscriptSegment, ...] = (),
     music_assets: tuple[MusicAsset, ...] = (),
+    sound_assets: tuple[SoundAsset, ...] = (),
     content_index: ContentIndex | None = None,
 ) -> EditPlan:
     ordered = _story_order(manifest.candidates[: brief.clip_count])
@@ -101,12 +104,14 @@ def build_edit_plan(
         if music_asset
         else None
     )
+    sound_cues = plan_sound_cues(tuple(segments), sound_assets)
     review_items = _review_items(brief, transcripts, music_assets, tuple(segments))
     return EditPlan(
         source_path=manifest.source.path,
         brief=brief,
         segments=tuple(segments),
         music_cue=music_cue,
+        sound_cues=sound_cues,
         captions=captions,
         delivery=DeliverySpec(
             width=width,

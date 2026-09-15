@@ -42,6 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--whisper-model", default="small")
     parser.add_argument("--language")
     parser.add_argument("--music-catalog", type=Path, help="Licensed local music catalog JSON")
+    parser.add_argument("--sound-catalog", type=Path, help="Licensed local sound catalog JSON")
     parser.add_argument("--plan-only", action="store_true", help="Skip the final FFmpeg render")
     parser.add_argument(
         "--davinci",
@@ -86,6 +87,7 @@ def main() -> None:
         whisper_model=arguments.whisper_model,
         language=arguments.language,
         music_catalog=arguments.music_catalog,
+        sound_catalog=arguments.sound_catalog,
         render=not arguments.plan_only,
         execute_davinci=arguments.davinci or arguments.davinci_render,
         render_in_davinci=arguments.davinci_render,

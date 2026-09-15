@@ -65,15 +65,27 @@ def validate_edit_plan(plan: EditPlan, source: MediaMetadata) -> PlanValidationR
         if caption.timeline_range.end_seconds > timeline_cursor + 0.001:
             issues.append(_issue("caption_bounds", "Caption extends past the timeline"))
     if plan.music_cue:
-        cue = plan.music_cue
-        if not cue.asset.path.expanduser().is_file():
+        music_cue = plan.music_cue
+        if not music_cue.asset.path.expanduser().is_file():
             issues.append(_issue("music_offline", "Selected music file is unavailable"))
-        if not cue.asset.license.strip():
+        if not music_cue.asset.license.strip():
             issues.append(_issue("music_license", "Selected music has no license evidence"))
-        if cue.source_range.end_seconds > cue.asset.duration_seconds + 0.001:
+        if music_cue.source_range.end_seconds > music_cue.asset.duration_seconds + 0.001:
             issues.append(_issue("music_bounds", "Music cue extends past the selected asset"))
-        if cue.timeline_range.end_seconds > timeline_cursor + 0.001:
+        if music_cue.timeline_range.end_seconds > timeline_cursor + 0.001:
             issues.append(_issue("music_timeline_bounds", "Music cue extends past the timeline"))
+    segment_ids = {segment.segment_id for segment in plan.segments}
+    for sound_cue in plan.sound_cues:
+        if sound_cue.segment_id not in segment_ids:
+            issues.append(_issue("sound_segment", "Sound cue refers to a removed segment"))
+        if not sound_cue.asset.path.expanduser().is_file():
+            issues.append(_issue("sound_offline", "Selected sound file is unavailable"))
+        if not sound_cue.asset.license.strip():
+            issues.append(_issue("sound_license", "Selected sound has no license evidence"))
+        if sound_cue.source_range.end_seconds > sound_cue.asset.duration_seconds + 0.001:
+            issues.append(_issue("sound_bounds", "Sound cue exceeds its source asset"))
+        if sound_cue.timeline_range.end_seconds > timeline_cursor + 0.001:
+            issues.append(_issue("sound_timeline_bounds", "Sound cue extends past the timeline"))
     for review in plan.review_items:
         if review.severity == "blocking":
             issues.append(_issue("blocking_review", review.message, review.segment_id))

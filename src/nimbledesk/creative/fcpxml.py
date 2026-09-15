@@ -34,8 +34,10 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
         format="r1",
     )
     music_reference: str | None = None
+    next_resource = 3
     if plan.music_cue:
-        music_reference = "r3"
+        music_reference = f"r{next_resource}"
+        next_resource += 1
         ElementTree.SubElement(
             resources,
             "asset",
@@ -44,6 +46,21 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
             src=plan.music_cue.asset.path.resolve().as_uri(),
             start="0s",
             duration=_seconds(plan.music_cue.asset.duration_seconds),
+            hasAudio="1",
+        )
+    sound_references: list[str] = []
+    for cue in plan.sound_cues:
+        reference = f"r{next_resource}"
+        next_resource += 1
+        sound_references.append(reference)
+        ElementTree.SubElement(
+            resources,
+            "asset",
+            id=reference,
+            name=cue.asset.title,
+            src=cue.asset.path.resolve().as_uri(),
+            start="0s",
+            duration=_seconds(cue.asset.duration_seconds),
             hasAudio="1",
         )
     library = ElementTree.SubElement(root, "library")
@@ -95,17 +112,35 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
                 position=f"{horizontal:.3f} {vertical:.3f}",
             )
     if music_reference and plan.music_cue:
-        cue = plan.music_cue
-        ElementTree.SubElement(
+        music_cue = plan.music_cue
+        music_clip = ElementTree.SubElement(
             spine,
             "asset-clip",
-            name=cue.asset.title,
+            name=music_cue.asset.title,
             ref=music_reference,
             lane="-1",
-            offset=_seconds(cue.timeline_range.start_seconds),
-            start=_seconds(cue.source_range.start_seconds),
-            duration=_seconds(cue.timeline_range.duration_seconds),
+            offset=_seconds(music_cue.timeline_range.start_seconds),
+            start=_seconds(music_cue.source_range.start_seconds),
+            duration=_seconds(music_cue.timeline_range.duration_seconds),
             audioRole="music",
+        )
+        ElementTree.SubElement(
+            music_clip, "adjust-volume", amount=f"{music_cue.gain_db}dB"
+        )
+    for reference, sound_cue in zip(sound_references, plan.sound_cues, strict=True):
+        sound_clip = ElementTree.SubElement(
+            spine,
+            "asset-clip",
+            name=sound_cue.asset.title,
+            ref=reference,
+            lane="-2",
+            offset=_seconds(sound_cue.timeline_range.start_seconds),
+            start=_seconds(sound_cue.source_range.start_seconds),
+            duration=_seconds(sound_cue.timeline_range.duration_seconds),
+            audioRole="effects",
+        )
+        ElementTree.SubElement(
+            sound_clip, "adjust-volume", amount=f"{sound_cue.gain_db}dB"
         )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ElementTree.indent(root, space="  ")
