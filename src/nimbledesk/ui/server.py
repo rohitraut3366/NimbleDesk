@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import mimetypes
 import os
 import threading
 import time
@@ -15,7 +16,7 @@ import uvicorn
 from pydantic import BaseModel, ConfigDict
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from nimbledesk.client import DaemonClient
@@ -103,6 +104,14 @@ class RevisionSubmission(BaseModel):
     davinci_render: bool = False
 
 
+class VariantSelectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ffmpeg_render: bool = True
+    davinci: bool = False
+    davinci_render: bool = False
+
+
 JobStatus = Literal[
     "queued",
     "running",
@@ -126,6 +135,7 @@ class PersistedJob(BaseModel):
     progress: float = 0
     result: CreationResult | RevisionResult | PhotoManifest | None = None
     error: str | None = None
+    selected_variant_id: str | None = None
     created_at: float
     updated_at: float
 
@@ -139,7 +149,10 @@ class JobRecord:
 
     def response(self) -> dict[str, Any]:
         with self.lock:
-            return self.state.model_dump(mode="json")
+            response = self.state.model_dump(mode="json")
+            response["artifacts"] = _artifact_catalog(self.state)
+            response["variant_options"] = _variant_options(self.state)
+            return response
 
 
 class JobService:
@@ -252,6 +265,47 @@ class JobService:
             job.state.updated_at = time.time()
         self._save(job)
         return job
+
+    def select_variant(
+        self,
+        job: JobRecord,
+        variant_id: str,
+        request: VariantSelectionRequest,
+    ) -> JobRecord:
+        with job.lock:
+            result = job.state.result
+            if job.state.status != "completed" or not isinstance(result, CreationResult):
+                raise ValueError("variants can only be selected from a completed creation")
+            comparison_path = result.variant_comparison_path
+            output_root = result.output_directory
+        if comparison_path is None or not comparison_path.is_file():
+            raise ValueError("this creation has no variant comparison")
+        from nimbledesk.creative.variants import VariantComparison
+
+        comparison = VariantComparison.model_validate_json(
+            comparison_path.read_text(encoding="utf-8")
+        )
+        variant = next(
+            (item for item in comparison.variants if item.variant_id == variant_id), None
+        )
+        if variant is None:
+            raise ValueError(f"unknown variant: {variant_id}")
+        with job.lock:
+            job.state.selected_variant_id = variant_id
+            job.state.updated_at = time.time()
+        self._save(job)
+        selection_id = f"selected-{variant_id}-{int(time.time())}-{uuid4().hex[:8]}"
+        return self.submit_revision(
+            job.state.job_id,
+            ReviseJobRequest(
+                plan=variant.plan_path,
+                output_directory=output_root / "selections" / selection_id,
+                changes=PlanRevisionRequest(),
+                ffmpeg_render=request.ffmpeg_render,
+                davinci=request.davinci or request.davinci_render,
+                davinci_render=request.davinci_render,
+            ),
+        )
 
     def _run(self, job: JobRecord) -> None:
         with job.lock:
@@ -459,6 +513,24 @@ async def get_job(request: Request) -> JSONResponse:
     return JSONResponse(job.response())
 
 
+async def get_artifact(request: Request) -> Response:
+    job = JOB_SERVICE.get(request.path_params["job_id"])
+    if job is None:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    with job.lock:
+        artifacts = _artifact_paths(job.state)
+    artifact_name = request.path_params["artifact_name"]
+    path = artifacts.get(artifact_name)
+    if path is None or not path.is_file():
+        return JSONResponse({"error": "unknown artifact"}, status_code=404)
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=path.name if request.query_params.get("download") == "1" else None,
+    )
+
+
 async def cancel_job(request: Request) -> JSONResponse:
     job = JOB_SERVICE.cancel(request.path_params["job_id"])
     if job is None:
@@ -499,6 +571,20 @@ async def revise_job(request: Request) -> JSONResponse:
     return JSONResponse(revision.response(), status_code=202)
 
 
+async def select_variant(request: Request) -> JSONResponse:
+    job = JOB_SERVICE.get(request.path_params["job_id"])
+    if job is None:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    try:
+        payload = VariantSelectionRequest.model_validate(await request.json())
+        selected = JOB_SERVICE.select_variant(
+            job, request.path_params["variant_id"], payload
+        )
+    except Exception as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return JSONResponse(selected.response(), status_code=202)
+
+
 async def list_approvals(request: Request) -> JSONResponse:
     try:
         return JSONResponse(await daemon_client().call("approval_list"))
@@ -519,6 +605,95 @@ async def decide_approval(request: Request) -> JSONResponse:
     return JSONResponse({"status": decision} if decision == "approve" else result)
 
 
+def _artifact_paths(state: PersistedJob) -> dict[str, Path]:
+    result = state.result
+    if result is None:
+        return {}
+    candidates: dict[str, Path | None]
+    if isinstance(result, CreationResult):
+        candidates = {
+            "render": result.render_path,
+            "plan": result.plan_path,
+            "validation": result.validation_path,
+            "timeline": result.timeline_path,
+            "content-index": result.content_index_path,
+            "transcript": result.transcript_path,
+            "events": result.events_path,
+            "vision-analysis": result.vision_analysis_path,
+            "cue-sheet": result.cue_sheet_path,
+            "cue-sheet-csv": result.cue_sheet_csv_path,
+            "variant-comparison": result.variant_comparison_path,
+            "render-verification": result.verification_path,
+            "davinci-verification": result.davinci_verification_path,
+            "davinci-render": result.davinci.render_path if result.davinci else None,
+        }
+        root = result.output_directory.expanduser().resolve()
+    elif isinstance(result, RevisionResult):
+        candidates = {
+            "render": result.render_path,
+            "plan": result.plan_path,
+            "plan-diff": result.diff_path,
+            "validation": result.validation_path,
+            "timeline": result.timeline_path,
+            "render-verification": result.verification_path,
+        }
+        root = result.output_directory.expanduser().resolve()
+    else:
+        candidates = {
+            "contact-sheet": result.contact_sheet,
+            "slideshow": result.slideshow,
+        }
+        root = result.contact_sheet.expanduser().resolve().parent
+    artifacts: dict[str, Path] = {}
+    for name, candidate in candidates.items():
+        if candidate is None:
+            continue
+        path = candidate.expanduser().resolve()
+        if path.is_relative_to(root) and path.is_file():
+            artifacts[name] = path
+    return artifacts
+
+
+def _artifact_catalog(state: PersistedJob) -> list[dict[str, object]]:
+    return [
+        {
+            "name": name,
+            "filename": path.name,
+            "media_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+            "size_bytes": path.stat().st_size,
+            "url": f"/api/jobs/{state.job_id}/artifacts/{name}",
+            "download_url": f"/api/jobs/{state.job_id}/artifacts/{name}?download=1",
+        }
+        for name, path in _artifact_paths(state).items()
+    ]
+
+
+def _variant_options(state: PersistedJob) -> list[dict[str, object]]:
+    if not isinstance(state.result, CreationResult):
+        return []
+    path = state.result.variant_comparison_path
+    if path is None or not path.is_file():
+        return []
+    from nimbledesk.creative.variants import VariantComparison
+
+    try:
+        comparison = VariantComparison.model_validate_json(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    return [
+        {
+            "variant_id": variant.variant_id,
+            "strategy": variant.strategy,
+            "overall_score": variant.overall_score,
+            "tradeoff": variant.tradeoff,
+            "recommended": variant.variant_id == comparison.recommended_variant_id,
+            "selected": variant.variant_id == state.selected_variant_id,
+            "metrics": [metric.model_dump(mode="json") for metric in variant.metrics],
+        }
+        for variant in comparison.variants
+    ]
+
+
 app = Starlette(
     debug=False,
     routes=[
@@ -527,8 +702,18 @@ app = Starlette(
         Route("/api/photo-jobs", create_photo_job, methods=["POST"]),
         Route("/api/jobs", list_jobs, methods=["GET"]),
         Route("/api/jobs/{job_id}", get_job, methods=["GET"]),
+        Route(
+            "/api/jobs/{job_id}/artifacts/{artifact_name}",
+            get_artifact,
+            methods=["GET"],
+        ),
         Route("/api/jobs/{job_id}/cancel", cancel_job, methods=["POST"]),
         Route("/api/jobs/{job_id}/revisions", revise_job, methods=["POST"]),
+        Route(
+            "/api/jobs/{job_id}/variants/{variant_id}/select",
+            select_variant,
+            methods=["POST"],
+        ),
         Route("/api/approvals", list_approvals, methods=["GET"]),
         Route(
             "/api/approvals/{approval_id}/{decision}", decide_approval, methods=["POST"]
@@ -583,6 +768,12 @@ _HTML = """<!doctype html>
     .actions { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
     .actions label { min-width: 130px; }
     details summary { cursor: pointer; color: #8ed8ff; }
+    video, .artifact-image { width: 100%; max-height: 540px; border-radius: 12px;
+      background: #050812; object-fit: contain; }
+    .artifact-links, .variants { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    .artifact-links a { color: #8ed8ff; padding: 7px 10px; border: 1px solid #344263;
+      border-radius: 8px; text-decoration: none; }
+    .variant { flex: 1 1 220px; border: 1px solid #303b5b; border-radius: 10px; padding: 12px; }
     @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -703,14 +894,21 @@ function revisionPanel(job){const plan=job.result?.plan;if(!plan||job.status!=='
       <label><input name="davinci" type="checkbox"> Import to Resolve</label>
       <button>Build revision</button></div></form></details>`;}
 function jobOutputs(job){if(!job.result)return '';
-  if(job.kind==='photo')return `<p>Selected: <strong>${job.result.selected.length}</strong><br>
-    Contact sheet: <code>${h(job.result.contact_sheet)}</code><br>
-    Slideshow: <code>${h(job.result.slideshow||'not requested')}</code></p>`;
-  return `<p>Render: <code>${h(job.result.render_path||'plan only')}</code><br>
-    DaVinci timeline: <code>${h(job.result.timeline_path)}</code><br>
-    Cue sheet: <code>${h(job.result.cue_sheet_path||'not applicable')}</code><br>
-    Variant comparison: <code>${h(job.result.variant_comparison_path||'not applicable')}</code><br>
-    Render verification: <code>${h(job.result.verification_path||'not rendered')}</code></p>${revisionPanel(job)}`;}
+  const artifacts=job.artifacts||[];const byName=name=>artifacts.find(item=>item.name===name);
+  const render=byName('render')||byName('slideshow');const image=byName('contact-sheet');
+  const preview=render?`<video controls preload="metadata" src="${h(render.url)}"></video>`:
+    image?`<img class="artifact-image" src="${h(image.url)}" alt="Generated contact sheet">`:'';
+  const links=artifacts.map(item=>`<a href="${h(item.download_url)}">${h(item.name)} · ${
+    Math.max(1,Math.round(item.size_bytes/1024))} KB</a>`).join('');
+  const variants=(job.variant_options||[]).map(item=>`<div class="variant"><strong>${h(item.variant_id)}
+    ${item.recommended?' · recommended':''}${item.selected?' · selected':''}</strong>
+    <p>${h(item.tradeoff)} · ${Math.round(item.overall_score*100)}%</p>
+    <button onclick="selectVariant('${h(job.job_id)}','${h(item.variant_id)}')" ${item.selected?'disabled':''}>
+      ${item.selected?'Selected':'Select and render'}</button></div>`).join('');
+  const variantPanel=variants?`<details><summary>Compare and select edit variants</summary>
+    <div class="variants">${variants}</div></details>`:'';
+  const selected=job.kind==='photo'?`<p>Selected <strong>${job.result.selected.length}</strong> photos</p>`:'';
+  return `${preview}${selected}<div class="artifact-links">${links}</div>${variantPanel}${revisionPanel(job)}`;}
 async function refresh(){const response=await fetch('/api/jobs');const data=await response.json();
   jobs.innerHTML=data.jobs.map(job=>`<article><strong>${h(job.kind)}</strong> · <strong>${h(job.status)}</strong> · ${h(job.stage)}
     <progress value="${job.progress}" max="1"></progress>
@@ -730,6 +928,10 @@ async function decideApproval(approvalId,decision){const response=await fetch(
   `/api/approvals/${approvalId}/${decision}`,{method:'POST',headers:{'content-type':'application/json'}});
   const result=await response.json();if(!response.ok){alert(result.error);return;}refreshApprovals();}
 async function cancelJob(jobId){await fetch(`/api/jobs/${jobId}/cancel`,{method:'POST'});refresh();}
+async function selectVariant(jobId,variantId){const response=await fetch(
+  `/api/jobs/${jobId}/variants/${variantId}/select`,{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({ffmpeg_render:true,davinci:false,davinci_render:false})});
+  const result=await response.json();if(!response.ok){alert(result.error);return;}refresh();}
 jobs.addEventListener('submit',async event=>{if(!event.target.matches('.revision-form'))return;
   event.preventDefault();const revisionForm=event.target;const data=new FormData(revisionForm);
   const segmentIds=[...revisionForm.querySelectorAll('input[name="locked"]')].map(input=>input.value);

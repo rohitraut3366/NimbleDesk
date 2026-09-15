@@ -18,8 +18,10 @@ from nimbledesk.creative.models import (
     TimeRange,
     VisualTreatment,
 )
-from nimbledesk.creative.workflow import CreationWorkflow
+from nimbledesk.creative.variants import VariantComparison, VariantEvaluation, VariantMetric
+from nimbledesk.creative.workflow import CreationResult, CreationWorkflow
 from nimbledesk.media.models import MediaMetadata
+from nimbledesk.media.photos import PhotoManifest
 from nimbledesk.ui.server import (
     CreateJobRequest,
     JobRecord,
@@ -59,6 +61,121 @@ def test_console_returns_unknown_job() -> None:
 
     assert response.status_code == 404
     assert response.json() == {"error": "unknown job"}
+
+
+def test_console_serves_only_registered_generated_artifacts(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    output = tmp_path / "photo-output"
+    output.mkdir()
+    contact_sheet = output / "contact-sheet.jpg"
+    contact_sheet.write_bytes(b"generated-image")
+    service = JobService(tmp_path / "jobs")
+    state = PersistedJob(
+        job_id="photo-1",
+        kind="photo",
+        request=PhotoJobRequest(source=tmp_path, output_directory=output),
+        status="completed",
+        stage="completed",
+        progress=1,
+        result=PhotoManifest(analyzed=(), selected=(), contact_sheet=contact_sheet),
+        created_at=1,
+        updated_at=2,
+    )
+    service._jobs[state.job_id] = JobRecord(state=state)
+    monkeypatch.setattr(ui, "JOB_SERVICE", service)
+    client = TestClient(app)
+
+    listed = client.get("/api/jobs/photo-1")
+    artifact = client.get("/api/jobs/photo-1/artifacts/contact-sheet")
+    unknown = client.get("/api/jobs/photo-1/artifacts/outside")
+    service.close()
+
+    assert listed.json()["artifacts"][0]["name"] == "contact-sheet"
+    assert artifact.status_code == 200
+    assert artifact.content == b"generated-image"
+    assert unknown.status_code == 404
+
+
+def test_variant_selection_is_persisted_and_creates_renderable_revision(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"fixture")
+    output = tmp_path / "creation"
+    variant_plan_path = output / "variants" / "context-first" / "edit_plan.json"
+    variant_plan_path.parent.mkdir(parents=True)
+    plan = _fixture_plan(source)
+    variant_plan_path.write_text(plan.model_dump_json(), encoding="utf-8")
+    comparison_path = output / "variants" / "variant_comparison.json"
+    comparison_path.write_text(
+        VariantComparison(
+            recommended_variant_id="context-first",
+            variants=(
+                VariantEvaluation(
+                    variant_id="context-first",
+                    strategy="chronological",
+                    plan_path=variant_plan_path,
+                    overall_score=0.8,
+                    metrics=(
+                        VariantMetric(
+                            name="narrative_completeness", score=1, evidence="all beats"
+                        ),
+                    ),
+                    tradeoff="More context before the payoff",
+                ),
+            ),
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    generated = {
+        name: output / name
+        for name in ("content_index.json", "edit_plan.json", "validation.json", "timeline.fcpxml")
+    }
+    for path in generated.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+    result = CreationResult(
+        output_directory=output,
+        content_index_path=generated["content_index.json"],
+        plan_path=generated["edit_plan.json"],
+        validation_path=generated["validation.json"],
+        timeline_path=generated["timeline.fcpxml"],
+        render_path=None,
+        transcript_path=None,
+        events_path=None,
+        vision_analysis_path=None,
+        plan=plan,
+        variant_comparison_path=comparison_path,
+    )
+    state = PersistedJob(
+        job_id="create-1",
+        request=CreateJobRequest(source=source, output_directory=output, brief=plan.brief),
+        status="completed",
+        stage="completed",
+        progress=1,
+        result=result,
+        created_at=1,
+        updated_at=2,
+    )
+    service = JobService(tmp_path / "jobs")
+    service._jobs[state.job_id] = JobRecord(state=state)
+    monkeypatch.setattr(service._executor, "submit", lambda *_args, **_kwargs: None)
+
+    revision = service.select_variant(
+        service._jobs[state.job_id],
+        "context-first",
+        ui.VariantSelectionRequest(ffmpeg_render=True),
+    )
+    persisted = PersistedJob.model_validate_json(
+        (tmp_path / "jobs" / "create-1.json").read_text(encoding="utf-8")
+    )
+    service.close()
+
+    assert persisted.selected_variant_id == "context-first"
+    assert revision.state.kind == "revision"
+    assert revision.state.request.plan == variant_plan_path
+    assert revision.state.request.ffmpeg_render
 
 
 def test_console_lists_and_approves_daemon_action(monkeypatch: MonkeyPatch) -> None:
@@ -257,3 +374,31 @@ def _wait_for_status(job: JobRecord, expected: str) -> None:
             return
         time.sleep(0.01)
     raise AssertionError(f"job did not reach {expected}")
+
+
+def _fixture_plan(source: Path) -> EditPlan:
+    return EditPlan(
+        source_path=source,
+        brief=CreativeBrief(target_duration_seconds=10, music=False),
+        segments=(
+            EditSegment(
+                segment_id="segment-001",
+                role="hook",
+                source_path=source,
+                source_range=TimeRange(start_seconds=0, end_seconds=10),
+                timeline_start_seconds=0,
+                speed=SpeedTreatment(rationale="keep action understandable"),
+                visual=VisualTreatment(rationale="retain source composition"),
+                score=1,
+                evidence=(
+                    Evidence(
+                        analyzer="fixture",
+                        analyzer_version="1",
+                        confidence=0.9,
+                        description="high value moment",
+                    ),
+                ),
+            ),
+        ),
+        delivery=DeliverySpec(width=1920, height=1080, frame_rate=30),
+    )
