@@ -5,13 +5,25 @@ from pytest import MonkeyPatch
 from starlette.testclient import TestClient
 
 from nimbledesk.creative.cancellation import CancellationToken
-from nimbledesk.creative.models import CreativeBrief
+from nimbledesk.creative.models import (
+    CreativeBrief,
+    DeliverySpec,
+    EditPlan,
+    EditSegment,
+    Evidence,
+    PlanRevisionRequest,
+    SpeedTreatment,
+    TimeRange,
+    VisualTreatment,
+)
 from nimbledesk.creative.workflow import CreationWorkflow
+from nimbledesk.media.models import MediaMetadata
 from nimbledesk.ui.server import (
     CreateJobRequest,
     JobRecord,
     JobService,
     PersistedJob,
+    ReviseJobRequest,
     app,
 )
 
@@ -31,6 +43,7 @@ def test_console_serves_creation_form_and_rejects_missing_source(tmp_path: Path)
 
     assert page.status_code == 200
     assert "NimbleDesk Studio" in page.text
+    assert "Review and revise" in page.text
     assert response.status_code == 400
     assert "does not exist" in response.json()["error"]
 
@@ -102,6 +115,78 @@ def test_job_service_marks_running_job_interrupted_after_restart(tmp_path: Path)
     assert recovered is not None
     assert recovered.state.status == "interrupted"
     assert "resume from cached analysis" in recovered.state.stage
+
+
+def test_job_service_builds_and_persists_validated_revision(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"fixture")
+    plan = EditPlan(
+        source_path=source,
+        brief=CreativeBrief(target_duration_seconds=10, music=False),
+        segments=(
+            EditSegment(
+                segment_id="segment-001",
+                role="hook",
+                source_path=source,
+                source_range=TimeRange(start_seconds=0, end_seconds=10),
+                timeline_start_seconds=0,
+                speed=SpeedTreatment(rationale="keep action understandable"),
+                visual=VisualTreatment(rationale="retain source composition"),
+                score=1,
+                evidence=(
+                    Evidence(
+                        analyzer="fixture",
+                        analyzer_version="1",
+                        confidence=0.9,
+                        description="high value moment",
+                    ),
+                ),
+            ),
+        ),
+        delivery=DeliverySpec(width=1920, height=1080, frame_rate=30),
+    )
+    plan_path = tmp_path / "edit_plan.json"
+    plan_path.write_text(plan.model_dump_json(), encoding="utf-8")
+    metadata = MediaMetadata(
+        path=source,
+        duration_seconds=10,
+        width=1920,
+        height=1080,
+        frame_rate=30,
+        has_audio=True,
+        video_codec="h264",
+        audio_codec="aac",
+    )
+    monkeypatch.setattr("nimbledesk.ui.server.probe_media", lambda _path: metadata)
+    storage = tmp_path / "jobs"
+    service = JobService(storage)
+
+    job = service.submit_revision(
+        "parent-1",
+        ReviseJobRequest(
+            plan=plan_path,
+            output_directory=tmp_path / "revision",
+            changes=PlanRevisionRequest(
+                pace="fast",
+                color_look="vivid",
+                lock_segment_ids=("segment-001",),
+            ),
+        ),
+    )
+    _wait_for_status(job, "completed")
+    service.close()
+
+    assert job.state.kind == "revision"
+    assert job.state.parent_job_id == "parent-1"
+    assert job.state.result is not None
+    assert job.state.result.plan.segments[0].locked
+    assert (tmp_path / "revision" / "plan_diff.json").is_file()
+    persisted = PersistedJob.model_validate_json(
+        (storage / f"{job.state.job_id}.json").read_text(encoding="utf-8")
+    )
+    assert persisted.status == "completed"
 
 
 def _wait_for_status(job: JobRecord, expected: str) -> None:

@@ -265,7 +265,9 @@ Start the loopback-only web console:
 uv run nimbledesk-ui
 ```
 
-Open `http://127.0.0.1:8765`, enter absolute source/output paths, choose the creative brief, and start a background job. The page reports the analysis, transcription, planning, render, and DaVinci stages, shows generated output paths, and can cancel queued or running work.
+Open `http://127.0.0.1:8765`, enter absolute source/output paths, choose the creative brief, and start a background job. The page reports the analysis, transcription, planning, render, and DaVinci stages, shows generated output paths, and can cancel queued or running work. Clear **Render review MP4** when you want to inspect and approve the plan before spending time on a render.
+
+When a plan completes, expand **Review and revise decisions**. Each segment shows its role, source range, speed, color treatment, strongest confidence, and the evidence used to select it. Check the segments you approve; checked segments are locked so later duration, pace, and color changes cannot alter their source selection or treatment. Choose the new target, pace, and color look, then select optional MP4 rendering or Resolve import and click **Build revision**. NimbleDesk writes each version under `<original-output>/revisions/` with its own `edit_plan.json`, `plan_diff.json`, `validation.json`, FCPXML timeline, and optional render. Revisions are normal durable jobs, so they are cancellable and remain visible after restarting the console.
 
 Job state is atomically persisted under `~/.nimbledesk/jobs`. Restarting the console retains completed, failed, and cancelled history. Work that was active during a process or machine restart is marked `interrupted`; submit the same source and output again to resume from the valid per-track semantic cache. Cancellation propagates into FFmpeg analysis/rendering, Whisper, Tesseract OCR, highlight rendering, and DaVinci rendering; child processes are terminated and Resolve receives `StopRendering`.
 
