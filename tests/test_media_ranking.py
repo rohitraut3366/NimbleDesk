@@ -60,3 +60,34 @@ def test_ranking_separates_nearby_peaks() -> None:
     )
 
     assert [candidate.peak_seconds for candidate in candidates] == [2, 8]
+
+
+def test_ranking_promotes_a_new_event_type_over_a_repeated_event() -> None:
+    events = (
+        TimelineEvent(time_seconds=10, event_type="kill", importance=1),
+        TimelineEvent(time_seconds=30, event_type="kill", importance=0.95),
+        TimelineEvent(time_seconds=50, event_type="clutch", importance=0.8),
+    )
+    points = build_signal_points(
+        60,
+        np.zeros(60, dtype=np.float64),
+        1,
+        np.zeros(60, dtype=np.float64),
+        1,
+        events,
+    )
+
+    candidates = rank_highlights(
+        points,
+        60,
+        AnalysisConfig(
+            highlight_count=3,
+            lead_in_seconds=2,
+            aftermath_seconds=3,
+            minimum_peak_separation_seconds=5,
+        ),
+        events,
+    )
+
+    assert [candidate.peak_seconds for candidate in candidates] == [10, 50, 30]
+    assert "adds event diversity: clutch" in candidates[1].reasons
