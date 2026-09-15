@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import os
@@ -28,6 +29,9 @@ class DaVinciResult(BaseModel):
     timeline_name: str
     render_job_id: str | None = None
     render_path: Path | None = None
+    plan_fingerprint: str | None = None
+    timeline_reused: bool = False
+    project_saved: bool = False
 
 
 class DaVinciWorkerResponse(BaseModel):
@@ -161,7 +165,9 @@ def execute_in_davinci(
         raise DaVinciError("DaVinci Resolve did not provide a project manager")
     project = project_manager.GetCurrentProject()
     if project is None or project.GetName() != plan.brief.title:
-        project = project_manager.CreateProject(plan.brief.title)
+        project = project_manager.LoadProject(plan.brief.title)
+        if project is None:
+            project = project_manager.CreateProject(plan.brief.title)
     if project is None:
         raise DaVinciError(
             f"could not create project {plan.brief.title!r}; a project with that name may exist"
@@ -169,21 +175,34 @@ def execute_in_davinci(
     media_pool = project.GetMediaPool()
     if media_pool is None:
         raise DaVinciError("DaVinci Resolve did not provide a media pool")
-    timeline = media_pool.ImportTimelineFromFile(
-        str(timeline_path.resolve()),
-        {
-            "timelineName": plan.brief.title,
-            "importSourceClips": True,
-        },
-    )
+    plan_fingerprint = hashlib.sha256(plan.model_dump_json().encode("utf-8")).hexdigest()[:12]
+    timeline_name = f"{plan.brief.title} [NimbleDesk {plan_fingerprint}]"
+    timeline = _find_timeline(project, timeline_name)
+    timeline_reused = timeline is not None
     if timeline is None:
-        raise DaVinciError("DaVinci Resolve could not import the generated FCPXML timeline")
+        timeline = media_pool.ImportTimelineFromFile(
+            str(timeline_path.resolve()),
+            {
+                "timelineName": timeline_name,
+                "importSourceClips": True,
+            },
+        )
+        if timeline is None:
+            raise DaVinciError("DaVinci Resolve could not import the generated FCPXML timeline")
     if not project.SetCurrentTimeline(timeline):
         raise DaVinciError("DaVinci Resolve could not activate the imported timeline")
     _validate_and_apply_timeline(timeline, plan)
-    timeline_name = str(timeline.GetName())
+    imported_timeline_name = str(timeline.GetName())
+    if not project_manager.SaveProject():
+        raise DaVinciError("DaVinci Resolve could not save the imported project")
     if not render:
-        return DaVinciResult(project_name=str(project.GetName()), timeline_name=timeline_name)
+        return DaVinciResult(
+            project_name=str(project.GetName()),
+            timeline_name=imported_timeline_name,
+            plan_fingerprint=plan_fingerprint,
+            timeline_reused=timeline_reused,
+            project_saved=True,
+        )
 
     output_directory.mkdir(parents=True, exist_ok=True)
     custom_name = "davinci-final"
@@ -223,12 +242,29 @@ def execute_in_davinci(
     render_path = output_directory / f"{custom_name}.mp4"
     if not render_path.is_file():
         raise DaVinciError(f"DaVinci Resolve reported completion but {render_path} is missing")
+    if not project_manager.SaveProject():
+        raise DaVinciError("DaVinci Resolve could not save the rendered project")
     return DaVinciResult(
         project_name=str(project.GetName()),
-        timeline_name=timeline_name,
+        timeline_name=imported_timeline_name,
         render_job_id=str(job_id),
         render_path=render_path,
+        plan_fingerprint=plan_fingerprint,
+        timeline_reused=timeline_reused,
+        project_saved=True,
     )
+
+
+def _find_timeline(project: Any, timeline_name: str) -> Any | None:
+    try:
+        timeline_count = int(project.GetTimelineCount())
+    except (AttributeError, TypeError, ValueError):
+        return None
+    for index in range(1, timeline_count + 1):
+        timeline = project.GetTimelineByIndex(index)
+        if timeline is not None and str(timeline.GetName()) == timeline_name:
+            return timeline
+    return None
 
 
 def _validate_and_apply_timeline(timeline: Any, plan: EditPlan) -> None:

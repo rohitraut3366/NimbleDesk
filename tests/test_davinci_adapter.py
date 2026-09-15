@@ -29,12 +29,13 @@ class FakeTimelineItem:
 
 
 class FakeTimeline:
-    def __init__(self) -> None:
+    def __init__(self, name: str = "Imported timeline") -> None:
+        self.name = name
         self.primary_items = [FakeTimelineItem()]
         self.subtitle_items = [FakeTimelineItem()]
 
     def GetName(self) -> str:
-        return "Imported timeline"
+        return self.name
 
     def GetTrackCount(self, track_type: str) -> int:
         return 1 if track_type in {"video", "subtitle"} else 0
@@ -50,12 +51,20 @@ class FakeTimeline:
 class FakeMediaPool:
     def __init__(self) -> None:
         self.imported: Path | None = None
-        self.timeline = FakeTimeline()
+        self.timelines: list[FakeTimeline] = []
+        self.import_count = 0
+
+    @property
+    def timeline(self) -> FakeTimeline:
+        return self.timelines[-1]
 
     def ImportTimelineFromFile(self, path: str, options: dict[str, Any]) -> FakeTimeline:
         self.imported = Path(path)
         assert options["importSourceClips"] is True
-        return self.timeline
+        timeline = FakeTimeline(str(options["timelineName"]))
+        self.timelines.append(timeline)
+        self.import_count += 1
+        return timeline
 
 
 class FakeProject:
@@ -72,6 +81,14 @@ class FakeProject:
 
     def SetCurrentTimeline(self, timeline: FakeTimeline) -> bool:
         return True
+
+    def GetTimelineCount(self) -> int:
+        return len(self.media_pool.timelines)
+
+    def GetTimelineByIndex(self, index: int) -> FakeTimeline | None:
+        if 1 <= index <= len(self.media_pool.timelines):
+            return self.media_pool.timelines[index - 1]
+        return None
 
     def SetCurrentRenderFormatAndCodec(self, format_name: str, codec: str) -> bool:
         return format_name == "mp4" and codec == "H264"
@@ -98,12 +115,20 @@ class FakeProject:
 class FakeProjectManager:
     def __init__(self, project: FakeProject) -> None:
         self.project = project
+        self.save_count = 0
 
     def GetCurrentProject(self) -> FakeProject:
         return self.project
 
     def CreateProject(self, name: str) -> FakeProject:
         return self.project
+
+    def LoadProject(self, name: str) -> FakeProject:
+        return self.project
+
+    def SaveProject(self) -> bool:
+        self.save_count += 1
+        return True
 
 
 class FakeResolve:
@@ -167,12 +192,17 @@ def test_davinci_adapter_imports_timeline_and_validates_render(tmp_path: Path) -
     timeline_path.write_text("<fcpxml />", encoding="utf-8")
     project = FakeProject(tmp_path)
 
-    result = execute_in_davinci(FakeResolve(project), plan, timeline_path, tmp_path)
+    resolve = FakeResolve(project)
+    result = execute_in_davinci(resolve, plan, timeline_path, tmp_path)
 
     assert project.media_pool.imported == timeline_path
-    assert result.timeline_name == "Imported timeline"
+    assert result.timeline_name.startswith("Fixture project [NimbleDesk ")
     assert result.render_job_id == "job-1"
     assert result.render_path == tmp_path / "davinci-final.mp4"
+    assert result.project_saved
+    assert not result.timeline_reused
+    assert result.plan_fingerprint is not None
+    assert resolve.manager.save_count == 2
     assert project.settings["ExportSubtitle"] is True
     assert project.settings["SubtitleFormat"] == "BurnIn"
     assert project.media_pool.timeline.primary_items[0].cdl == {
@@ -182,6 +212,40 @@ def test_davinci_adapter_imports_timeline_and_validates_render(tmp_path: Path) -
         "Power": "1 1 1",
         "Saturation": "1.000000",
     }
+
+
+def test_davinci_adapter_reuses_identical_plan_timeline(tmp_path: Path) -> None:
+    source_range = TimeRange(start_seconds=1, end_seconds=3)
+    plan = EditPlan(
+        source_path=tmp_path / "source.mp4",
+        brief=CreativeBrief(title="Fixture project", captions=False, music=False),
+        segments=(
+            EditSegment(
+                segment_id="segment-001",
+                role="hook",
+                source_path=tmp_path / "source.mp4",
+                source_range=source_range,
+                timeline_start_seconds=0,
+                speed=SpeedTreatment(rate=1, rationale="preserve timing"),
+                visual=VisualTreatment(rationale="straight cut"),
+                score=1,
+                evidence=(),
+            ),
+        ),
+        delivery=DeliverySpec(width=1920, height=1080, frame_rate=30),
+    )
+    timeline_path = tmp_path / "timeline.fcpxml"
+    timeline_path.write_text("<fcpxml />", encoding="utf-8")
+    project = FakeProject(tmp_path)
+    resolve = FakeResolve(project)
+
+    first = execute_in_davinci(resolve, plan, timeline_path, tmp_path, render=False)
+    second = execute_in_davinci(resolve, plan, timeline_path, tmp_path, render=False)
+
+    assert not first.timeline_reused
+    assert second.timeline_reused
+    assert project.media_pool.import_count == 1
+    assert resolve.manager.save_count == 2
 
 
 def test_davinci_adapter_stops_active_render_when_cancelled(tmp_path: Path) -> None:
