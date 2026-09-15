@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import platform
 import subprocess
@@ -12,6 +13,7 @@ from pathlib import Path
 from nimbledesk.adapters.models import AdapterInvocation, AdapterManifest, AdapterResult
 
 MAXIMUM_RESPONSE_BYTES = 1_000_000
+MAXIMUM_STDERR_BYTES = 65_536
 
 
 class AdapterError(RuntimeError):
@@ -43,43 +45,50 @@ class IsolatedAdapterRunner:
             if key in {"PATH", "SYSTEMROOT", "WINDIR", "TMPDIR", "TEMP", "TMP"}
         }
         environment["PYTHONNOUSERSITE"] = "1"
-        process = subprocess.Popen(
-            [sys.executable, "-m", "nimbledesk.adapters.worker", manifest.entrypoint],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=environment,
-            cwd=tempfile.gettempdir(),
-        )
         payload = invocation.model_dump_json().encode("utf-8")
-        deadline = time.monotonic() + specification.timeout_seconds
-        first_communication = True
-        while True:
-            if cancelled and cancelled():
-                process.terminate()
-                self._wait_or_kill(process)
-                raise AdapterError("adapter execution was cancelled")
-            if time.monotonic() >= deadline:
-                process.terminate()
-                self._wait_or_kill(process)
-                raise AdapterError("adapter execution timed out")
-            try:
-                stdout, stderr = process.communicate(
-                    input=payload if first_communication else None,
-                    timeout=min(0.1, deadline - time.monotonic()),
-                )
-                break
-            except subprocess.TimeoutExpired:
-                first_communication = False
-        if len(stdout) > MAXIMUM_RESPONSE_BYTES:
-            raise AdapterError("adapter response exceeded the one-megabyte limit")
-        if process.returncode != 0:
-            message = stderr[:8_192].decode("utf-8", errors="replace").strip()
-            raise AdapterError(message or f"adapter worker exited with {process.returncode}")
-        try:
-            return AdapterResult.model_validate_json(stdout)
-        except Exception as error:
-            raise AdapterError("adapter returned an invalid response") from error
+        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+            process = subprocess.Popen(
+                [sys.executable, "-m", "nimbledesk.adapters.worker", manifest.entrypoint],
+                stdin=subprocess.PIPE,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                env=environment,
+                cwd=tempfile.gettempdir(),
+            )
+            assert process.stdin is not None
+            process.stdin.write(payload)
+            process.stdin.close()
+            deadline = time.monotonic() + specification.timeout_seconds
+            while process.poll() is None:
+                if cancelled and cancelled():
+                    process.terminate()
+                    self._wait_or_kill(process)
+                    raise AdapterError("adapter execution was cancelled")
+                if time.monotonic() >= deadline:
+                    process.terminate()
+                    self._wait_or_kill(process)
+                    raise AdapterError("adapter execution timed out")
+                if os.fstat(stdout_file.fileno()).st_size > MAXIMUM_RESPONSE_BYTES:
+                    process.terminate()
+                    self._wait_or_kill(process)
+                    raise AdapterError("adapter response exceeded the one-megabyte limit")
+                if os.fstat(stderr_file.fileno()).st_size > MAXIMUM_STDERR_BYTES:
+                    process.terminate()
+                    self._wait_or_kill(process)
+                    raise AdapterError("adapter stderr exceeded the 64-kilobyte limit")
+                time.sleep(0.02)
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            stdout = stdout_file.read(MAXIMUM_RESPONSE_BYTES + 1)
+            stderr = stderr_file.read(MAXIMUM_STDERR_BYTES + 1)
+            if len(stdout) > MAXIMUM_RESPONSE_BYTES:
+                raise AdapterError("adapter response exceeded the one-megabyte limit")
+            if len(stderr) > MAXIMUM_STDERR_BYTES:
+                raise AdapterError("adapter stderr exceeded the 64-kilobyte limit")
+            if process.returncode != 0:
+                message = stderr[:8_192].decode("utf-8", errors="replace").strip()
+                raise AdapterError(message or f"adapter worker exited with {process.returncode}")
+        return _strict_adapter_result(stdout)
 
     @staticmethod
     def _validate_paths(
@@ -87,12 +96,12 @@ class IsolatedAdapterRunner:
         arguments: dict[str, object],
         granted_paths: tuple[Path, ...],
     ) -> None:
-        grants = tuple(path.expanduser().resolve() for path in granted_paths)
+        grants = tuple(_canonical_without_symlinks(path, "granted path") for path in granted_paths)
         for name in path_arguments:
             value = arguments.get(name)
             if not isinstance(value, str):
                 raise AdapterError(f"adapter path argument must be a string: {name}")
-            path = Path(value).expanduser().resolve()
+            path = _canonical_without_symlinks(Path(value), f"adapter path argument {name}")
             if not any(path == grant or grant in path.parents for grant in grants):
                 raise AdapterError(f"adapter path is outside session grants: {name}")
 
@@ -103,3 +112,29 @@ class IsolatedAdapterRunner:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+
+
+def _canonical_without_symlinks(path: Path, description: str) -> Path:
+    absolute = Path(os.path.abspath(path.expanduser()))
+    for candidate in (absolute, *absolute.parents):
+        if candidate.is_symlink():
+            raise AdapterError(f"{description} contains a symbolic link")
+    return absolute.resolve()
+
+
+def _strict_adapter_result(payload: bytes) -> AdapterResult:
+    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise AdapterError(f"adapter response contains duplicate key: {key}")
+            result[key] = value
+        return result
+
+    try:
+        decoded = json.loads(payload, object_pairs_hook=reject_duplicate_keys)
+        return AdapterResult.model_validate(decoded)
+    except AdapterError:
+        raise
+    except Exception as error:
+        raise AdapterError("adapter returned an invalid response") from error

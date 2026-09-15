@@ -4,7 +4,11 @@ from pathlib import Path
 import pytest
 
 from nimbledesk.adapters.models import AdapterCommand, AdapterManifest
-from nimbledesk.adapters.runner import AdapterError, IsolatedAdapterRunner
+from nimbledesk.adapters.runner import (
+    AdapterError,
+    IsolatedAdapterRunner,
+    _strict_adapter_result,
+)
 from nimbledesk.backends.adapters import AdapterDesktopBackend, AdapterRegistry
 from nimbledesk.backends.simulator import SimulatorBackend
 from nimbledesk.daemon.approvals import ApprovalManager
@@ -34,6 +38,7 @@ def _manifest() -> AdapterManifest:
                 timeout_seconds=0.1,
                 required_arguments=("seconds",),
             ),
+            "huge": AdapterCommand(risk="observe", read_only=True),
         },
     )
 
@@ -69,6 +74,36 @@ def test_adapter_timeout_terminates_worker() -> None:
             _manifest(),
             "sleep",
             {"seconds": 5},
+        )
+
+
+def test_adapter_rejects_oversized_worker_result() -> None:
+    with pytest.raises(AdapterError, match="one-megabyte"):
+        IsolatedAdapterRunner().execute(_manifest(), "huge", {})
+
+
+def test_adapter_rejects_duplicate_json_keys() -> None:
+    payload = b'{"success":true,"success":false,"result":{},"error":null}'
+
+    with pytest.raises(AdapterError, match="duplicate key"):
+        _strict_adapter_result(payload)
+
+
+def test_adapter_rejects_symlinked_path_arguments(tmp_path: Path) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    linked = tmp_path / "linked"
+    try:
+        linked.symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip("creating symlinks is unavailable")
+
+    with pytest.raises(AdapterError, match="symbolic link"):
+        IsolatedAdapterRunner().execute(
+            _manifest(),
+            "inspect",
+            {"project": str(linked)},
+            granted_paths=(tmp_path,),
         )
 
 
