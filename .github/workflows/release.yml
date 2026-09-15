@@ -70,8 +70,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: dotnet tool install --global wix --version 4.0.6
-      - run: uv sync --extra bundle --locked
-      - run: uv run --extra bundle python packaging/build_bundle.py
+      - run: uv sync --extra bundle --extra speech --locked
+      - run: uv run --extra bundle --extra speech python packaging/build_bundle.py
       - name: Build release installer
         env:
           NIMBLEDESK_APPLE_APPLICATION_IDENTITY: ${{ secrets.APPLE_APPLICATION_IDENTITY }}
@@ -79,7 +79,7 @@ jobs:
           NIMBLEDESK_APPLE_NOTARY_PROFILE: nimbledesk-release
           NIMBLEDESK_WINDOWS_SIGNING_CERTIFICATE: ${{ runner.temp }}\nimbledesk.pfx
           NIMBLEDESK_WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: uv run --extra bundle python packaging/build_installer.py --version "${{ github.ref_name }}"
+        run: uv run --extra bundle --extra speech python packaging/build_installer.py --version "${{ github.ref_name }}"
       - uses: actions/upload-artifact@v4
         with:
           name: installer-${{ runner.os }}-${{ runner.arch }}

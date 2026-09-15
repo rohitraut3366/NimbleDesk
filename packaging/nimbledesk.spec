@@ -7,6 +7,7 @@ root = Path(SPECPATH).parent
 
 hiddenimports = (
     collect_submodules("dbus_next")
+    + collect_submodules("faster_whisper")
     + collect_submodules("mcp")
     + collect_submodules("nimbledesk")
     + collect_submodules("starlette")
