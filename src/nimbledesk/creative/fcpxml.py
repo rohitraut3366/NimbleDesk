@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from xml.etree import ElementTree
 
+from nimbledesk.creative.graphics import GraphicKind, write_text_graphic
 from nimbledesk.creative.models import EditPlan
 
 
@@ -63,6 +64,46 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
             duration=_seconds(cue.asset.duration_seconds),
             hasAudio="1",
         )
+    graphic_references: dict[tuple[str, GraphicKind], tuple[str, Path, float, float]] = {}
+    for segment in plan.segments:
+        graphic_specs: list[tuple[GraphicKind, str, float, float]] = []
+        if segment.visual.title:
+            graphic_specs.append(
+                (
+                    "title",
+                    segment.visual.title,
+                    0,
+                    min(3.0, segment.timeline_duration_seconds),
+                )
+            )
+        if segment.visual.lower_third:
+            graphic_specs.append(
+                (
+                    "lower_third",
+                    segment.visual.lower_third,
+                    min(0.5, segment.timeline_duration_seconds * 0.1),
+                    min(4.5, segment.timeline_duration_seconds),
+                )
+            )
+        for kind, text, start, end in graphic_specs:
+            path = output_path.parent / "graphics" / (
+                f"{segment.segment_id}-{kind.replace('_', '-')}.png"
+            )
+            write_text_graphic(text, kind, plan.delivery.width, plan.delivery.height, path)
+            reference = f"r{next_resource}"
+            next_resource += 1
+            graphic_references[(segment.segment_id, kind)] = (reference, path, start, end)
+            ElementTree.SubElement(
+                resources,
+                "asset",
+                id=reference,
+                name=f"{segment.segment_id} {kind.replace('_', ' ')}",
+                src=path.resolve().as_uri(),
+                start="0s",
+                duration=_seconds(end - start),
+                hasVideo="1",
+                format="r1",
+            )
     library = ElementTree.SubElement(root, "library")
     event = ElementTree.SubElement(library, "event", name="NimbleDesk")
     project = ElementTree.SubElement(event, "project", name=plan.brief.title)
@@ -110,6 +151,21 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
                 "adjust-transform",
                 scale=f"{scale} {scale}",
                 position=f"{horizontal:.3f} {vertical:.3f}",
+            )
+        for kind in ("title", "lower_third"):
+            graphic = graphic_references.get((segment.segment_id, kind))
+            if graphic is None:
+                continue
+            reference, path, start, end = graphic
+            ElementTree.SubElement(
+                clip,
+                "asset-clip",
+                name=path.stem,
+                ref=reference,
+                lane="1",
+                offset=_seconds(segment.timeline_start_seconds + start),
+                start="0s",
+                duration=_seconds(end - start),
             )
     if music_reference and plan.music_cue:
         music_cue = plan.music_cue

@@ -38,6 +38,7 @@ def build_edit_plan(
     ordered = _story_order(manifest.candidates[: brief.clip_count])
     width, height = _delivery_size(brief.aspect_ratio)
     segments: list[EditSegment] = []
+    introduced_speakers: set[str] = set()
     timeline_cursor = 0.0
     for index, candidate in enumerate(ordered):
         remaining = brief.target_duration_seconds - timeline_cursor
@@ -67,6 +68,10 @@ def build_edit_plan(
             )
         )
         role = _role(index, len(ordered))
+        speaker = _speaker_for_range(source_range, transcripts)
+        lower_third = speaker if speaker and speaker not in introduced_speakers else None
+        if lower_third:
+            introduced_speakers.add(lower_third)
         segments.append(
             EditSegment(
                 segment_id=f"segment-{index + 1:03d}",
@@ -90,6 +95,7 @@ def build_edit_plan(
                     reframe_confidence=reframe_confidence,
                     reframe_mode=reframe_mode,
                     title=brief.title if role == "hook" else None,
+                    lower_third=lower_third,
                     rationale=f"{_visual_reason(role)}; {color_reason}; {reframe_reason}",
                 ),
                 score=candidate.score,
@@ -212,6 +218,21 @@ def _map_captions(
                 )
             )
     return tuple(cues)
+
+
+def _speaker_for_range(
+    source_range: TimeRange, transcripts: tuple[TranscriptSegment, ...]
+) -> str | None:
+    overlaps: dict[str, float] = {}
+    for transcript in transcripts:
+        if not transcript.speaker:
+            continue
+        overlap = min(source_range.end_seconds, transcript.source_range.end_seconds) - max(
+            source_range.start_seconds, transcript.source_range.start_seconds
+        )
+        if overlap > 0:
+            overlaps[transcript.speaker] = overlaps.get(transcript.speaker, 0) + overlap
+    return max(overlaps, key=lambda speaker: overlaps[speaker]) if overlaps else None
 
 
 def _split_caption_cues(

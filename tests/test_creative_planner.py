@@ -57,6 +57,7 @@ def test_planner_builds_treatments_captions_music_and_davinci_timeline(tmp_path:
     transcript = TranscriptSegment(
         source_range=TimeRange(start_seconds=17, end_seconds=19),
         text="That was close!",
+        speaker="Rohit",
     )
     music = MusicAsset(
         path=music_path,
@@ -83,11 +84,15 @@ def test_planner_builds_treatments_captions_music_and_davinci_timeline(tmp_path:
     assert plan.segments[0].speed.rate == 0.85
     assert plan.segments[1].speed.rate == 1.25
     assert plan.captions[0].text == "That was close!"
+    assert plan.segments[0].visual.title == "Best round"
+    assert plan.segments[0].visual.lower_third == "Rohit"
     assert plan.music_cue is not None
     assert not plan.review_items
     parsed = ElementTree.parse(timeline)
     assert parsed.find(".//project").attrib["name"] == "Best round"
-    assert len(parsed.findall(".//asset-clip")) == 3
+    assert len(parsed.findall(".//asset-clip")) == 5
+    assert (tmp_path / "graphics" / "segment-001-title.png").is_file()
+    assert (tmp_path / "graphics" / "segment-001-lower-third.png").is_file()
 
 
 def test_planner_splits_long_caption_into_readable_proportional_cues(tmp_path: Path) -> None:

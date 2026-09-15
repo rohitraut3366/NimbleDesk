@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from nimbledesk.creative.graphics import GraphicKind, write_text_graphic
 from nimbledesk.creative.models import CaptionCue, EditPlan
 from nimbledesk.media.ffmpeg import MediaToolError, probe_media, require_media_tools
 from nimbledesk.media.process import run_cancellable
@@ -18,6 +19,8 @@ def render_edit_plan(
     require_media_tools()
     metadata = probe_media(plan.source_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    command = ["ffmpeg", "-y", "-v", "error", "-i", str(plan.source_path)]
+    next_input = 1
     filters: list[str] = []
     concat_inputs: list[str] = []
     for index, segment in enumerate(plan.segments):
@@ -62,9 +65,59 @@ def render_edit_plan(
             )
         if segment.visual.transition_in == "dip_to_black":
             video_steps.append("fade=t=in:st=0:d=0.25:color=black")
-        video_steps.extend((f"fps={plan.delivery.frame_rate:.6f}", f"format=yuv420p[v{index}]"))
+        graphic_specs: list[tuple[GraphicKind, str, float, float]] = []
+        if segment.visual.title:
+            graphic_specs.append(
+                (
+                    "title",
+                    segment.visual.title,
+                    0,
+                    min(3.0, segment.timeline_duration_seconds),
+                )
+            )
+        if segment.visual.lower_third:
+            graphic_specs.append(
+                (
+                    "lower_third",
+                    segment.visual.lower_third,
+                    min(0.5, segment.timeline_duration_seconds * 0.1),
+                    min(4.5, segment.timeline_duration_seconds),
+                )
+            )
+        raw_video_label = f"vraw{index}" if graphic_specs else f"v{index}"
+        video_steps.extend(
+            (f"fps={plan.delivery.frame_rate:.6f}", f"format=yuv420p[{raw_video_label}]")
+        )
         video_filter = ",".join(video_steps)
         filters.append(video_filter)
+        previous_label = raw_video_label
+        for graphic_index, (kind, text, start, end) in enumerate(graphic_specs):
+            graphic_path = (
+                output_path.parent
+                / "graphics"
+                / f"{segment.segment_id}-{kind.replace('_', '-')}.png"
+            )
+            write_text_graphic(
+                text,
+                kind,
+                plan.delivery.width,
+                plan.delivery.height,
+                graphic_path,
+            )
+            command.extend(["-loop", "1", "-i", str(graphic_path)])
+            graphic_label = f"graphic{index}_{graphic_index}"
+            output_label = (
+                f"v{index}"
+                if graphic_index == len(graphic_specs) - 1
+                else f"voverlay{index}_{graphic_index}"
+            )
+            filters.append(f"[{next_input}:v]format=rgba[{graphic_label}]")
+            filters.append(
+                f"[{previous_label}][{graphic_label}]overlay=0:0:"
+                f"enable='between(t,{start:.3f},{end:.3f})'[{output_label}]"
+            )
+            previous_label = output_label
+            next_input += 1
         if metadata.has_audio:
             audio_filter = (
                 f"[0:a]atrim=start={source.start_seconds:.3f}:end={source.end_seconds:.3f},"
@@ -91,15 +144,13 @@ def render_edit_plan(
         )
         video_output = "[vfinal]"
 
-    command = ["ffmpeg", "-y", "-v", "error", "-i", str(plan.source_path)]
     audio_output = "[abase]"
-    next_input = 1
     if plan.music_cue:
         music = plan.music_cue
         command.extend(["-stream_loop", "-1", "-i", str(music.asset.path)])
         gain = 10 ** (music.gain_db / 20)
         filters.append(
-            f"[1:a]atrim=start={music.source_range.start_seconds:.3f}:"
+            f"[{next_input}:a]atrim=start={music.source_range.start_seconds:.3f}:"
             f"duration={plan.duration_seconds:.3f},asetpts=PTS-STARTPTS,"
             f"volume={gain:.6f}[music]"
         )

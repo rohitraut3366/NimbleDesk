@@ -116,6 +116,7 @@ class VisualTreatment(CreativeModel):
     reframe_confidence: Annotated[float, Field(ge=0, le=1)] = 0
     reframe_mode: Literal["center", "spatial_motion"] = "center"
     title: str | None = None
+    lower_third: str | None = None
     rationale: str
 
 

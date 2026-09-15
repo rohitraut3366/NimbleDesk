@@ -91,6 +91,7 @@ The command never changes the source. Its output directory contains:
 - `edit_plan.json`: source ranges and explainable story, speed, visual, color, music, caption, evidence, confidence, and review decisions.
 - `validation.json`: the mandatory source, timeline, duration, caption, music, and review gate applied before execution.
 - `davinci_timeline.fcpxml`: editable timeline for DaVinci Resolve.
+- `graphics/`: transparent title and speaker lower-third cards used by the review render and imported timeline.
 - `transcript.json`: normalized transcript when speech is available.
 - `detected_events.json`: merged automatic and supplied events.
 - `analysis/index/content_index.json`: persistent rational-time analysis tracks, semantic moments, provenance, analyzer versions, and cache-hit metadata.
