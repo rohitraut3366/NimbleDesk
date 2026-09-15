@@ -27,6 +27,8 @@ uv run --extra dev mypy
 uv run --extra dev ruff check .
 ```
 
+See [docs/TESTING.md](docs/TESTING.md) for simulator, real-screen, bounded pointer, OS contract, editor, and creative-quality testing.
+
 ## Run safely with the simulator
 
 The daemon uses the simulator by default. It cannot control the real desktop.

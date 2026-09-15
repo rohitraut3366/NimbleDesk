@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import secrets
+from contextlib import suppress
 from importlib import import_module
 from pathlib import Path
 
@@ -56,4 +57,5 @@ async def run() -> None:
 
 
 def main() -> None:
-    asyncio.run(run())
+    with suppress(KeyboardInterrupt):
+        asyncio.run(run())

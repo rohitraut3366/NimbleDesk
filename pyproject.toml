@@ -26,6 +26,7 @@ dev = [
 [project.scripts]
 nimbledesk-mcp = "nimbledesk.gateway.server:main"
 nimbledesk-daemon = "nimbledesk.daemon.server:main"
+nimbledesk-smoke = "nimbledesk.testing.smoke:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nimbledesk"]
