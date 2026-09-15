@@ -6,6 +6,10 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from nimbledesk.analysis.index import ContentIndexer
+from nimbledesk.creative.automatic import (
+    resolve_automatic_intelligence,
+    write_automatic_intelligence_report,
+)
 from nimbledesk.creative.cancellation import CancellationToken
 from nimbledesk.creative.cue_sheet import write_cue_sheet
 from nimbledesk.creative.davinci import DaVinciResult, execute_davinci_isolated
@@ -58,6 +62,7 @@ class CreationResult(BaseModel):
     variant_comparison_path: Path | None = None
     verification_path: Path | None = None
     davinci_verification_path: Path | None = None
+    automatic_intelligence_path: Path | None = None
 
 
 class CreationWorkflow:
@@ -68,6 +73,7 @@ class CreationWorkflow:
         brief: CreativeBrief,
         *,
         supplied_events: Path | None = None,
+        automatic_intelligence: bool = False,
         automatic_game_ocr: bool = False,
         game_pack: Path | None = None,
         vision_provider: Path | None = None,
@@ -93,6 +99,23 @@ class CreationWorkflow:
             raise ValueError("creative brief autonomy does not allow editor execution")
         token.check()
         output_directory.mkdir(parents=True, exist_ok=True)
+        automatic = resolve_automatic_intelligence(
+            brief,
+            output_directory,
+            enabled=automatic_intelligence,
+            game_ocr=automatic_game_ocr,
+            transcribe=automatic_transcription,
+            vision_provider=vision_provider,
+            music_catalog=music_catalog,
+            sound_catalog=sound_catalog,
+        )
+        automatic_intelligence_path = output_directory / "automatic_intelligence.json"
+        write_automatic_intelligence_report(automatic.report, automatic_intelligence_path)
+        automatic_game_ocr = automatic.game_ocr
+        automatic_transcription = automatic.transcribe
+        vision_provider = automatic.vision_provider
+        music_catalog = automatic.music_catalog
+        sound_catalog = automatic.sound_catalog
         report("detecting events", 0.05)
         events = list(load_events(supplied_events))
         if automatic_game_ocr:
@@ -255,6 +278,7 @@ class CreationWorkflow:
             variant_comparison_path=variant_comparison_path,
             verification_path=verification_path,
             davinci_verification_path=davinci_verification_path,
+            automatic_intelligence_path=automatic_intelligence_path,
         )
 
 

@@ -35,6 +35,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--events", type=Path, help="Supplied event timeline JSON")
     parser.add_argument(
+        "--automatic",
+        action="store_true",
+        help="Discover available OCR, transcription, semantic vision, music, and sound inputs",
+    )
+    parser.add_argument(
         "--game-ocr", action="store_true", help="Detect game events with Tesseract OCR"
     )
     parser.add_argument("--game-pack", type=Path, help="Custom game OCR pack JSON")
@@ -98,6 +103,7 @@ def main() -> None:
         arguments.output_directory,
         brief,
         supplied_events=arguments.events,
+        automatic_intelligence=arguments.automatic,
         automatic_game_ocr=arguments.game_ocr,
         game_pack=arguments.game_pack,
         vision_provider=arguments.vision_provider,
@@ -124,6 +130,7 @@ def main() -> None:
                 "vision_analysis": (
                     str(result.vision_analysis_path) if result.vision_analysis_path else None
                 ),
+                "automatic_intelligence": str(result.automatic_intelligence_path),
                 "cue_sheet": str(result.cue_sheet_path) if result.cue_sheet_path else None,
                 "cue_sheet_csv": (
                     str(result.cue_sheet_csv_path) if result.cue_sheet_csv_path else None

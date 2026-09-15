@@ -85,10 +85,7 @@ uv run nimbledesk-create gameplay.mp4 output/my-video \
   --aspect-ratio 9:16 \
   --pace fast \
   --mood exciting \
-  --game-ocr \
-  --vision-provider vision-provider.json \
-  --transcribe \
-  --music-catalog music.json
+  --automatic
 ```
 
 The command never changes the source. Its output directory contains:
@@ -107,10 +104,22 @@ The command never changes the source. Its output directory contains:
 - `analysis/vision/analysis.json`: accepted multimodal semantic events with provider, model, confidence, configuration provenance, measured image bytes/tiles, conservative image-token estimates, and provider-reported input/output tokens when available.
 - `analysis/index/content_index.json`: persistent rational-time analysis tracks, semantic moments, provenance, analyzer versions, and cache-hit metadata.
 - `analysis/`: ranked intermediate clips and `highlights.json`.
+- `automatic_intelligence.json`: every automatically enabled, unavailable, inapplicable, or
+  policy-blocked intelligence and licensed-media capability, with the reason.
 
 With `content_kind=auto`, detected gameplay events select gameplay treatment, an available transcript selects talking-head treatment, and other footage uses the general vlog treatment. Mandatory event types are hard constraints: creation stops if they are absent. Excluded event types are removed before ranking.
 
 ### Model-pluggable semantic vision
+
+Pass `--automatic` to use every locally available intelligence component and discover configured
+semantic vision and licensed catalogs. NimbleDesk enables game OCR for `gameplay` and `auto`
+briefs when FFmpeg and Tesseract are installed, enables local transcription when faster-whisper or
+the Whisper CLI is available, and reads catalog locations from `NIMBLEDESK_MUSIC_CATALOG` and
+`NIMBLEDESK_SOUND_CATALOG`. It falls back to
+`~/.nimbledesk/catalogs/music.json` and `~/.nimbledesk/catalogs/sound.json`. An explicitly supplied
+flag or path takes precedence. A discovered remote vision endpoint remains disabled unless the
+brief sets `data_policy.allow_remote_frames=true`; this decision appears in
+`automatic_intelligence.json` rather than silently sending frames.
 
 OCR remains useful for kill-feed text, but it cannot reliably understand a grenade throw, a near-death escape, an emotional reaction, or the narrative meaning of a visual sequence. Configure a multimodal provider command to add those events:
 
@@ -187,6 +196,7 @@ Use `--lock` or `--unlock` more than once. Locked segments retain their source s
 | `--no-captions` | Off | Do not map transcript segments into caption cues. |
 | `--no-music` | Off | Do not select or mix music. |
 | `--events` | None | Supplied event JSON in the highlight-event format. |
+| `--automatic` | Off | Discover and use available OCR, local transcription, configured semantic vision, and licensed catalogs. Studio enables this by default. |
 | `--game-ocr` | Off | Sample frames and run the selected Tesseract game pack. |
 | `--game-pack` | Built-in shooter | Custom game-pack JSON. |
 | `--transcript` | None | Existing normalized transcript JSON. |

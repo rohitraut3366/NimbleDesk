@@ -50,6 +50,7 @@ class CreateJobRequest(BaseModel):
     output_directory: Path
     brief: CreativeBrief
     events: Path | None = None
+    automatic_intelligence: bool = True
     game_ocr: bool = False
     game_pack: Path | None = None
     vision_provider: Path | None = None
@@ -348,6 +349,7 @@ class JobService:
                     request.output_directory.expanduser().resolve(),
                     request.brief,
                     supplied_events=request.events,
+                    automatic_intelligence=request.automatic_intelligence,
                     automatic_game_ocr=request.game_ocr,
                     game_pack=request.game_pack,
                     vision_provider=request.vision_provider,
@@ -943,7 +945,8 @@ _HTML = """<!doctype html>
       <label>Caption characters per second<input name="captionSpeed" type="number" min="8" max="30" step="0.5" value="22"></label>
     </div>
     <div class="checks">
-      <label><input name="gameOcr" type="checkbox"> Detect game events</label>
+      <label><input name="automaticIntelligence" type="checkbox" checked> Automatically discover intelligence tools and licensed media</label>
+      <label><input name="gameOcr" type="checkbox"> Force game event OCR</label>
       <label><input name="transcribe" type="checkbox"> Run Whisper</label>
       <label><input name="captions" type="checkbox" checked> Burn captions</label>
       <label><input name="musicEnabled" type="checkbox" checked> Select music</label>
@@ -1024,6 +1027,7 @@ form.addEventListener('submit', async event => {
     events:optional('events'),
     game_pack:optional('gamePack'),
     vision_provider:optional('visionProvider'),
+    automatic_intelligence:data.has('automaticIntelligence'),
     game_ocr:data.has('gameOcr'),transcribe:data.has('transcribe'),
     whisper_model:data.get('whisperModel'),language:optional('language'),
     style_profile_id:optional('styleProfile'),ffmpeg_render:data.has('ffmpegRender'),davinci:data.has('davinci'),

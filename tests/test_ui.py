@@ -38,6 +38,16 @@ from nimbledesk.ui.server import (
 )
 
 
+def test_studio_enables_automatic_intelligence_by_default(tmp_path: Path) -> None:
+    request = CreateJobRequest(
+        source=tmp_path / "source.mp4",
+        output_directory=tmp_path / "output",
+        brief=CreativeBrief(),
+    )
+
+    assert request.automatic_intelligence
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_studio_client_javascript_parses(tmp_path: Path) -> None:
     script = tmp_path / "studio.js"
