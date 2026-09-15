@@ -10,11 +10,14 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import uvicorn
 from pydantic import BaseModel, ConfigDict
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
@@ -480,6 +483,33 @@ class JobService:
 JOB_SERVICE = JobService()
 STYLE_PROFILE_STORE = StyleProfileStore()
 
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+class LoopbackGuardMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        host = urlsplit("//" + request.headers.get("host", "")).hostname
+        if host not in LOOPBACK_HOSTS:
+            return JSONResponse({"error": "invalid Studio host"}, status_code=400)
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            origin = request.headers.get("origin")
+            origin_host = urlsplit(origin).hostname if origin else None
+            if origin_host is not None and origin_host not in LOOPBACK_HOSTS:
+                return JSONResponse({"error": "cross-origin Studio request rejected"}, status_code=403)
+            if request.headers.get("sec-fetch-site") == "cross-site":
+                return JSONResponse({"error": "cross-site Studio request rejected"}, status_code=403)
+        response = await call_next(request)
+        response.headers["cache-control"] = "no-store"
+        response.headers["x-content-type-options"] = "nosniff"
+        response.headers["x-frame-options"] = "DENY"
+        response.headers["referrer-policy"] = "no-referrer"
+        response.headers["content-security-policy"] = (
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; "
+            "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        )
+        return response
+
 
 def daemon_client() -> DaemonClient:
     configured = os.getenv("NIMBLEDESK_CONNECTION_FILE")
@@ -761,6 +791,7 @@ def _variant_options(state: PersistedJob) -> list[dict[str, object]]:
 
 app = Starlette(
     debug=False,
+    middleware=[Middleware(LoopbackGuardMiddleware)],
     routes=[
         Route("/", home),
         Route("/api/jobs", create_job, methods=["POST"]),

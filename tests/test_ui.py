@@ -51,7 +51,7 @@ def test_studio_client_javascript_parses(tmp_path: Path) -> None:
 
 
 def test_console_serves_creation_form_and_rejects_missing_source(tmp_path: Path) -> None:
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")
 
     page = client.get("/")
     response = client.post(
@@ -76,6 +76,24 @@ def test_console_serves_creation_form_and_rejects_missing_source(tmp_path: Path)
     assert "does not exist" in response.json()["error"]
 
 
+def test_studio_rejects_dns_rebinding_and_cross_origin_mutations() -> None:
+    local = TestClient(app, base_url="http://127.0.0.1")
+
+    page = local.get("/")
+    cross_origin = local.post(
+        "/api/jobs",
+        headers={"origin": "https://malicious.example", "sec-fetch-site": "cross-site"},
+        json={},
+    )
+    rebound = TestClient(app, base_url="http://malicious.example").get("/")
+
+    assert page.status_code == 200
+    assert page.headers["x-frame-options"] == "DENY"
+    assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
+    assert cross_origin.status_code == 403
+    assert rebound.status_code == 400
+
+
 def test_console_accepts_complete_creative_brief(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
@@ -85,7 +103,7 @@ def test_console_accepts_complete_creative_brief(
     monkeypatch.setattr(service._executor, "submit", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(ui, "JOB_SERVICE", service)
 
-    response = TestClient(app).post(
+    response = TestClient(app, base_url="http://127.0.0.1").post(
         "/api/jobs",
         json={
             "source": str(source),
@@ -142,14 +160,14 @@ def test_console_reports_desktop_runtime_health(monkeypatch: MonkeyPatch) -> Non
 
     monkeypatch.setattr(ui, "daemon_client", FakeDaemonClient)
 
-    response = TestClient(app).get("/api/health")
+    response = TestClient(app, base_url="http://127.0.0.1").get("/api/health")
 
     assert response.status_code == 200
     assert response.json()["capabilities"] == ["screen_capture", "pointer"]
 
 
 def test_console_returns_unknown_job() -> None:
-    response = TestClient(app).get("/api/jobs/unknown")
+    response = TestClient(app, base_url="http://127.0.0.1").get("/api/jobs/unknown")
 
     assert response.status_code == 404
     assert response.json() == {"error": "unknown job"}
@@ -159,7 +177,7 @@ def test_console_persists_and_lists_style_profiles(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
     monkeypatch.setattr(ui, "STYLE_PROFILE_STORE", StyleProfileStore(tmp_path / "profiles"))
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")
     profile = {
         "profile_id": "gaming",
         "name": "Gaming channel",
@@ -195,7 +213,7 @@ def test_console_serves_only_registered_generated_artifacts(
     )
     service._jobs[state.job_id] = JobRecord(state=state)
     monkeypatch.setattr(ui, "JOB_SERVICE", service)
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")
 
     listed = client.get("/api/jobs/photo-1")
     artifact = client.get("/api/jobs/photo-1/artifacts/contact-sheet")
@@ -304,7 +322,7 @@ def test_console_lists_and_approves_daemon_action(monkeypatch: MonkeyPatch) -> N
 
     daemon = FakeDaemonClient()
     monkeypatch.setattr(ui, "daemon_client", lambda: daemon)
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")
 
     listed = client.get("/api/approvals")
     approved = client.post("/api/approvals/approval-1/approve")
