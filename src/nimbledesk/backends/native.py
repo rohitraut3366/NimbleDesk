@@ -24,6 +24,7 @@ class NativeDesktopBackend:
     def __init__(self, portable: PortableDesktopBackend, semantic: SemanticProvider) -> None:
         self._portable = portable
         self._semantic = semantic
+        self._observation_id: str | None = None
 
     @property
     def backend_id(self) -> str:
@@ -46,7 +47,7 @@ class NativeDesktopBackend:
             if semantic.windows
             else semantic.permission
         )
-        return portable.model_copy(
+        observation = portable.model_copy(
             update={
                 "capabilities": self.capabilities,
                 "permissions": permissions,
@@ -57,6 +58,8 @@ class NativeDesktopBackend:
                 "warnings": semantic.warnings,
             }
         )
+        self._observation_id = observation.observation_id
+        return observation
 
     def capture(
         self,
@@ -70,6 +73,15 @@ class NativeDesktopBackend:
         if not isinstance(request.target, ElementTarget):
             return self._portable.execute(request)
         started_at = time()
+        if request.target.observation_id != self._observation_id:
+            return ActionResult(
+                action_id=request.action_id,
+                status=ActionStatus.STALE_OBSERVATION,
+                message="Semantic element observation is stale",
+                started_at=started_at,
+                finished_at=time(),
+                data={"backend": self.backend_id},
+            )
         try:
             self._semantic.invoke(request.target.element_id)
         except (RuntimeError, ValueError) as error:

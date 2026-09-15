@@ -55,7 +55,7 @@ Clone the repository and create its managed virtual environment:
 ```bash
 git clone https://github.com/rohitraut3366/NimbleDesk.git
 cd NimbleDesk
-uv sync
+uv sync --extra native
 ```
 
 All examples below run from the repository root. `uv run` automatically uses the project environment. To install the development tools as well:

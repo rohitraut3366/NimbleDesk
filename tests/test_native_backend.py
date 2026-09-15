@@ -100,6 +100,27 @@ def test_native_backend_does_not_fall_back_when_semantic_target_is_unknown() -> 
     assert automation.calls == []
 
 
+def test_native_backend_rejects_element_from_old_observation() -> None:
+    semantic = FakeSemanticProvider()
+    backend = NativeDesktopBackend(PortableDesktopBackend(FakeAutomation()), semantic)
+    old = backend.observe()
+    backend.observe()
+
+    result = backend.execute(
+        ActionRequest(
+            session_id="session",
+            kind=ActionKind.CLICK,
+            target=ElementTarget(
+                observation_id=old.observation_id,
+                element_id="button-1",
+            ),
+        )
+    )
+
+    assert result.status is ActionStatus.STALE_OBSERVATION
+    assert semantic.invoked == []
+
+
 class DeniedMacOSAPI:
     @staticmethod
     def AXIsProcessTrusted() -> bool:
