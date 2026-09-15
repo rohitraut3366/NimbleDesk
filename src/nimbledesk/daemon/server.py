@@ -21,6 +21,7 @@ from nimbledesk.daemon.policy import ActionPolicy
 from nimbledesk.daemon.runtime import DesktopRuntime
 from nimbledesk.daemon.sessions import SessionManager
 from nimbledesk.daemon.transport import DaemonTransport, write_connection_file
+from nimbledesk.perception.ocr import TesseractOcrProvider
 from nimbledesk.ports import DesktopBackend
 from nimbledesk.protocol.rpc import ConnectionInfo
 
@@ -54,6 +55,7 @@ def build_runtime(runtime_dir: Path) -> DesktopRuntime:
         policy=ActionPolicy(),
         approvals=ApprovalManager(),
         audit=AuditLog(runtime_dir / "audit.jsonl"),
+        ocr_provider=TesseractOcrProvider(),
     )
 
 

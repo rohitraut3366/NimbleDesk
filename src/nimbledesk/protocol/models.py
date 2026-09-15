@@ -23,6 +23,7 @@ class Capability(StrEnum):
     APPLICATION_ADAPTERS = "application_adapters"
     MEDIA_ANALYSIS = "media_analysis"
     CREATIVE_PLANNING = "creative_planning"
+    OCR = "ocr"
 
 
 class PermissionState(StrEnum):
@@ -157,12 +158,21 @@ class VisualTarget(ProtocolModel):
     target_type: Literal["visual"] = "visual"
     observation_id: str
     bounds: Rectangle
-    signature: str
+    signature: str = Field(pattern=r"^[0-9a-f]{64}$")
     confidence: Annotated[float, Field(ge=0, le=1)]
 
 
+class TextTarget(ProtocolModel):
+    target_type: Literal["text"] = "text"
+    observation_id: str
+    text: str = Field(min_length=1, max_length=500)
+    search_bounds: Rectangle | None = None
+    exact: bool = False
+    minimum_confidence: Annotated[float, Field(ge=0.5, le=1)] = 0.75
+
+
 Target = Annotated[
-    CoordinateTarget | ElementTarget | SelectorTarget | VisualTarget,
+    CoordinateTarget | ElementTarget | SelectorTarget | VisualTarget | TextTarget,
     Field(discriminator="target_type"),
 ]
 

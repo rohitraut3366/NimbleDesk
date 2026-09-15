@@ -1,20 +1,26 @@
 from __future__ import annotations
 
+import base64
 from time import time
 
 from nimbledesk.daemon.approvals import ApprovalDecision, ApprovalManager, PendingApproval
 from nimbledesk.daemon.audit import AuditLog
 from nimbledesk.daemon.policy import ActionPolicy
 from nimbledesk.daemon.sessions import SessionError, SessionManager
+from nimbledesk.perception.ocr import OcrProvider
 from nimbledesk.ports import DesktopBackend
 from nimbledesk.protocol.models import (
     ActionKind,
     ActionRequest,
     ActionResult,
     ActionStatus,
+    Capability,
     CaptureOptions,
+    CoordinateTarget,
     DesktopObservation,
     ElementTarget,
+    PermissionState,
+    Point,
     PolicyDecision,
     Rectangle,
     ScreenCapture,
@@ -22,6 +28,8 @@ from nimbledesk.protocol.models import (
     Session,
     SessionConfig,
     SessionState,
+    TextTarget,
+    VisualTarget,
 )
 
 
@@ -33,12 +41,14 @@ class DesktopRuntime:
         policy: ActionPolicy,
         approvals: ApprovalManager,
         audit: AuditLog,
+        ocr_provider: OcrProvider | None = None,
     ) -> None:
         self._backend = backend
         self._sessions = sessions
         self._policy = policy
         self._approvals = approvals
         self._audit = audit
+        self._ocr_provider = ocr_provider
         self._observations: dict[str, DesktopObservation] = {}
         self._observation_history: dict[str, dict[str, DesktopObservation]] = {}
 
@@ -56,6 +66,16 @@ class DesktopRuntime:
         if session.state is SessionState.STOPPED:
             raise SessionError("session is stopped")
         observation = self._backend.observe()
+        if self._ocr_provider is not None and self._ocr_provider.available:
+            observation = observation.model_copy(
+                update={
+                    "capabilities": frozenset((*observation.capabilities, Capability.OCR)),
+                    "permissions": {
+                        **observation.permissions,
+                        Capability.OCR: PermissionState.GRANTED,
+                    },
+                }
+            )
         self._observations[session_id] = observation
         history = self._observation_history.setdefault(session_id, {})
         history[observation.observation_id] = observation
@@ -122,6 +142,34 @@ class DesktopRuntime:
                 },
             )
 
+        visual_evidence: dict[str, object] = {}
+        if isinstance(execution_action.target, VisualTarget):
+            execution_action, visual_error, visual_evidence = self._resolve_visual_target(
+                execution_action
+            )
+            if visual_error:
+                return self._finish(
+                    action,
+                    ActionStatus.STALE_OBSERVATION,
+                    visual_error,
+                    started_at,
+                    data=visual_evidence,
+                )
+        if isinstance(execution_action.target, TextTarget):
+            execution_action, text_error, text_evidence = self._resolve_text_target(
+                execution_action
+            )
+            if text_error:
+                status = (
+                    ActionStatus.CAPABILITY_UNAVAILABLE
+                    if self._ocr_provider is None or not self._ocr_provider.available
+                    else ActionStatus.STALE_OBSERVATION
+                )
+                return self._finish(
+                    action, status, text_error, started_at, data=text_evidence
+                )
+            visual_evidence.update(text_evidence)
+
         approved = self._approvals.consume(action.approval_token, action)
         outcome = self._policy.evaluate(session, execution_action, approved)
         if outcome.decision is PolicyDecision.DENY:
@@ -161,6 +209,10 @@ class DesktopRuntime:
                     }
                 }
             )
+        if visual_evidence:
+            result = result.model_copy(
+                update={"data": {**result.data, **visual_evidence}}
+            )
         self._audit.record(action, result)
         return result
 
@@ -169,8 +221,10 @@ class DesktopRuntime:
     ) -> tuple[ActionRequest | None, str]:
         if action.kind is ActionKind.APP_COMMAND:
             return None, "application commands are never retried automatically"
-        if not isinstance(action.target, (ElementTarget, SelectorTarget)):
-            return None, "only semantic targets can be revalidated automatically"
+        if not isinstance(
+            action.target, (ElementTarget, SelectorTarget, VisualTarget, TextTarget)
+        ):
+            return None, "only semantic, OCR, or visual targets can be revalidated automatically"
         previous = self._observation_history.get(action.session_id, {}).get(
             action.source_observation_id or ""
         )
@@ -212,6 +266,8 @@ class DesktopRuntime:
                 observation_id=current.observation_id,
                 element_id=candidates[0].element_id,
             )
+        elif isinstance(target, (VisualTarget, TextTarget)):
+            target = target.model_copy(update={"observation_id": current.observation_id})
         return (
             action.model_copy(
                 update={
@@ -230,6 +286,10 @@ class DesktopRuntime:
             return "observe the desktop before executing input"
         if action.source_observation_id != observation.observation_id:
             return "source observation is not the latest observation"
+        if isinstance(action.target, (ElementTarget, VisualTarget, TextTarget)) and (
+            action.target.observation_id != action.source_observation_id
+        ):
+            return "target and source observations do not match"
         if time() >= observation.expires_at:
             return "source observation has expired"
         if (
@@ -240,6 +300,123 @@ class DesktopRuntime:
         if action.expected_window_id and action.expected_window_id != observation.focused_window_id:
             return "focused window changed"
         return None
+
+    def _resolve_visual_target(
+        self, action: ActionRequest
+    ) -> tuple[ActionRequest, str | None, dict[str, object]]:
+        target = action.target
+        if not isinstance(target, VisualTarget):
+            return action, None, {}
+        if action.kind not in {ActionKind.MOVE_POINTER, ActionKind.CLICK, ActionKind.DRAG}:
+            return action, "visual targets only support pointer actions", {}
+        try:
+            capture = self._backend.capture(
+                target.observation_id,
+                target.bounds,
+                CaptureOptions(
+                    image_format="png",
+                    max_width=max(64, min(4096, target.bounds.width)),
+                    max_height=max(64, min(4096, target.bounds.height)),
+                ),
+            )
+        except (ValueError, RuntimeError) as error:
+            return action, f"visual target could not be recaptured: {error}", {}
+        evidence: dict[str, object] = {
+            "visual_target_bounds": target.bounds.model_dump(),
+            "visual_target_confidence": target.confidence,
+            "visual_signature_expected": target.signature,
+            "visual_signature_actual": capture.sha256,
+        }
+        if target.confidence < 0.65:
+            return action, "visual target confidence is below the execution threshold", evidence
+        if capture.sha256 != target.signature:
+            return action, "visual target pixels changed before execution", evidence
+        point = Point(
+            x=target.bounds.left + target.bounds.width // 2,
+            y=target.bounds.top + target.bounds.height // 2,
+        )
+        evidence["visual_target_point"] = point.model_dump()
+        resolved = action.model_copy(update={"target": CoordinateTarget(point=point)})
+        return resolved, None, evidence
+
+    def _resolve_text_target(
+        self, action: ActionRequest
+    ) -> tuple[ActionRequest, str | None, dict[str, object]]:
+        target = action.target
+        if not isinstance(target, TextTarget):
+            return action, None, {}
+        if action.kind not in {ActionKind.MOVE_POINTER, ActionKind.CLICK, ActionKind.DRAG}:
+            return action, "OCR targets only support pointer actions", {}
+        if self._ocr_provider is None or not self._ocr_provider.available:
+            return action, "local OCR provider is unavailable", {}
+        observation = self._observations[action.session_id]
+        bounds = target.search_bounds
+        if bounds is None and observation.focused_window_id:
+            window = next(
+                (
+                    item
+                    for item in observation.windows
+                    if item.window_id == observation.focused_window_id
+                ),
+                None,
+            )
+            bounds = window.bounds if window else None
+        if bounds is None:
+            primary = next(
+                (display for display in observation.displays if display.primary),
+                observation.displays[0],
+            )
+            bounds = primary.logical_bounds
+        try:
+            capture = self._backend.capture(
+                target.observation_id,
+                bounds,
+                CaptureOptions(image_format="png", max_width=4096, max_height=4096),
+            )
+            matches = tuple(
+                match
+                for match in self._ocr_provider.locate(
+                    base64.b64decode(capture.data_base64), target.text, target.exact
+                )
+                if match.confidence >= target.minimum_confidence
+            )
+        except (ValueError, RuntimeError) as error:
+            return action, f"OCR target resolution failed: {error}", {}
+        alternatives = [
+            {"text": match.text, "confidence": match.confidence}
+            for match in matches[:5]
+        ]
+        evidence: dict[str, object] = {
+            "targeting_method": "local_ocr",
+            "ocr_query": target.text,
+            "ocr_alternatives": alternatives,
+        }
+        if not matches:
+            return action, "OCR text target was not found with sufficient confidence", evidence
+        if len(matches) > 1 and matches[0].confidence - matches[1].confidence < 0.1:
+            return action, "OCR text target is ambiguous; narrow the search bounds", evidence
+        match = matches[0]
+        scale_x = bounds.width / capture.width
+        scale_y = bounds.height / capture.height
+        resolved_bounds = Rectangle(
+            left=bounds.left + round(match.bounds.left * scale_x),
+            top=bounds.top + round(match.bounds.top * scale_y),
+            width=max(1, round(match.bounds.width * scale_x)),
+            height=max(1, round(match.bounds.height * scale_y)),
+        )
+        point = Point(
+            x=resolved_bounds.left + resolved_bounds.width // 2,
+            y=resolved_bounds.top + resolved_bounds.height // 2,
+        )
+        evidence.update(
+            {
+                "ocr_match": match.text,
+                "ocr_confidence": match.confidence,
+                "ocr_bounds": resolved_bounds.model_dump(),
+                "ocr_target_point": point.model_dump(),
+            }
+        )
+        return action.model_copy(update={"target": CoordinateTarget(point=point)}), None, evidence
 
     def _finish(
         self,

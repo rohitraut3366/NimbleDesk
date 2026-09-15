@@ -67,6 +67,64 @@ async def test_gateway_builds_semantic_element_action(monkeypatch: pytest.Monkey
 
 
 @pytest.mark.asyncio
+async def test_gateway_builds_signature_bound_visual_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recording_client = RecordingClient()
+    monkeypatch.setattr(gateway, "client", lambda: recording_client)
+
+    await gateway.click_visual(
+        session_id="session",
+        observation_id="observation",
+        left=10,
+        top=20,
+        width=100,
+        height=40,
+        signature="a" * 64,
+        confidence=0.92,
+        expected_window_id="fixture-window",
+    )
+
+    action = recording_client.params["action"]
+    assert action["target"] == {
+        "target_type": "visual",
+        "observation_id": "observation",
+        "bounds": {"left": 10, "top": 20, "width": 100, "height": 40},
+        "signature": "a" * 64,
+        "confidence": 0.92,
+    }
+    assert action["recovery"] == {"max_reobservations": 1}
+
+
+@pytest.mark.asyncio
+async def test_gateway_returns_lossless_region_signature_without_image_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CaptureClient(RecordingClient):
+        async def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+            self.method = method
+            self.params = params
+            return {
+                "sha256": "b" * 64,
+                "width": 100,
+                "height": 40,
+                "data_base64": "private-image",
+                "usage": {"encoded_bytes": 123},
+            }
+
+    recording_client = CaptureClient()
+    monkeypatch.setattr(gateway, "client", lambda: recording_client)
+
+    result = await gateway.capture_region_signature(
+        "session", "observation", 10, 20, 100, 40
+    )
+
+    assert result["signature"] == "b" * 64
+    assert "data_base64" not in result
+    assert recording_client.params["options"]["image_format"] == "png"
+
+
+@pytest.mark.asyncio
 async def test_gateway_builds_approved_application_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

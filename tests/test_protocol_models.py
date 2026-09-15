@@ -8,6 +8,7 @@ from nimbledesk.protocol.models import (
     Point,
     Rectangle,
     SelectorTarget,
+    VisualTarget,
 )
 
 
@@ -37,3 +38,13 @@ def test_action_rejects_unknown_fields() -> None:
 def test_action_deadline_is_bounded() -> None:
     with pytest.raises(ValidationError):
         ActionRequest(session_id="session", kind=ActionKind.WAIT, deadline_ms=0)
+
+
+def test_visual_target_requires_sha256_signature() -> None:
+    with pytest.raises(ValidationError, match="string_pattern_mismatch"):
+        VisualTarget(
+            observation_id="observation",
+            bounds=Rectangle(left=0, top=0, width=10, height=10),
+            signature="not-a-signature",
+            confidence=0.9,
+        )

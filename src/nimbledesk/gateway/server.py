@@ -18,8 +18,11 @@ from nimbledesk.protocol.models import (
     ElementTarget,
     Point,
     RecoveryOptions,
+    Rectangle,
     ResponseBudget,
     Target,
+    TextTarget,
+    VisualTarget,
 )
 
 mcp = FastMCP("NimbleDesk")
@@ -119,6 +122,40 @@ async def take_screenshot(
 
 
 @mcp.tool()
+async def capture_region_signature(
+    session_id: str,
+    observation_id: str,
+    left: int,
+    top: int,
+    width: int,
+    height: int,
+) -> dict[str, Any]:
+    """Capture a lossless target crop and return its execution signature without image bytes."""
+    bounds = {"left": left, "top": top, "width": width, "height": height}
+    capture = await client().call(
+        "screen_capture",
+        {
+            "session_id": session_id,
+            "observation_id": observation_id,
+            "region": bounds,
+            "options": CaptureOptions(
+                image_format="png",
+                max_width=max(64, min(4096, width)),
+                max_height=max(64, min(4096, height)),
+            ).model_dump(mode="json"),
+        },
+    )
+    return {
+        "observation_id": observation_id,
+        "bounds": bounds,
+        "signature": capture["sha256"],
+        "width": capture["width"],
+        "height": capture["height"],
+        "usage": capture.get("usage"),
+    }
+
+
+@mcp.tool()
 async def click(
     session_id: str,
     observation_id: str,
@@ -157,6 +194,82 @@ async def click_element(
         observation_id=observation_id,
         kind=ActionKind.CLICK,
         target=ElementTarget(observation_id=observation_id, element_id=element_id),
+        expected_application_id=expected_application_id,
+        expected_window_id=expected_window_id,
+        arguments={"button": "left", "clicks": 1},
+        recovery=RecoveryOptions(max_reobservations=1 if recover_if_stale else 0),
+    )
+
+
+@mcp.tool()
+async def click_visual(
+    session_id: str,
+    observation_id: str,
+    left: int,
+    top: int,
+    width: int,
+    height: int,
+    signature: str,
+    confidence: float,
+    expected_application_id: str | None = None,
+    expected_window_id: str | None = None,
+    recover_if_stale: bool = True,
+) -> dict[str, Any]:
+    """Click a visual crop only if a lossless recapture still has the supplied signature."""
+    return await _execute_action(
+        session_id=session_id,
+        observation_id=observation_id,
+        kind=ActionKind.CLICK,
+        target=VisualTarget(
+            observation_id=observation_id,
+            bounds=Rectangle(left=left, top=top, width=width, height=height),
+            signature=signature,
+            confidence=confidence,
+        ),
+        expected_application_id=expected_application_id,
+        expected_window_id=expected_window_id,
+        arguments={"button": "left", "clicks": 1},
+        recovery=RecoveryOptions(max_reobservations=1 if recover_if_stale else 0),
+    )
+
+
+@mcp.tool()
+async def click_text(
+    session_id: str,
+    observation_id: str,
+    text: str,
+    left: int | None = None,
+    top: int | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    exact: bool = False,
+    minimum_confidence: float = 0.75,
+    expected_application_id: str | None = None,
+    expected_window_id: str | None = None,
+    recover_if_stale: bool = True,
+) -> dict[str, Any]:
+    """Locate visible text with local OCR and click only an unambiguous fresh match."""
+    values = (left, top, width, height)
+    if any(value is not None for value in values) and not all(
+        value is not None for value in values
+    ):
+        raise ValueError("left, top, width, and height must be provided together")
+    bounds = None
+    if all(value is not None for value in values):
+        assert left is not None and top is not None
+        assert width is not None and height is not None
+        bounds = Rectangle(left=left, top=top, width=width, height=height)
+    return await _execute_action(
+        session_id=session_id,
+        observation_id=observation_id,
+        kind=ActionKind.CLICK,
+        target=TextTarget(
+            observation_id=observation_id,
+            text=text,
+            search_bounds=bounds,
+            exact=exact,
+            minimum_confidence=minimum_confidence,
+        ),
         expected_application_id=expected_application_id,
         expected_window_id=expected_window_id,
         arguments={"button": "left", "clicks": 1},

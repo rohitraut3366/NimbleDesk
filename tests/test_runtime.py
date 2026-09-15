@@ -7,16 +7,21 @@ from nimbledesk.daemon.audit import AuditLog
 from nimbledesk.daemon.policy import ActionPolicy
 from nimbledesk.daemon.runtime import DesktopRuntime
 from nimbledesk.daemon.sessions import SessionManager
+from nimbledesk.perception.ocr import OcrMatch
 from nimbledesk.protocol.models import (
     ActionKind,
     ActionRequest,
     ActionStatus,
+    CaptureOptions,
     CoordinateTarget,
     ElementTarget,
     Point,
     RecoveryOptions,
+    Rectangle,
     SessionConfig,
     SessionState,
+    TextTarget,
+    VisualTarget,
 )
 
 
@@ -105,6 +110,112 @@ def test_semantic_element_click_is_observation_bound() -> None:
 
     assert result.status is ActionStatus.COMPLETED
     assert backend.executed_actions == [action]
+
+
+def test_visual_click_recaptures_signature_and_executes_at_crop_center() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("visual fixture", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    bounds = Rectangle(left=140, top=210, width=120, height=40)
+    signature = runtime.capture(
+        session.session_id,
+        observation.observation_id,
+        bounds,
+        CaptureOptions(image_format="png", max_width=120, max_height=64),
+    ).sha256
+    action = ActionRequest(
+        session_id=session.session_id,
+        source_observation_id=observation.observation_id,
+        expected_window_id="fixture-window",
+        kind=ActionKind.CLICK,
+        target=VisualTarget(
+            observation_id=observation.observation_id,
+            bounds=bounds,
+            signature=signature,
+            confidence=0.9,
+        ),
+    )
+
+    result = runtime.execute(action)
+
+    assert result.status is ActionStatus.COMPLETED
+    assert backend.executed_actions[0].target == CoordinateTarget(
+        point=Point(x=200, y=230)
+    )
+    assert result.data["visual_signature_actual"] == signature
+    assert result.data["visual_target_point"] == {"x": 200, "y": 230}
+
+
+def test_visual_click_rejects_changed_pixels_before_input() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("visual fixture", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = ActionRequest(
+        session_id=session.session_id,
+        source_observation_id=observation.observation_id,
+        kind=ActionKind.CLICK,
+        target=VisualTarget(
+            observation_id=observation.observation_id,
+            bounds=Rectangle(left=10, top=10, width=80, height=80),
+            signature="0" * 64,
+            confidence=0.95,
+        ),
+    )
+
+    result = runtime.execute(action)
+
+    assert result.status is ActionStatus.STALE_OBSERVATION
+    assert "pixels changed" in result.message
+    assert backend.executed_actions == []
+
+
+def test_ocr_click_resolves_unambiguous_text_inside_focused_window() -> None:
+    class FixtureOcr:
+        available = True
+
+        def locate(self, image: bytes, query: str, exact: bool) -> tuple[OcrMatch, ...]:
+            assert image
+            assert query == "Create project"
+            assert exact
+            return (
+                OcrMatch(
+                    text="Create project",
+                    bounds=Rectangle(left=40, top=100, width=120, height=40),
+                    confidence=0.94,
+                ),
+            )
+
+    backend = SimulatorBackend()
+    runtime = DesktopRuntime(
+        backend,
+        SessionManager(),
+        ActionPolicy(host_input_enabled=True),
+        ApprovalManager(),
+        AuditLog(),
+        ocr_provider=FixtureOcr(),
+    )
+    session = runtime.start_session("OCR fixture", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = ActionRequest(
+        session_id=session.session_id,
+        source_observation_id=observation.observation_id,
+        expected_window_id="fixture-window",
+        kind=ActionKind.CLICK,
+        target=TextTarget(
+            observation_id=observation.observation_id,
+            text="Create project",
+            exact=True,
+        ),
+    )
+
+    result = runtime.execute(action)
+
+    assert result.status is ActionStatus.COMPLETED
+    assert backend.executed_actions[0].target == CoordinateTarget(
+        point=Point(x=200, y=220)
+    )
+    assert result.data["targeting_method"] == "local_ocr"
+    assert result.data["ocr_confidence"] == 0.94
 
 
 def test_stale_semantic_target_can_be_reobserved_and_revalidated() -> None:

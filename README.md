@@ -452,7 +452,7 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 2. Call `session_start` with a clear reason. Set `input_enabled` to `true` only when input is intended.
 3. Call `desktop_observe` and retain its `observation_id`, active application, focused window, semantic elements, and display bounds.
 4. Call `take_screenshot` with that observation. Prefer a crop when the relevant region is known.
-5. Prefer `click_element` when the observation contains the intended accessible control. Otherwise perform one bounded coordinate action using the latest observation ID. Include the expected application and window IDs when available.
+5. Prefer `click_element` when the observation contains the intended accessible control. Use `click_text` for visible labels in inaccessible applications. For a model-detected visual box, call `capture_region_signature` immediately before `click_visual`. Use raw coordinates only when none of these targets apply. Include expected application and window IDs when available.
 6. Observe again after each action that can change the interface. Do not reuse an old observation.
 7. Call `session_pause` if human intervention is needed, and `session_stop` when finished.
 
@@ -464,9 +464,12 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `session_start` | `reason` | `input_enabled=false`; `allowed_applications=[]`. Sessions default to 1,000 actions and one hour. |
 | `desktop_observe` | `session_id` | `max_estimated_text_tokens=2000` (128–100,000); `max_windows=10` (0–200); `max_elements=100` (0–2,000). Reports truncation separately for windows and elements. |
 | `take_screenshot` | `session_id`, `observation_id` | Crop with all of `left`, `top`, `width`, `height`; `image_format=jpeg`; `max_width=1280`; `max_height=800`; `jpeg_quality=75`. |
+| `capture_region_signature` | `session_id`, `observation_id`, `left`, `top`, `width`, `height` | Losslessly recaptures a target crop and returns its SHA-256 plus measured image usage without returning duplicate image bytes. |
 | `move_mouse` | `session_id`, `observation_id`, `x`, `y` | `duration=0.2`; expected application/window IDs. |
 | `click` | `session_id`, `observation_id`, `x`, `y` | `button=left`; `clicks=1`; `interval=0.1`; expected application/window IDs. |
 | `click_element` | `session_id`, `observation_id`, `element_id` | Invokes an observation-bound accessibility element; expected application/window IDs. Returns `capability_unavailable` when the selected backend has no semantic provider. |
+| `click_text` | `session_id`, `observation_id`, `text` | Runs local Tesseract OCR inside an optional search region, rejects missing or ambiguous matches, and clicks the resolved center. `exact=false`; `minimum_confidence=0.75`. |
+| `click_visual` | `session_id`, `observation_id`, bounds, `signature`, `confidence` | Requires confidence of at least 0.65, losslessly recaptures the crop, and clicks its center only if the SHA-256 is unchanged. |
 | `drag_to` | `session_id`, `observation_id`, `x`, `y` | Drags from the current pointer; `duration=0.5`; `button=left`; expected application/window IDs. |
 | `scroll` | `session_id`, `observation_id`, `amount` | Positive scrolls up and negative scrolls down; expected application/window IDs. |
 | `type_text` | `session_id`, `observation_id`, `text` | `interval=0.02`; expected application/window IDs. Text is redacted from the audit record. |
@@ -481,7 +484,7 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 
 Coordinates are logical desktop coordinates from `desktop_observe`. Element IDs are valid only for the observation that returned them. The daemon verifies the observation is fresh and, when supplied, that the active application and focused window still match. PyAutoGUI's corner fail-safe remains enabled: move the pointer to a screen corner to interrupt portable automation.
 
-Semantic element clicks opt into one bounded stale-state recovery by default. If the observation changed before execution, the daemon observes again and requires one enabled element with the same role, accessible name, application, and expected window. It stops on ambiguity, an unexpected application/window, missing history, coordinate or visual targets, and application commands. Recovery happens only before an action executes, is policy checked, consumes one action budget entry, and is recorded in the action result and audit trail.
+Semantic, OCR, and visual clicks opt into one bounded stale-state recovery by default. If the observation changed before execution, the daemon observes again and re-resolves the target while requiring the expected application and window. Semantic recovery requires one enabled element with the same role and accessible name. OCR recovery repeats local recognition and stops on ambiguity. Visual recovery losslessly recaptures the same box and requires the exact signature. Application commands and raw coordinates are never retried. Recovery happens only before input, remains policy checked, consumes one action budget entry, and is recorded in the result and audit trail.
 
 Application adapters are disabled until a manifest and its Python package are installed. Pending actions appear in NimbleDesk Studio when it uses the same `NIMBLEDESK_CONNECTION_FILE` as the daemon. See [docs/ADAPTERS.md](docs/ADAPTERS.md) for the manifest, worker contract, path grants, approval flow, and isolation limits.
 
