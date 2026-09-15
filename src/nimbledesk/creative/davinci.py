@@ -53,11 +53,7 @@ def execute_davinci_isolated(
     cancelled: Callable[[], bool] | None = None,
     worker_command: tuple[str, ...] | None = None,
 ) -> DaVinciResult:
-    command_prefix = worker_command or (
-        sys.executable,
-        "-m",
-        "nimbledesk.creative.davinci_worker",
-    )
+    command_prefix = worker_command or _davinci_worker_command()
     with tempfile.TemporaryDirectory(prefix="nimbledesk-davinci-") as temporary:
         working = Path(temporary)
         result_path = working / "result.json"
@@ -149,6 +145,12 @@ def connect_to_resolve() -> Any:
             "DaVinci Resolve is not available; open Resolve and enable external scripting"
         )
     return resolve
+
+
+def _davinci_worker_command() -> tuple[str, ...]:
+    if getattr(sys, "frozen", False):
+        return (sys.executable, "davinci-worker")
+    return (sys.executable, "-m", "nimbledesk.creative.davinci_worker")
 
 
 def execute_in_davinci(

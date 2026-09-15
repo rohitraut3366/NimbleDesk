@@ -4,7 +4,11 @@ from typing import Any
 
 import pytest
 
-from nimbledesk.creative.davinci import execute_davinci_isolated, execute_in_davinci
+from nimbledesk.creative.davinci import (
+    _davinci_worker_command,
+    execute_davinci_isolated,
+    execute_in_davinci,
+)
 from nimbledesk.creative.models import (
     CaptionCue,
     CreativeBrief,
@@ -17,6 +21,14 @@ from nimbledesk.creative.models import (
     VisualTreatment,
 )
 from nimbledesk.media.process import ProcessCancelled
+
+
+def test_frozen_bundle_uses_internal_davinci_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("nimbledesk.creative.davinci.sys.frozen", True, raising=False)
+
+    command = _davinci_worker_command()
+
+    assert command[1:] == ("davinci-worker",)
 
 
 class FakeTimelineItem:

@@ -7,6 +7,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from verify_bundle import verify_bundle
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -35,6 +37,7 @@ def main() -> None:
     executable = root / "dist" / "bundle" / executable_name
     if not executable.is_file():
         raise FileNotFoundError(executable)
+    verify_bundle(executable)
     staging = root / "build" / "bundle-staging" / "NimbleDesk"
     if staging.parent.exists():
         shutil.rmtree(staging.parent)

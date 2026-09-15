@@ -77,12 +77,7 @@ class IsolatedAdapterRunner:
                     "PYTHONPATH": os.pathsep.join(path for path in sys.path if path),
                 }
             )
-            worker_command = [
-                str(Path(sys.executable).resolve()),
-                "-m",
-                "nimbledesk.adapters.worker",
-                manifest.entrypoint,
-            ]
+            worker_command = _adapter_worker_command(manifest.entrypoint)
             if manifest.isolation == "sandboxed":
                 worker_command = _sandboxed_worker_command(
                     worker_command,
@@ -203,6 +198,13 @@ def _strict_adapter_result(payload: bytes) -> AdapterResult:
         raise
     except Exception as error:
         raise AdapterError("adapter returned an invalid response") from error
+
+
+def _adapter_worker_command(entrypoint: str) -> list[str]:
+    executable = str(Path(sys.executable).resolve())
+    if getattr(sys, "frozen", False):
+        return [executable, "adapter-worker", entrypoint]
+    return [executable, "-m", "nimbledesk.adapters.worker", entrypoint]
 
 
 def _sandboxed_worker_command(

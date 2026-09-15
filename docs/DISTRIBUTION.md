@@ -42,6 +42,12 @@ uv run --extra bundle --extra speech python packaging/build_installer.py --versi
 
 The builders write an archive and a native installer under `artifacts/`: a macOS application package, per-user Windows MSI, or Debian package. CI builds, installs, executes, and uninstalls each artifact on a clean hosted OS image. The executable includes NimbleDesk, its Python runtime, and the faster-whisper transcription runtime. Whisper model weights download on first use. FFmpeg/FFprobe, optional Tesseract, DaVinci Resolve, accessibility services, XDG Desktop Portal, and GStreamer PipeWire support remain host dependencies and are diagnosed at runtime.
 
+Every bundle build executes its embedded adapter and DaVinci worker routes before creating the
+archive or installer. The adapter route must complete a structured fixture invocation. The
+DaVinci route must parse its internal seven-argument protocol and write a bounded structured error
+for a deliberately missing plan. A frozen executable that still tries to invoke `python -m` fails
+packaging.
+
 ## Signed updates and rollback
 
 Release metadata is a canonical JSON manifest signed with Ed25519. The signature covers the version, channel, publish time, minimum compatible version, and the HTTPS URL, byte count, and SHA-256 digest of every artifact. The updater rejects unknown keys, altered metadata, insecure network URLs, changed downloads, oversized downloads, archive path traversal, and archive links.

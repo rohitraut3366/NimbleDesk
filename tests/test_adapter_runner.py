@@ -8,6 +8,7 @@ from nimbledesk.adapters.models import AdapterCommand, AdapterManifest
 from nimbledesk.adapters.runner import (
     AdapterError,
     IsolatedAdapterRunner,
+    _adapter_worker_command,
     _macos_sandbox_profile,
     _sandbox_path,
     _sandboxed_worker_command,
@@ -61,6 +62,14 @@ def test_adapter_runs_in_worker_with_granted_path(tmp_path: Path) -> None:
 
     assert result.success
     assert result.result == {"received": {"project": str(project)}}
+
+
+def test_frozen_bundle_uses_internal_adapter_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("nimbledesk.adapters.runner.sys.frozen", True, raising=False)
+
+    command = _adapter_worker_command("example.adapter:handle")
+
+    assert command[1:] == ["adapter-worker", "example.adapter:handle"]
 
 
 def test_adapter_rejects_path_outside_session_grants(tmp_path: Path) -> None:

@@ -9,7 +9,9 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from nimbledesk.adapters.worker import main as adapter_worker_main
 from nimbledesk.creative.cli import main as create_main
+from nimbledesk.creative.davinci_worker import main as davinci_worker_main
 from nimbledesk.creative.music_cli import main as music_main
 from nimbledesk.creative.revision_cli import main as revise_main
 from nimbledesk.creative.vision_http import main as vision_http_main
@@ -48,6 +50,8 @@ COMMANDS: dict[str, Callable[[], None]] = {
     "davinci-contract": davinci_contract_main,
     "vision-http": vision_http_main,
     "update": update_main,
+    "adapter-worker": adapter_worker_main,
+    "davinci-worker": davinci_worker_main,
 }
 
 
