@@ -70,6 +70,8 @@ class VisionAnalysis(VisionModel):
                 event_type=event.event_type,
                 label=event.label,
                 importance=event.confidence,
+                provenance=(f"vision:{self.provider_id}:{self.model}",),
+                evidence=(event.evidence,),
             )
             for event in self.events
         )

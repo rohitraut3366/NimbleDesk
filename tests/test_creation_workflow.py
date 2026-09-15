@@ -11,6 +11,7 @@ from nimbledesk.creative.models import ContentKind, CreativeBrief, TimeRange, Tr
 from nimbledesk.creative.workflow import (
     CreationWorkflow,
     _bind_event_moments,
+    _merge_events,
     _resolve_content_kind,
 )
 from nimbledesk.media.ffmpeg import probe_media
@@ -257,3 +258,32 @@ def test_autonomy_blocks_unapproved_render_and_editor_execution(tmp_path: Path) 
             render=False,
             execute_davinci=True,
         )
+
+
+def test_semantic_event_sources_are_fused_without_losing_evidence() -> None:
+    events = _merge_events(
+        (
+            TimelineEvent(
+                time_seconds=10,
+                event_type="grenade_kill",
+                label="Grenade marker",
+                importance=0.8,
+                provenance=("game-pack:ocr",),
+                evidence=("kill feed text",),
+            ),
+            TimelineEvent(
+                time_seconds=10.5,
+                event_type="grenade_kill",
+                label="Grenade double kill",
+                importance=0.9,
+                provenance=("vision:model",),
+                evidence=("throw and two elimination markers",),
+            ),
+        )
+    )
+
+    assert len(events) == 1
+    assert events[0].time_seconds == pytest.approx(10.265, abs=0.001)
+    assert events[0].importance == 0.98
+    assert events[0].provenance == ("game-pack:ocr", "vision:model")
+    assert len(events[0].evidence) == 2

@@ -14,6 +14,8 @@ def test_game_pack_recognizes_kill_feed_patterns_and_infers_multi_kill() -> None
     inferred = next(event for event in events if event.event_type == "multi_kill")
     assert inferred.time_seconds == 13
     assert inferred.label == "Inferred 2-kill streak"
+    assert inferred.provenance == ("game-pack:generic-shooter:temporal-fusion",)
+    assert "2 kill events" in inferred.evidence[0]
 
 
 def test_game_pack_infers_clutch_from_critical_health_and_payoff() -> None:
@@ -35,6 +37,7 @@ def test_game_pack_infers_clutch_from_critical_health_and_payoff() -> None:
     clutch = next(event for event in events if event.event_type == "clutch")
     assert clutch.time_seconds == 46
     assert clutch.importance == 1
+    assert clutch.evidence
 
 
 def test_game_pack_cooldown_suppresses_duplicate_ocr_frames() -> None:

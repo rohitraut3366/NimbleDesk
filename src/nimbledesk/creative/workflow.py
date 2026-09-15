@@ -262,17 +262,34 @@ def _merge_events(events: tuple[TimelineEvent, ...]) -> tuple[TimelineEvent, ...
     ordered = sorted(events, key=lambda event: event.time_seconds)
     merged: list[TimelineEvent] = []
     for event in ordered:
-        duplicate = next(
+        duplicate_index = next(
             (
-                existing
-                for existing in merged
+                index
+                for index, existing in enumerate(merged)
                 if existing.event_type == event.event_type
                 and abs(existing.time_seconds - event.time_seconds) < 2
             ),
             None,
         )
-        if duplicate is None:
+        if duplicate_index is None:
             merged.append(event)
+            continue
+        duplicate = merged[duplicate_index]
+        total_weight = duplicate.importance + event.importance
+        fused_time = (
+            duplicate.time_seconds * duplicate.importance
+            + event.time_seconds * event.importance
+        ) / max(total_weight, 0.0001)
+        fused_confidence = 1 - (1 - duplicate.importance) * (1 - event.importance)
+        labels = [label for label in (duplicate.label, event.label) if label]
+        merged[duplicate_index] = TimelineEvent(
+            time_seconds=round(fused_time, 3),
+            event_type=event.event_type,
+            label=max(labels, key=len) if labels else None,
+            importance=round(fused_confidence, 4),
+            provenance=tuple(dict.fromkeys((*duplicate.provenance, *event.provenance))),
+            evidence=tuple(dict.fromkeys((*duplicate.evidence, *event.evidence))),
+        )
     return tuple(merged)
 
 

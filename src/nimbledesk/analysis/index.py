@@ -357,7 +357,7 @@ def _semantic_track(
                 confidence=event.importance,
                 labels=(event.event_type,),
                 text=event.label,
-                evidence=("supplied or domain-pack event",),
+                evidence=event.evidence or ("supplied or domain-pack event",),
             )
         )
     for segment in transcripts:
@@ -433,6 +433,8 @@ def _events_from_track(
                     event_type=label,
                     label=point.text or label.replace("_", " ").title(),
                     importance=point.confidence,
+                    provenance=("content-index:semantic",),
+                    evidence=point.evidence,
                 )
             )
             existing.add(key)

@@ -64,6 +64,8 @@ class TimelineEvent(MediaModel):
     event_type: str
     label: str | None = None
     importance: Annotated[float, Field(ge=0, le=1)] = 1
+    provenance: tuple[str, ...] = ()
+    evidence: tuple[str, ...] = ()
 
 
 class SignalPoint(MediaModel):

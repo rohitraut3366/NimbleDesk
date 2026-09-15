@@ -58,5 +58,11 @@ json.dump({'events': [
     assert len(analysis.contact_sheets) == 2
     assert [event.event_type for event in analysis.events] == ["grenade_kill"]
     assert analysis.timeline_events()[0].importance == 0.91
+    assert analysis.timeline_events()[0].provenance == (
+        "vision:fixture-vision:fixture-model",
+    )
+    assert analysis.timeline_events()[0].evidence == (
+        "throw, explosion, and elimination markers",
+    )
     assert (tmp_path / "analysis" / "request.json").is_file()
     assert (tmp_path / "analysis" / "analysis.json").is_file()

@@ -158,6 +158,8 @@ def detect_events_from_ocr_samples(
                     event_type=event_type,
                     label=matched.title(),
                     importance=pack.importance.get(event_type, 0.8),
+                    provenance=(f"game-pack:{pack.name}:ocr",),
+                    evidence=(f'OCR matched "{matched}"',),
                 )
             )
             last_seen[event_type] = timestamp
@@ -198,6 +200,11 @@ def _infer_compound_events(
                 event_type="multi_kill",
                 label=f"Inferred {len(recent_kills)}-kill streak",
                 importance=min(1, 0.82 + 0.06 * len(recent_kills)),
+                provenance=(f"game-pack:{pack.name}:temporal-fusion",),
+                evidence=(
+                    f"{len(recent_kills)} kill events occurred within "
+                    f"{pack.multi_kill_window_seconds:g} seconds",
+                ),
             )
         )
     danger_events = [
@@ -225,6 +232,11 @@ def _infer_compound_events(
                 event_type="clutch",
                 label="Inferred clutch after critical health",
                 importance=1,
+                provenance=(f"game-pack:{pack.name}:temporal-fusion",),
+                evidence=(
+                    "critical-health evidence was followed by a kill, multi-kill, or victory "
+                    f"within {pack.clutch_window_seconds:g} seconds",
+                ),
             )
         )
     return tuple(sorted(events, key=lambda event: (event.time_seconds, event.event_type)))
