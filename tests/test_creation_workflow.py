@@ -7,6 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from nimbledesk.creative.automatic import (
+    AutomaticCapability,
+    AutomaticIntelligenceReport,
+    AutomaticIntelligenceSelection,
+)
 from nimbledesk.creative.models import ContentKind, CreativeBrief, TimeRange, TranscriptSegment
 from nimbledesk.creative.workflow import (
     CreationWorkflow,
@@ -150,6 +155,75 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
     assert len(result.plan.sound_cues) == 1
     assert result.plan.sound_cues[0].asset.title == "Licensed whoosh"
     assert 'audioRole="effects"' in result.timeline_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_creation_workflow_continues_after_automatic_component_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x180:rate=30:duration=4",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=4",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(source),
+        ],
+        check=True,
+    )
+    report = AutomaticIntelligenceReport(
+        enabled=True,
+        capabilities=(
+            AutomaticCapability(
+                capability="game_ocr", status="enabled", detail="test discovery"
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "nimbledesk.creative.workflow.resolve_automatic_intelligence",
+        lambda *_args, **_kwargs: AutomaticIntelligenceSelection(
+            game_ocr=True,
+            transcribe=False,
+            vision_provider=None,
+            music_catalog=None,
+            sound_catalog=None,
+            report=report,
+        ),
+    )
+    monkeypatch.setattr(
+        "nimbledesk.creative.workflow.detect_game_events",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("OCR engine crashed")),
+    )
+
+    result = CreationWorkflow().create(
+        source,
+        tmp_path / "output",
+        CreativeBrief(content_kind="gameplay", captions=False, music=False),
+        automatic_intelligence=True,
+        render=False,
+    )
+
+    assert result.automatic_intelligence_path is not None
+    automatic_report = json.loads(result.automatic_intelligence_path.read_text(encoding="utf-8"))
+    assert automatic_report["capabilities"][0]["status"] == "failed"
+    assert automatic_report["capabilities"][0]["detail"] == "OCR engine crashed"
+    assert result.plan_path.is_file()
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")

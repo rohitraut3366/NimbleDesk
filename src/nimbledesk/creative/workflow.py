@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 from nimbledesk.analysis.index import ContentIndexer
 from nimbledesk.creative.automatic import (
+    record_automatic_failure,
     resolve_automatic_intelligence,
     write_automatic_intelligence_report,
 )
@@ -41,6 +42,7 @@ from nimbledesk.creative.verify import RenderVerificationError, verify_render
 from nimbledesk.creative.vision import VisionProviderConfig, analyze_with_vision_provider
 from nimbledesk.media.models import AnalysisConfig, TimelineEvent
 from nimbledesk.media.pipeline import HighlightPipeline, load_events
+from nimbledesk.media.process import ProcessCancelled
 
 
 class CreationResult(BaseModel):
@@ -99,6 +101,11 @@ class CreationWorkflow:
             raise ValueError("creative brief autonomy does not allow editor execution")
         token.check()
         output_directory.mkdir(parents=True, exist_ok=True)
+        explicitly_requested_game_ocr = automatic_game_ocr
+        explicitly_requested_transcription = automatic_transcription
+        explicitly_supplied_vision = vision_provider is not None
+        explicitly_supplied_music = music_catalog is not None
+        explicitly_supplied_sound = sound_catalog is not None
         automatic = resolve_automatic_intelligence(
             brief,
             output_directory,
@@ -110,7 +117,8 @@ class CreationWorkflow:
             sound_catalog=sound_catalog,
         )
         automatic_intelligence_path = output_directory / "automatic_intelligence.json"
-        write_automatic_intelligence_report(automatic.report, automatic_intelligence_path)
+        automatic_report = automatic.report
+        write_automatic_intelligence_report(automatic_report, automatic_intelligence_path)
         automatic_game_ocr = automatic.game_ocr
         automatic_transcription = automatic.transcribe
         vision_provider = automatic.vision_provider
@@ -119,11 +127,23 @@ class CreationWorkflow:
         report("detecting events", 0.05)
         events = list(load_events(supplied_events))
         if automatic_game_ocr:
-            events.extend(
-                detect_game_events(
-                    source, load_game_pack(game_pack), cancelled=token.is_cancelled
+            try:
+                events.extend(
+                    detect_game_events(
+                        source, load_game_pack(game_pack), cancelled=token.is_cancelled
+                    )
                 )
-            )
+            except ProcessCancelled:
+                raise
+            except Exception as error:
+                if explicitly_requested_game_ocr or not automatic_intelligence:
+                    raise
+                automatic_report = record_automatic_failure(
+                    automatic_report, "game_ocr", error
+                )
+                write_automatic_intelligence_report(
+                    automatic_report, automatic_intelligence_path
+                )
         vision_analysis_path = None
         if vision_provider:
             vision_config = VisionProviderConfig.model_validate_json(
@@ -136,25 +156,49 @@ class CreationWorkflow:
                 raise ValueError(
                     "creative brief data policy does not allow frames to leave the laptop"
                 )
-            report("analyzing semantic vision", 0.1)
-            vision_directory = output_directory / "analysis" / "vision"
-            vision = analyze_with_vision_provider(
-                source,
-                vision_directory,
-                vision_provider,
-                brief.content_kind.value,
-                cancelled=token.is_cancelled,
-            )
-            events.extend(vision.timeline_events())
-            vision_analysis_path = vision_directory / "analysis.json"
+            try:
+                report("analyzing semantic vision", 0.1)
+                vision_directory = output_directory / "analysis" / "vision"
+                vision = analyze_with_vision_provider(
+                    source,
+                    vision_directory,
+                    vision_provider,
+                    brief.content_kind.value,
+                    cancelled=token.is_cancelled,
+                )
+                events.extend(vision.timeline_events())
+                vision_analysis_path = vision_directory / "analysis.json"
+            except ProcessCancelled:
+                raise
+            except Exception as error:
+                if explicitly_supplied_vision or not automatic_intelligence:
+                    raise
+                automatic_report = record_automatic_failure(
+                    automatic_report, "semantic_vision", error
+                )
+                write_automatic_intelligence_report(
+                    automatic_report, automatic_intelligence_path
+                )
         merged_events = _merge_events(tuple(events))
 
         report("transcribing dialogue", 0.15)
         transcripts = load_transcript(supplied_transcript)
         if automatic_transcription:
-            transcripts = transcribe_with_whisper(
-                source, whisper_model, language, cancelled=token.is_cancelled
-            )
+            try:
+                transcripts = transcribe_with_whisper(
+                    source, whisper_model, language, cancelled=token.is_cancelled
+                )
+            except ProcessCancelled:
+                raise
+            except Exception as error:
+                if explicitly_requested_transcription or not automatic_intelligence:
+                    raise
+                automatic_report = record_automatic_failure(
+                    automatic_report, "transcription", error
+                )
+                write_automatic_intelligence_report(
+                    automatic_report, automatic_intelligence_path
+                )
         transcript_path = output_directory / "transcript.json" if transcripts else None
         if transcript_path:
             write_transcript(transcripts, transcript_path)
@@ -192,8 +236,22 @@ class CreationWorkflow:
             cancelled=token.is_cancelled,
         )
         report("building creative edit plan", 0.65)
-        music_assets = load_music_catalog(music_catalog)
-        sound_assets = load_sound_catalog(sound_catalog)
+        try:
+            music_assets = load_music_catalog(music_catalog)
+        except Exception as error:
+            if explicitly_supplied_music or not automatic_intelligence:
+                raise
+            automatic_report = record_automatic_failure(automatic_report, "music", error)
+            write_automatic_intelligence_report(automatic_report, automatic_intelligence_path)
+            music_assets = ()
+        try:
+            sound_assets = load_sound_catalog(sound_catalog)
+        except Exception as error:
+            if explicitly_supplied_sound or not automatic_intelligence:
+                raise
+            automatic_report = record_automatic_failure(automatic_report, "sound", error)
+            write_automatic_intelligence_report(automatic_report, automatic_intelligence_path)
+            sound_assets = ()
         plan = build_edit_plan(
             manifest,
             brief,

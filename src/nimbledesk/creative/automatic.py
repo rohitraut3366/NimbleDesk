@@ -18,7 +18,9 @@ class AutomaticCapability(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     capability: Literal["game_ocr", "transcription", "semantic_vision", "music", "sound"]
-    status: Literal["enabled", "provided", "unavailable", "not_applicable", "blocked_by_policy"]
+    status: Literal[
+        "enabled", "provided", "unavailable", "not_applicable", "blocked_by_policy", "failed"
+    ]
     detail: str
 
 
@@ -171,6 +173,21 @@ def write_automatic_intelligence_report(
     path.write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
 
+def record_automatic_failure(
+    report: AutomaticIntelligenceReport,
+    capability: Literal["game_ocr", "transcription", "semantic_vision", "music", "sound"],
+    error: Exception,
+) -> AutomaticIntelligenceReport:
+    detail = str(error).strip() or type(error).__name__
+    updated = tuple(
+        item.model_copy(update={"status": "failed", "detail": detail})
+        if item.capability == capability
+        else item
+        for item in report.capabilities
+    )
+    return report.model_copy(update={"capabilities": updated})
+
+
 def _module_available(module: str) -> bool:
     try:
         return importlib.util.find_spec(module) is not None
@@ -248,7 +265,9 @@ def _resolve_catalog(
 
 def _capability(
     capability: Literal["game_ocr", "transcription", "semantic_vision", "music", "sound"],
-    status: Literal["enabled", "provided", "unavailable", "not_applicable", "blocked_by_policy"],
+    status: Literal[
+        "enabled", "provided", "unavailable", "not_applicable", "blocked_by_policy", "failed"
+    ],
     detail: str,
 ) -> AutomaticCapability:
     return AutomaticCapability(capability=capability, status=status, detail=detail)

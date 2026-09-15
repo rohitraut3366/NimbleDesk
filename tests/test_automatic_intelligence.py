@@ -120,3 +120,28 @@ def test_automatic_report_is_machine_readable(tmp_path: Path) -> None:
     assert payload["enabled"] is False
     assert len(payload["capabilities"]) == 5
     assert {item["status"] for item in payload["capabilities"]} == {"not_applicable"}
+
+
+def test_automatic_failure_updates_only_failed_capability(tmp_path: Path) -> None:
+    selection = resolve_automatic_intelligence(
+        CreativeBrief(content_kind="tutorial"),
+        tmp_path / "output",
+        enabled=True,
+        game_ocr=False,
+        transcribe=False,
+        vision_provider=None,
+        music_catalog=None,
+        sound_catalog=None,
+        environment={},
+    )
+
+    report = automatic.record_automatic_failure(
+        selection.report, "transcription", RuntimeError("model could not load")
+    )
+
+    transcription = next(
+        item for item in report.capabilities if item.capability == "transcription"
+    )
+    assert transcription.status == "failed"
+    assert transcription.detail == "model could not load"
+    assert sum(item.status == "failed" for item in report.capabilities) == 1
