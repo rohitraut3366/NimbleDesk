@@ -133,6 +133,8 @@ def test_linux_sandbox_disables_network_and_binds_only_declared_writes(
 ) -> None:
     output = tmp_path / "output"
     output.mkdir()
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
     manifest = _manifest().model_copy(
         update={
             "isolation": "sandboxed",
@@ -147,14 +149,37 @@ def test_linux_sandbox_disables_network_and_binds_only_declared_writes(
         manifest,
         {"project": str(output)},
         (tmp_path,),
-        tmp_path / "scratch",
+        scratch,
     )
 
     assert command[0] == "/usr/bin/bwrap"
-    assert "--unshare-net" in command
-    bind_index = command.index(str(output))
-    assert command[bind_index - 1] == "--bind"
+    assert "--unshare-all" in command
+    assert "--share-net" not in command
+    assert command[command.index("--tmpfs") + 1] == "/"
+    triples = [command[index : index + 3] for index in range(len(command))]
+    assert ["--ro-bind", "/", "/"] not in triples
+    assert ["--ro-bind", str(tmp_path.resolve()), str(tmp_path.resolve())] in triples
+    assert ["--bind", str(output), str(output)] in triples
     assert command[-3:] == ["--", "python", "worker.py"]
+
+
+def test_linux_sandbox_only_shares_network_when_declared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _manifest().model_copy(
+        update={"isolation": "sandboxed", "network_access": True}
+    )
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr("nimbledesk.adapters.runner.shutil.which", lambda _name: "/usr/bin/bwrap")
+
+    command = _sandboxed_worker_command(
+        ["python", "worker.py"], manifest, {}, (), scratch
+    )
+
+    assert "--unshare-all" in command
+    assert "--share-net" in command
 
 
 def test_macos_sandbox_profile_limits_reads_and_network(tmp_path: Path) -> None:

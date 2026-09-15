@@ -203,21 +203,31 @@ def _sandboxed_worker_command(
             bubblewrap,
             "--die-with-parent",
             "--new-session",
-            "--ro-bind",
+            "--unshare-all",
+            "--tmpfs",
             "/",
-            "/",
-            "--proc",
-            "/proc",
-            "--dev",
-            "/dev",
-            "--bind",
-            str(scratch),
-            str(scratch),
         ]
-        if not manifest.network_access:
-            command.append("--unshare-net")
+        readable_paths = {
+            *(_existing_path(path) for path in _linux_runtime_paths()),
+            *(_canonical_without_symlinks(path, "granted path") for path in granted_paths),
+        }
+        readable = tuple(path for path in readable_paths if path is not None)
+        created_directories: set[Path] = set()
+        for path in (Path("/proc"), Path("/dev"), *readable, scratch, *writable_paths):
+            destination = path.resolve()
+            _bubblewrap_directory(
+                command,
+                destination if destination.is_dir() else destination.parent,
+                created_directories,
+            )
+        command.extend(("--proc", "/proc", "--dev", "/dev"))
+        for path in sorted(readable, key=lambda item: len(item.parts)):
+            _bubblewrap_bind(command, "--ro-bind", path, created_directories)
+        _bubblewrap_bind(command, "--bind", scratch, created_directories)
         for path in writable_paths:
-            command.extend(("--bind", str(path), str(path)))
+            _bubblewrap_bind(command, "--bind", path, created_directories)
+        if manifest.network_access:
+            command.append("--share-net")
         return [*command, "--", *worker_command]
     raise AdapterError("sandboxed adapters are not available on this platform")
 
@@ -264,3 +274,54 @@ def _macos_sandbox_profile(
 
 def _sandbox_path(path: Path) -> str:
     return str(path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _linux_runtime_paths() -> tuple[Path, ...]:
+    system_paths = (
+        Path("/usr"),
+        Path("/bin"),
+        Path("/lib"),
+        Path("/lib64"),
+        Path("/etc/ld.so.cache"),
+        Path("/etc/ld.so.conf"),
+        Path("/etc/ld.so.conf.d"),
+        Path("/etc/nsswitch.conf"),
+        Path("/etc/passwd"),
+        Path("/etc/group"),
+        Path("/etc/hosts"),
+        Path("/etc/resolv.conf"),
+        Path("/etc/ssl"),
+        Path("/etc/localtime"),
+    )
+    return (
+        *system_paths,
+        Path(sys.base_prefix),
+        Path(sys.prefix),
+        Path(__file__).resolve().parents[2],
+    )
+
+
+def _existing_path(path: Path) -> Path | None:
+    return path.resolve() if path.exists() else None
+
+
+def _bubblewrap_bind(
+    command: list[str], flag: str, path: Path, created_directories: set[Path]
+) -> None:
+    resolved = path.resolve()
+    parent = resolved if resolved.is_dir() else resolved.parent
+    _bubblewrap_directory(command, parent, created_directories)
+    command.extend((flag, str(resolved), str(resolved)))
+
+
+def _bubblewrap_directory(
+    command: list[str], directory: Path, created_directories: set[Path]
+) -> None:
+    missing = [
+        parent
+        for parent in (directory, *directory.parents)
+        if parent != Path("/") and parent not in created_directories
+    ]
+    for parent in reversed(missing):
+        command.extend(("--dir", str(parent)))
+        created_directories.add(parent)
