@@ -29,6 +29,18 @@ For reliable game-specific events, pass a JSON event list exported by a game int
 
 Use it with `--events events.json`. Without events, the current generic detector finds audiovisual activity peaks. Game-specific HUD/OCR and semantic detectors remain part of the next media-intelligence stages.
 
+## Create from photos
+
+NimbleDesk can recursively inspect a photo folder, remove perceptual duplicates, rank technical quality, preserve visual diversity, create corrected JPEG selects, build a contact sheet, and optionally render a validated slideshow.
+
+```bash
+uv run nimbledesk-photos photos/ output/photos \
+  --count 20 \
+  --slideshow
+```
+
+The source files remain unchanged. `photos.json` records every score, duplicate relationship, selected source, and generated output.
+
 The current implementation establishes the secure runtime foundation:
 
 - Strict, versioned protocol models and target types.
