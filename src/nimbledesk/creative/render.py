@@ -60,7 +60,16 @@ def render_edit_plan(plan: EditPlan, output_path: Path) -> Path:
             f"duration={plan.duration_seconds:.3f},asetpts=PTS-STARTPTS,"
             f"volume={gain:.6f}[music]"
         )
-        filters.append("[abase][music]amix=inputs=2:duration=first:dropout_transition=2[aout]")
+        ducking_ratio = max(2, min(20, abs(music.duck_under_dialogue_db) / 2))
+        filters.append("[abase]asplit=2[base_mix][dialogue_sidechain]")
+        filters.append(
+            "[music][dialogue_sidechain]sidechaincompress="
+            f"threshold=0.025:ratio={ducking_ratio:.2f}:attack=20:release=500[ducked_music]"
+        )
+        filters.append(
+            "[base_mix][ducked_music]amix=inputs=2:duration=first:"
+            "dropout_transition=2[aout]"
+        )
         audio_output = "[aout]"
     command.extend(
         [

@@ -83,7 +83,11 @@ def build_edit_plan(
 
     captions = _map_captions(tuple(segments), transcripts) if brief.captions else ()
     music_asset = recommend_music(brief, music_assets, timeline_cursor)
-    music_cue = _music_cue(music_asset, timeline_cursor, brief) if music_asset else None
+    music_cue = (
+        _music_cue(music_asset, timeline_cursor, brief, tuple(segments))
+        if music_asset
+        else None
+    )
     review_items = _review_items(brief, transcripts, music_assets, tuple(segments))
     width, height = _delivery_size(brief.aspect_ratio)
     return EditPlan(
@@ -191,14 +195,36 @@ def _map_captions(
     return tuple(cues)
 
 
-def _music_cue(asset: MusicAsset, duration: float, brief: CreativeBrief) -> MusicCue:
-    cue_duration = min(duration, asset.duration_seconds)
+def _music_cue(
+    asset: MusicAsset,
+    duration: float,
+    brief: CreativeBrief,
+    segments: tuple[EditSegment, ...],
+) -> MusicCue:
+    payoff = next((segment for segment in segments if segment.role == "payoff"), None)
+    anchor = payoff.timeline_start_seconds if payoff else 0
+    beat_interval = 60 / asset.bpm if asset.bpm else None
+    source_start = (-anchor) % beat_interval if beat_interval else 0
+    if asset.duration_seconds - source_start < min(1, duration):
+        source_start = 0
+    cue_duration = min(duration, asset.duration_seconds - source_start)
+    alignment_reason = (
+        "align a measured beat with the first payoff" if beat_interval else "tempo unavailable"
+    )
     return MusicCue(
         asset=asset,
-        source_range=TimeRange(start_seconds=0, end_seconds=cue_duration),
+        source_range=TimeRange(
+            start_seconds=round(source_start, 4),
+            end_seconds=round(source_start + cue_duration, 4),
+        ),
         timeline_range=TimeRange(start_seconds=0, end_seconds=cue_duration),
         gain_db=-22 if brief.captions else -16,
-        rationale=f"best licensed catalog match for {brief.mood} mood and {brief.pace.value} pace",
+        beat_interval_seconds=round(beat_interval, 4) if beat_interval else None,
+        beat_aligned_timeline_seconds=anchor if beat_interval else None,
+        rationale=(
+            f"best licensed catalog match for {brief.mood} mood and {brief.pace.value} pace; "
+            + alignment_reason
+        ),
     )
 
 

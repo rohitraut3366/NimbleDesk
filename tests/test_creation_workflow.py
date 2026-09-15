@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -39,16 +40,48 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
         ],
         check=True,
     )
+    music = tmp_path / "music.wav"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=220:duration=4",
+            str(music),
+        ],
+        check=True,
+    )
+    catalog = tmp_path / "music.json"
+    catalog.write_text(
+        json.dumps(
+            [
+                {
+                    "path": str(music),
+                    "duration_seconds": 4,
+                    "title": "Music",
+                    "mood": ["engaging"],
+                    "bpm": 120,
+                    "energy": 0.6,
+                    "instrumental": True,
+                    "license": "test fixture",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
     output = tmp_path / "creation"
     brief = CreativeBrief(
         title="Fixture creation",
         target_duration_seconds=5,
         clip_count=1,
         captions=False,
-        music=False,
     )
 
-    result = CreationWorkflow().create(source, output, brief)
+    result = CreationWorkflow().create(source, output, brief, music_catalog=catalog)
 
     assert result.plan_path.is_file()
     assert result.content_index_path.is_file()
@@ -60,6 +93,8 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
     assert rendered.height == 1080
     assert rendered.has_audio
     assert "sampled luminance" in result.plan.segments[0].visual.rationale
+    assert result.plan.music_cue is not None
+    assert result.plan.music_cue.beat_interval_seconds == 0.5
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")

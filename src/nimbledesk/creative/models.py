@@ -137,6 +137,8 @@ class MusicCue(CreativeModel):
     timeline_range: TimeRange
     gain_db: Annotated[float, Field(ge=-60, le=12)] = -18
     duck_under_dialogue_db: Annotated[float, Field(ge=-60, le=0)] = -8
+    beat_interval_seconds: Annotated[float, Field(gt=0)] | None = None
+    beat_aligned_timeline_seconds: Annotated[float, Field(ge=0)] | None = None
     rationale: str
 
 

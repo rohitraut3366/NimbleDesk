@@ -221,7 +221,7 @@ Use `--attribution` when the license requires a credit and `--contains-vocals` f
 ]
 ```
 
-The planner ranks mood, energy, duration, pace, and vocal competition. The selected cue, license, source/timeline ranges, gain, dialogue ducking target, and rationale remain editable in `edit_plan.json`.
+The planner ranks mood, energy, duration, pace, and vocal competition. When measured tempo is available, it offsets the music source so a beat lands on the first payoff. The renderer applies the planned gain and side-chain compression so source dialogue/game audio ducks the music dynamically. The selected cue, license, source/timeline ranges, beat interval/alignment, ducking target, and rationale remain editable in `edit_plan.json`.
 
 ### DaVinci Resolve execution
 
