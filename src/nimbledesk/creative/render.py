@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from nimbledesk.creative.models import CaptionCue, EditPlan
 from nimbledesk.media.ffmpeg import MediaToolError, probe_media, require_media_tools
+from nimbledesk.media.process import run_cancellable
 
 
-def render_edit_plan(plan: EditPlan, output_path: Path) -> Path:
+def render_edit_plan(
+    plan: EditPlan,
+    output_path: Path,
+    cancelled: Callable[[], bool] | None = None,
+) -> Path:
     if not plan.segments:
         raise ValueError("cannot render an edit plan without segments")
     require_media_tools()
@@ -98,7 +103,7 @@ def render_edit_plan(plan: EditPlan, output_path: Path) -> Path:
             str(output_path),
         ]
     )
-    completed = subprocess.run(command, capture_output=True, check=False, text=True)
+    completed = run_cancellable(command, cancelled=cancelled)
     if completed.returncode != 0:
         raise MediaToolError(completed.stderr.strip() or "creative render failed")
     probe_media(output_path)

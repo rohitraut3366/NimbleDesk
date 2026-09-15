@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,8 +17,10 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
 
+from nimbledesk.creative.cancellation import CancellationToken
 from nimbledesk.creative.models import CreativeBrief
 from nimbledesk.creative.workflow import CreationResult, CreationWorkflow
+from nimbledesk.media.process import ProcessCancelled
 
 
 class CreateJobRequest(BaseModel):
@@ -38,45 +42,78 @@ class CreateJobRequest(BaseModel):
     davinci_render: bool = False
 
 
-@dataclass
-class JobRecord:
+JobStatus = Literal[
+    "queued",
+    "running",
+    "cancelling",
+    "cancelled",
+    "completed",
+    "failed",
+    "interrupted",
+]
+
+
+class PersistedJob(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     job_id: str
     request: CreateJobRequest
-    status: Literal["queued", "running", "completed", "failed"] = "queued"
+    status: JobStatus = "queued"
     stage: str = "queued"
     progress: float = 0
     result: CreationResult | None = None
     error: str | None = None
+    created_at: float
+    updated_at: float
+
+
+@dataclass
+class JobRecord:
+    state: PersistedJob
     lock: threading.Lock = field(default_factory=threading.Lock)
+    save_lock: threading.Lock = field(default_factory=threading.Lock)
+    cancellation: CancellationToken = field(default_factory=CancellationToken)
 
     def response(self) -> dict[str, Any]:
         with self.lock:
-            return {
-                "job_id": self.job_id,
-                "status": self.status,
-                "stage": self.stage,
-                "progress": self.progress,
-                "error": self.error,
-                "result": self.result.model_dump(mode="json") if self.result else None,
-            }
+            return self.state.model_dump(mode="json")
 
 
 class JobService:
-    def __init__(self, maximum_workers: int = 1) -> None:
+    def __init__(
+        self,
+        storage_directory: Path | None = None,
+        maximum_workers: int = 1,
+    ) -> None:
         self._jobs: dict[str, JobRecord] = {}
         self._lock = threading.Lock()
+        configured = os.getenv("NIMBLEDESK_JOB_DIR")
+        self._storage_directory = storage_directory or (
+            Path(configured).expanduser()
+            if configured
+            else Path.home() / ".nimbledesk" / "jobs"
+        )
         self._executor = ThreadPoolExecutor(
             max_workers=maximum_workers,
             thread_name_prefix="nimbledesk-creation",
         )
+        self._load()
 
     def submit(self, request: CreateJobRequest) -> JobRecord:
         source = request.source.expanduser().resolve()
         if not source.is_file():
             raise FileNotFoundError(f"source video does not exist: {source}")
-        job = JobRecord(job_id=str(uuid4()), request=request)
+        now = time.time()
+        state = PersistedJob(
+            job_id=str(uuid4()),
+            request=request,
+            created_at=now,
+            updated_at=now,
+        )
+        job = JobRecord(state=state)
         with self._lock:
-            self._jobs[job.job_id] = job
+            self._jobs[state.job_id] = job
+        self._save(job)
         self._executor.submit(self._run, job)
         return job
 
@@ -86,15 +123,38 @@ class JobService:
 
     def list(self) -> list[dict[str, Any]]:
         with self._lock:
-            jobs = list(self._jobs.values())
-        return [job.response() for job in reversed(jobs)]
+            jobs = sorted(
+                self._jobs.values(),
+                key=lambda job: job.state.created_at,
+                reverse=True,
+            )
+        return [job.response() for job in jobs]
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=True, cancel_futures=True)
+
+    def cancel(self, job_id: str) -> JobRecord | None:
+        job = self.get(job_id)
+        if job is None:
+            return None
+        with job.lock:
+            if job.state.status in {"cancelled", "completed", "failed", "interrupted"}:
+                return job
+            job.cancellation.cancel()
+            job.state.status = "cancelling"
+            job.state.stage = "cancelling"
+            job.state.updated_at = time.time()
+        self._save(job)
+        return job
 
     def _run(self, job: JobRecord) -> None:
         with job.lock:
-            job.status = "running"
-            job.stage = "analyzing and creating"
-            job.progress = 0.05
-        request = job.request
+            job.state.status = "running"
+            job.state.stage = "analyzing and creating"
+            job.state.progress = 0.01
+            job.state.updated_at = time.time()
+            request = job.state.request
+        self._save(job)
         try:
             result = CreationWorkflow().create(
                 request.source.expanduser().resolve(),
@@ -112,23 +172,65 @@ class JobService:
                 execute_davinci=request.davinci or request.davinci_render,
                 render_in_davinci=request.davinci_render,
                 progress=lambda stage, value: self._update_progress(job, stage, value),
+                cancellation=job.cancellation,
             )
+        except ProcessCancelled:
+            with job.lock:
+                job.state.status = "cancelled"
+                job.state.stage = "cancelled"
+                job.state.error = None
+                job.state.updated_at = time.time()
+            self._save(job)
+            return
         except Exception as error:
             with job.lock:
-                job.status = "failed"
-                job.stage = "failed"
-                job.error = str(error)
+                job.state.status = "failed"
+                job.state.stage = "failed"
+                job.state.error = str(error)
+                job.state.updated_at = time.time()
+            self._save(job)
             return
         with job.lock:
-            job.status = "completed"
-            job.stage = "completed"
-            job.progress = 1
-            job.result = result
+            job.state.status = "completed"
+            job.state.stage = "completed"
+            job.state.progress = 1
+            job.state.result = result
+            job.state.updated_at = time.time()
+        self._save(job)
 
     def _update_progress(self, job: JobRecord, stage: str, value: float) -> None:
         with job.lock:
-            job.stage = stage
-            job.progress = value
+            job.state.stage = stage
+            job.state.progress = value
+            job.state.updated_at = time.time()
+        self._save(job)
+
+    def _save(self, job: JobRecord) -> None:
+        with job.save_lock:
+            self._storage_directory.mkdir(parents=True, exist_ok=True)
+            path = self._storage_directory / f"{job.state.job_id}.json"
+            temporary = path.with_suffix(".json.tmp")
+            with job.lock:
+                content = job.state.model_dump_json(indent=2)
+            temporary.write_text(content, encoding="utf-8")
+            temporary.replace(path)
+
+    def _load(self) -> None:
+        if not self._storage_directory.is_dir():
+            return
+        for path in self._storage_directory.glob("*.json"):
+            try:
+                state = PersistedJob.model_validate_json(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if state.status in {"queued", "running", "cancelling"}:
+                state.status = "interrupted"
+                state.stage = "interrupted; submit again to resume from cached analysis"
+                state.updated_at = time.time()
+            job = JobRecord(state=state)
+            self._jobs[state.job_id] = job
+            if state.status == "interrupted":
+                self._save(job)
 
 
 JOB_SERVICE = JobService()
@@ -158,6 +260,13 @@ async def get_job(request: Request) -> JSONResponse:
     return JSONResponse(job.response())
 
 
+async def cancel_job(request: Request) -> JSONResponse:
+    job = JOB_SERVICE.cancel(request.path_params["job_id"])
+    if job is None:
+        return JSONResponse({"error": "unknown job"}, status_code=404)
+    return JSONResponse(job.response())
+
+
 app = Starlette(
     debug=False,
     routes=[
@@ -165,6 +274,7 @@ app = Starlette(
         Route("/api/jobs", create_job, methods=["POST"]),
         Route("/api/jobs", list_jobs, methods=["GET"]),
         Route("/api/jobs/{job_id}", get_job, methods=["GET"]),
+        Route("/api/jobs/{job_id}/cancel", cancel_job, methods=["POST"]),
     ],
 )
 
@@ -266,7 +376,10 @@ async function refresh(){const response=await fetch('/api/jobs');const data=awai
   jobs.innerHTML=data.jobs.map(job=>`<article><strong>${h(job.status)}</strong> · ${h(job.stage)}
     <progress value="${job.progress}" max="1"></progress>
     ${job.error?`<p class="error">${h(job.error)}</p>`:''}
+    ${['queued','running','cancelling'].includes(job.status)?
+      `<button class="cancel" onclick="cancelJob('${h(job.job_id)}')">Cancel</button>`:''}
     ${job.result?`<p>Render: <code>${h(job.result.render_path||'plan only')}</code><br>
       DaVinci timeline: <code>${h(job.result.timeline_path)}</code></p>`:''}</article>`).join('');}
+async function cancelJob(jobId){await fetch(`/api/jobs/${jobId}/cancel`,{method:'POST'});refresh();}
 refresh(); setInterval(refresh,2000);
 </script></body></html>"""

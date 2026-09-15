@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 import math
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from nimbledesk.creative.models import TimeRange, TranscriptSegment
+from nimbledesk.media.process import CancellationCheck, run_cancellable
 
 
 class TranscriptionError(RuntimeError):
@@ -28,6 +28,7 @@ def transcribe_with_whisper(
     source: Path,
     model: str = "small",
     language: str | None = None,
+    cancelled: CancellationCheck | None = None,
 ) -> tuple[TranscriptSegment, ...]:
     executable = shutil.which("whisper")
     if executable is None:
@@ -50,7 +51,7 @@ def transcribe_with_whisper(
         ]
         if language:
             command.extend(["--language", language])
-        completed = subprocess.run(command, capture_output=True, check=False, text=True)
+        completed = run_cancellable(command, cancelled=cancelled)
         if completed.returncode != 0:
             raise TranscriptionError(completed.stderr.strip() or "Whisper transcription failed")
         result_path = output_directory / f"{source.stem}.json"

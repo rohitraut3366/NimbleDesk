@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from nimbledesk.creative.davinci import execute_in_davinci
 from nimbledesk.creative.models import (
     CreativeBrief,
@@ -12,6 +14,7 @@ from nimbledesk.creative.models import (
     TimeRange,
     VisualTreatment,
 )
+from nimbledesk.media.process import ProcessCancelled
 
 
 class FakeTimeline:
@@ -85,6 +88,19 @@ class FakeResolve:
         return self.manager
 
 
+class FakeRenderingProject(FakeProject):
+    stopped = False
+
+    def StartRendering(self, job_id: str) -> bool:
+        return True
+
+    def IsRenderingInProgress(self) -> bool:
+        return True
+
+    def StopRendering(self) -> None:
+        self.stopped = True
+
+
 def test_davinci_adapter_imports_timeline_and_validates_render(tmp_path: Path) -> None:
     source_range = TimeRange(start_seconds=1, end_seconds=3)
     plan = EditPlan(
@@ -123,3 +139,39 @@ def test_davinci_adapter_imports_timeline_and_validates_render(tmp_path: Path) -
     assert result.timeline_name == "Imported timeline"
     assert result.render_job_id == "job-1"
     assert result.render_path == tmp_path / "davinci-final.mp4"
+
+
+def test_davinci_adapter_stops_active_render_when_cancelled(tmp_path: Path) -> None:
+    source_range = TimeRange(start_seconds=1, end_seconds=3)
+    plan = EditPlan(
+        source_path=tmp_path / "source.mp4",
+        brief=CreativeBrief(title="Fixture project", captions=False, music=False),
+        segments=(
+            EditSegment(
+                segment_id="segment-001",
+                role="hook",
+                source_path=tmp_path / "source.mp4",
+                source_range=source_range,
+                timeline_start_seconds=0,
+                speed=SpeedTreatment(rate=1, rationale="preserve timing"),
+                visual=VisualTreatment(rationale="straight cut"),
+                score=1,
+                evidence=(),
+            ),
+        ),
+        delivery=DeliverySpec(width=1920, height=1080, frame_rate=30),
+    )
+    timeline_path = tmp_path / "timeline.fcpxml"
+    timeline_path.write_text("<fcpxml />", encoding="utf-8")
+    project = FakeRenderingProject(tmp_path)
+
+    with pytest.raises(ProcessCancelled):
+        execute_in_davinci(
+            FakeResolve(project),
+            plan,
+            timeline_path,
+            tmp_path,
+            cancelled=lambda: True,
+        )
+
+    assert project.stopped

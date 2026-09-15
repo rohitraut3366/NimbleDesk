@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +15,7 @@ from nimbledesk.media.models import (
     RenderedClip,
     TimelineEvent,
 )
+from nimbledesk.media.process import check_cancelled, run_cancellable
 from nimbledesk.media.ranking import build_signal_points, rank_highlights
 from nimbledesk.media.signals import extract_audio_signal, extract_motion_signal
 
@@ -26,13 +27,18 @@ class HighlightPipeline:
         output_directory: Path,
         config: AnalysisConfig,
         events: tuple[TimelineEvent, ...] = (),
+        cancelled: Callable[[], bool] | None = None,
     ) -> HighlightManifest:
         require_media_tools()
         metadata = probe_media(source)
         output_directory.mkdir(parents=True, exist_ok=True)
-        motion = extract_motion_signal(metadata.path, config.sample_frames_per_second)
+        motion = extract_motion_signal(
+            metadata.path, config.sample_frames_per_second, cancelled=cancelled
+        )
         if metadata.has_audio:
-            audio = extract_audio_signal(metadata.path, config.audio_window_seconds)
+            audio = extract_audio_signal(
+                metadata.path, config.audio_window_seconds, cancelled=cancelled
+            )
         else:
             audio = np.asarray([], dtype=np.float64)
         points = build_signal_points(
@@ -45,7 +51,9 @@ class HighlightPipeline:
         )
         candidates = rank_highlights(points, metadata.duration_seconds, config, events)
         clips = tuple(
-            self._render_clip(metadata.path, output_directory, candidate, config)
+            self._render_clip(
+                metadata.path, output_directory, candidate, config, cancelled=cancelled
+            )
             for candidate in candidates
         )
         manifest = HighlightManifest(
@@ -64,7 +72,9 @@ class HighlightPipeline:
         output_directory: Path,
         candidate: HighlightCandidate,
         config: AnalysisConfig,
+        cancelled: Callable[[], bool] | None = None,
     ) -> RenderedClip:
+        check_cancelled(cancelled)
         label = candidate.event_labels[0] if candidate.event_labels else "moment"
         filename = (
             f"highlight_{candidate.rank:02d}_{_slug(label)}_"
@@ -107,7 +117,7 @@ class HighlightPipeline:
                 str(output_path),
             ]
         )
-        completed = subprocess.run(command, capture_output=True, check=False, text=True)
+        completed = run_cancellable(command, cancelled=cancelled)
         if completed.returncode != 0:
             raise MediaToolError(completed.stderr.strip() or f"failed to render {filename}")
         rendered_metadata = probe_media(output_path)

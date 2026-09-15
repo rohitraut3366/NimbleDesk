@@ -4,12 +4,14 @@ import importlib
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 from nimbledesk.creative.models import EditPlan
+from nimbledesk.media.process import ProcessCancelled
 
 
 class DaVinciError(RuntimeError):
@@ -54,6 +56,7 @@ def execute_in_davinci(
     *,
     render: bool = True,
     timeout_seconds: float = 3_600,
+    cancelled: Callable[[], bool] | None = None,
 ) -> DaVinciResult:
     project_manager = resolve.GetProjectManager()
     if project_manager is None:
@@ -105,6 +108,9 @@ def execute_in_davinci(
         raise DaVinciError("DaVinci Resolve could not start the render job")
     deadline = time.monotonic() + timeout_seconds
     while project.IsRenderingInProgress():
+        if cancelled and cancelled():
+            project.StopRendering()
+            raise ProcessCancelled("creation was cancelled; DaVinci rendering was stopped")
         if time.monotonic() >= deadline:
             project.StopRendering()
             raise DaVinciError("DaVinci Resolve render timed out and was stopped")

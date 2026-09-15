@@ -14,6 +14,8 @@ uv run --extra dev ruff check .
 
 The simulator verifies protocol validation, session state, action budgets, stale observations, approval binding, audit records, RPC authentication/replay prevention, response budgets, and gateway boundaries without touching the real desktop.
 
+Cancellation tests start a real child process, request cancellation, verify prompt termination, and confirm that no output directory is created when a job is cancelled before execution. Console tests verify atomic job persistence, terminal cancellation state, and conversion of jobs left running across restart into explicit interrupted/recoverable records.
+
 GitHub Actions runs the suite on Python 3.12 with FFmpeg on Ubuntu, macOS, and Windows. A separate quality job runs Ruff, strict mypy, and the frozen-lock check. The package job builds both source and wheel distributions and retains them as CI artifacts. This matrix proves portable Python/media behavior; physical desktop permission and editor tests remain separate because hosted runners do not expose representative GUI sessions.
 
 ## 2. Local daemon smoke test

@@ -20,6 +20,11 @@ from nimbledesk.analysis.models import (
 from nimbledesk.creative.models import TranscriptSegment
 from nimbledesk.media.ffmpeg import MediaToolError, probe_media
 from nimbledesk.media.models import TimelineEvent
+from nimbledesk.media.process import (
+    CancellationCheck,
+    check_cancelled,
+    check_process_cancelled,
+)
 from nimbledesk.media.signals import extract_audio_signal, extract_motion_signal, normalize_signal
 
 ANALYZER_VERSION = "1.0.0"
@@ -34,6 +39,7 @@ class ContentIndexer:
         transcripts: tuple[TranscriptSegment, ...] = (),
         events: tuple[TimelineEvent, ...] = (),
         progress: Callable[[str, float], None] | None = None,
+        cancelled: CancellationCheck | None = None,
     ) -> ContentIndex:
         report = progress or (lambda _stage, _value: None)
         cache_directory.mkdir(parents=True, exist_ok=True)
@@ -49,7 +55,7 @@ class ContentIndexer:
             cache_directory,
             "motion",
             base_hash,
-            lambda: _motion_track(asset, sample_rate, base_hash),
+            lambda: _motion_track(asset, sample_rate, base_hash, cancelled),
         )
         tracks.append(motion)
         if hit:
@@ -60,7 +66,7 @@ class ContentIndexer:
             cache_directory,
             "audio",
             base_hash,
-            lambda: _audio_track(asset, base_hash),
+            lambda: _audio_track(asset, base_hash, cancelled),
         )
         tracks.append(audio)
         if hit:
@@ -71,7 +77,7 @@ class ContentIndexer:
             cache_directory,
             "color",
             base_hash,
-            lambda: _color_track(asset, min(0.5, sample_rate), base_hash),
+            lambda: _color_track(asset, min(0.5, sample_rate), base_hash, cancelled),
         )
         tracks.append(color)
         if hit:
@@ -94,6 +100,7 @@ class ContentIndexer:
             "audio": _track_digest(audio),
         }
         semantic_hash = _configuration_hash(base_hash, semantic_inputs)
+        check_cancelled(cancelled)
         report("building semantic index", 0.7)
         semantic, hit = _cached_track(
             cache_directory,
@@ -147,8 +154,13 @@ def _asset_record(source: Path, cache_path: Path) -> AssetRecord:
     return asset
 
 
-def _motion_track(asset: AssetRecord, sample_rate: float, configuration_hash: str) -> AnalysisTrack:
-    raw = extract_motion_signal(asset.path, sample_rate)
+def _motion_track(
+    asset: AssetRecord,
+    sample_rate: float,
+    configuration_hash: str,
+    cancelled: CancellationCheck | None,
+) -> AnalysisTrack:
+    raw = extract_motion_signal(asset.path, sample_rate, cancelled=cancelled)
     normalized = normalize_signal(raw)
     step = 1 / sample_rate
     points = tuple(
@@ -163,11 +175,13 @@ def _motion_track(asset: AssetRecord, sample_rate: float, configuration_hash: st
     return _track("motion", "motion", configuration_hash, points)
 
 
-def _audio_track(asset: AssetRecord, configuration_hash: str) -> AnalysisTrack:
+def _audio_track(
+    asset: AssetRecord, configuration_hash: str, cancelled: CancellationCheck | None
+) -> AnalysisTrack:
     if not asset.metadata.has_audio:
         return _track("audio", "audio", configuration_hash, ())
     window = 0.5
-    raw = extract_audio_signal(asset.path, window)
+    raw = extract_audio_signal(asset.path, window, cancelled=cancelled)
     normalized = normalize_signal(raw)
     silence_limit = max(0.003, float(np.percentile(raw, 15)) * 1.25) if raw.size else 0.003
     points = tuple(
@@ -187,7 +201,12 @@ def _audio_track(asset: AssetRecord, configuration_hash: str) -> AnalysisTrack:
     return _track("audio", "audio", configuration_hash, points)
 
 
-def _color_track(asset: AssetRecord, sample_rate: float, configuration_hash: str) -> AnalysisTrack:
+def _color_track(
+    asset: AssetRecord,
+    sample_rate: float,
+    configuration_hash: str,
+    cancelled: CancellationCheck | None,
+) -> AnalysisTrack:
     width, height = 64, 36
     frame_size = width * height * 3
     command = [
@@ -212,6 +231,7 @@ def _color_track(asset: AssetRecord, sample_rate: float, configuration_hash: str
     step = 1 / sample_rate
     index = 0
     while frame_bytes := process.stdout.read(frame_size):
+        check_process_cancelled(process, cancelled)
         if len(frame_bytes) != frame_size:
             break
         frame = np.frombuffer(frame_bytes, dtype=np.uint8).reshape((height, width, 3)) / 255

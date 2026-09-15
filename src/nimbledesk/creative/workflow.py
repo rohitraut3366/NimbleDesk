@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from nimbledesk.analysis.index import ContentIndexer
+from nimbledesk.creative.cancellation import CancellationToken
 from nimbledesk.creative.davinci import DaVinciResult, connect_to_resolve, execute_in_davinci
 from nimbledesk.creative.fcpxml import export_fcpxml
 from nimbledesk.creative.gaming import detect_game_events, load_game_pack, write_events
@@ -55,19 +56,28 @@ class CreationWorkflow:
         execute_davinci: bool = False,
         render_in_davinci: bool = False,
         progress: Callable[[str, float], None] | None = None,
+        cancellation: CancellationToken | None = None,
     ) -> CreationResult:
         report = progress or (lambda _stage, _progress: None)
+        token = cancellation or CancellationToken()
+        token.check()
         output_directory.mkdir(parents=True, exist_ok=True)
         report("detecting events", 0.05)
         events = list(load_events(supplied_events))
         if automatic_game_ocr:
-            events.extend(detect_game_events(source, load_game_pack(game_pack)))
+            events.extend(
+                detect_game_events(
+                    source, load_game_pack(game_pack), cancelled=token.is_cancelled
+                )
+            )
         merged_events = _merge_events(tuple(events))
 
         report("transcribing dialogue", 0.15)
         transcripts = load_transcript(supplied_transcript)
         if automatic_transcription:
-            transcripts = transcribe_with_whisper(source, whisper_model, language)
+            transcripts = transcribe_with_whisper(
+                source, whisper_model, language, cancelled=token.is_cancelled
+            )
         transcript_path = output_directory / "transcript.json" if transcripts else None
         if transcript_path:
             write_transcript(transcripts, transcript_path)
@@ -79,6 +89,7 @@ class CreationWorkflow:
             transcripts=transcripts,
             events=merged_events,
             progress=lambda stage, value: report(stage, 0.2 + value * 0.3),
+            cancelled=token.is_cancelled,
         )
         content_index_path = index_directory / "content_index.json"
         merged_events = _apply_event_constraints(content_index.semantic_events, brief)
@@ -98,6 +109,7 @@ class CreationWorkflow:
                 minimum_peak_separation_seconds=12,
             ),
             events=merged_events,
+            cancelled=token.is_cancelled,
         )
         report("building creative edit plan", 0.65)
         plan = build_edit_plan(
@@ -111,10 +123,11 @@ class CreationWorkflow:
         timeline_path = output_directory / "davinci_timeline.fcpxml"
         write_edit_plan(plan, plan_path)
         export_fcpxml(plan, timeline_path)
+        token.check()
         report("rendering review video", 0.75)
         render_path = output_directory / "final.mp4" if render else None
         if render_path:
-            render_edit_plan(plan, render_path)
+            render_edit_plan(plan, render_path, cancelled=token.is_cancelled)
         davinci = None
         if execute_davinci:
             report("executing in DaVinci Resolve", 0.9)
@@ -124,6 +137,7 @@ class CreationWorkflow:
                 timeline_path,
                 output_directory,
                 render=render_in_davinci,
+                cancelled=token.is_cancelled,
             )
         report("completed", 1)
         return CreationResult(

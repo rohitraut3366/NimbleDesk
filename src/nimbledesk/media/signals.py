@@ -7,11 +7,16 @@ import numpy as np
 from numpy.typing import NDArray
 
 from nimbledesk.media.ffmpeg import MediaToolError
+from nimbledesk.media.process import CancellationCheck, check_process_cancelled
 
 FloatArray = NDArray[np.float64]
 
 
-def extract_motion_signal(path: Path, frames_per_second: float) -> FloatArray:
+def extract_motion_signal(
+    path: Path,
+    frames_per_second: float,
+    cancelled: CancellationCheck | None = None,
+) -> FloatArray:
     frame_width = 160
     frame_height = 90
     frame_size = frame_width * frame_height
@@ -41,6 +46,7 @@ def extract_motion_signal(path: Path, frames_per_second: float) -> FloatArray:
     scores: list[float] = []
     previous: NDArray[np.uint8] | None = None
     while frame_bytes := process.stdout.read(frame_size):
+        check_process_cancelled(process, cancelled)
         if len(frame_bytes) != frame_size:
             break
         frame = np.frombuffer(frame_bytes, dtype=np.uint8)
@@ -56,7 +62,12 @@ def extract_motion_signal(path: Path, frames_per_second: float) -> FloatArray:
     return np.asarray(scores, dtype=np.float64)
 
 
-def extract_audio_signal(path: Path, window_seconds: float, sample_rate: int = 8_000) -> FloatArray:
+def extract_audio_signal(
+    path: Path,
+    window_seconds: float,
+    sample_rate: int = 8_000,
+    cancelled: CancellationCheck | None = None,
+) -> FloatArray:
     samples_per_window = max(1, int(sample_rate * window_seconds))
     bytes_per_window = samples_per_window * 2
     command = [
@@ -79,6 +90,7 @@ def extract_audio_signal(path: Path, window_seconds: float, sample_rate: int = 8
         raise MediaToolError("ffmpeg did not create an audio-analysis stream")
     scores: list[float] = []
     while audio_bytes := process.stdout.read(bytes_per_window):
+        check_process_cancelled(process, cancelled)
         samples = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float64)
         if samples.size:
             scores.append(float(np.sqrt(np.mean(np.square(samples))) / 32768.0))

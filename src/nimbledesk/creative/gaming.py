@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from nimbledesk.media.models import TimelineEvent
+from nimbledesk.media.process import CancellationCheck, run_cancellable
 
 
 class GamePack(BaseModel):
@@ -53,7 +53,11 @@ def load_game_pack(path: Path | None) -> GamePack:
     return GamePack.model_validate_json(path.read_text(encoding="utf-8"))
 
 
-def detect_game_events(source: Path, pack: GamePack) -> tuple[TimelineEvent, ...]:
+def detect_game_events(
+    source: Path,
+    pack: GamePack,
+    cancelled: CancellationCheck | None = None,
+) -> tuple[TimelineEvent, ...]:
     ffmpeg = shutil.which("ffmpeg")
     tesseract = shutil.which("tesseract")
     if ffmpeg is None or tesseract is None:
@@ -76,10 +80,12 @@ def detect_game_events(source: Path, pack: GamePack) -> tuple[TimelineEvent, ...
             "4",
             str(frame_pattern),
         ]
-        completed = subprocess.run(command, capture_output=True, check=False, text=True)
+        completed = run_cancellable(command, cancelled=cancelled)
         if completed.returncode != 0:
             raise GameAnalysisError(completed.stderr.strip() or "game frame extraction failed")
-        return _ocr_frames(tuple(sorted(directory.glob("frame_*.jpg"))), pack, tesseract)
+        return _ocr_frames(
+            tuple(sorted(directory.glob("frame_*.jpg"))), pack, tesseract, cancelled
+        )
 
 
 def write_events(events: tuple[TimelineEvent, ...], path: Path) -> None:
@@ -94,15 +100,14 @@ def _ocr_frames(
     frames: tuple[Path, ...],
     pack: GamePack,
     tesseract: str,
+    cancelled: CancellationCheck | None,
 ) -> tuple[TimelineEvent, ...]:
     events: list[TimelineEvent] = []
     last_seen: dict[str, float] = {}
     for index, frame in enumerate(frames):
-        completed = subprocess.run(
+        completed = run_cancellable(
             [tesseract, str(frame), "stdout", "--psm", "11"],
-            capture_output=True,
-            check=False,
-            text=True,
+            cancelled=cancelled,
         )
         if completed.returncode != 0:
             continue

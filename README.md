@@ -247,7 +247,11 @@ Start the loopback-only web console:
 uv run nimbledesk-ui
 ```
 
-Open `http://127.0.0.1:8765`, enter absolute source/output paths, choose the creative brief, and start a background job. The page reports the analysis, transcription, planning, render, and DaVinci stages and shows generated output paths. Use `--port` to choose another port. The server rejects non-loopback bind addresses so local file and editor controls are not exposed to the network.
+Open `http://127.0.0.1:8765`, enter absolute source/output paths, choose the creative brief, and start a background job. The page reports the analysis, transcription, planning, render, and DaVinci stages, shows generated output paths, and can cancel queued or running work.
+
+Job state is atomically persisted under `~/.nimbledesk/jobs`. Restarting the console retains completed, failed, and cancelled history. Work that was active during a process or machine restart is marked `interrupted`; submit the same source and output again to resume from the valid per-track semantic cache. Cancellation propagates into FFmpeg analysis/rendering, Whisper, Tesseract OCR, highlight rendering, and DaVinci rendering; child processes are terminated and Resolve receives `StopRendering`.
+
+Use `--port` to choose another port. The server rejects non-loopback bind addresses so local file and editor controls are not exposed to the network. Set `NIMBLEDESK_JOB_DIR` to use another job-history directory.
 
 ## Quick start with the simulator
 
@@ -520,6 +524,7 @@ See [docs/TESTING.md](docs/TESTING.md) for the complete simulator, OS backend, r
 | `NIMBLEDESK_ENABLE_INPUT` | Disabled | Host input gate. Truthy values are `1`, `true`, `yes`, or `on`, ignoring case. |
 | `NIMBLEDESK_RUNTIME_DIR` | `~/.nimbledesk/runtime` | Directory for `connection.json` and `audit.jsonl`. |
 | `NIMBLEDESK_CONNECTION_FILE` | `~/.nimbledesk/runtime/connection.json` | Connection file read by `nimbledesk-mcp`. |
+| `NIMBLEDESK_JOB_DIR` | `~/.nimbledesk/jobs` | Durable local creation-console job records. |
 
 The daemon binds to `127.0.0.1` on an automatically selected port. `connection.json` contains a per-run secret and is written with user-only permissions. Do not share or commit the runtime directory.
 
