@@ -186,6 +186,15 @@ class DesktopObservation(ProtocolModel):
     warnings: tuple[str, ...] = ()
 
 
+class ImageUsage(ProtocolModel):
+    source_width: Annotated[int, Field(gt=0)]
+    source_height: Annotated[int, Field(gt=0)]
+    output_pixels: Annotated[int, Field(gt=0)]
+    encoded_bytes: Annotated[int, Field(gt=0)]
+    estimated_512px_tiles: Annotated[int, Field(gt=0)]
+    estimated_image_tokens: Annotated[int, Field(gt=0)]
+
+
 class ScreenCapture(ProtocolModel):
     protocol_version: Literal["1.0.0"] = PROTOCOL_VERSION
     observation_id: str
@@ -194,6 +203,7 @@ class ScreenCapture(ProtocolModel):
     height: Annotated[int, Field(gt=0)]
     sha256: str = Field(min_length=64, max_length=64)
     data_base64: str
+    usage: ImageUsage | None = None
 
 
 class CaptureOptions(ProtocolModel):

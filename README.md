@@ -575,6 +575,8 @@ Desktop images dominate model cost, so observe and capture progressively:
 
 Observation responses include a `usage` object with `estimated_text_tokens`, `maximum_text_tokens`, and `truncated_fields`. Required safety fields are preserved even when window titles and lists are shortened. Screenshot limits are 64–4,096 pixels per dimension; JPEG quality accepts 20–95.
 
+Every capture also reports its source dimensions, delivered pixel count, exact encoded byte count, estimated 512-pixel vision tiles, and a conservative image-token estimate (`85 + 170 × tiles`). Provider billing formulas differ, so this estimate is for comparing capture choices; the byte and pixel measurements are exact. Lower `max_width`, `max_height`, or JPEG quality and recapture when the resulting text and controls remain readable.
+
 ## Test and develop
 
 Install development dependencies and run all deterministic checks:

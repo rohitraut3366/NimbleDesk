@@ -39,6 +39,13 @@ def test_capture_respects_image_budget() -> None:
     assert capture.mime_type == "image/jpeg"
     assert capture.width == 360
     assert capture.height == 225
+    assert capture.usage is not None
+    assert capture.usage.source_width == 1440
+    assert capture.usage.source_height == 900
+    assert capture.usage.output_pixels == 360 * 225
+    assert capture.usage.encoded_bytes == len(base64.b64decode(capture.data_base64))
+    assert capture.usage.estimated_512px_tiles == 1
+    assert capture.usage.estimated_image_tokens == 255
 
 
 def test_click_validates_coordinates_before_input() -> None:
