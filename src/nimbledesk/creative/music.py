@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 from nimbledesk.creative.models import CreativeBrief, MusicAsset
@@ -31,6 +32,17 @@ def recommend_music(
 ) -> MusicAsset | None:
     if not brief.music or not assets:
         return None
+    eligible = tuple(
+        asset
+        for asset in assets
+        if asset.license.strip()
+        and (not asset.allowed_platforms or brief.platform.casefold() in {
+            platform.casefold() for platform in asset.allowed_platforms
+        })
+        and (asset.license_expires is None or asset.license_expires >= date.today())
+    )
+    if not eligible:
+        return None
     desired_energy = {"calm": 0.3, "balanced": 0.6, "fast": 0.85}[brief.pace.value]
     mood_terms = {term.casefold() for term in brief.mood.replace(",", " ").split()}
 
@@ -47,4 +59,4 @@ def recommend_music(
             + 0.1 * instrumental_score
         )
 
-    return max(assets, key=score)
+    return max(eligible, key=score)

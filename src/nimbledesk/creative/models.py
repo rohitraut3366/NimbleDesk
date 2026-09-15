@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Literal
@@ -96,6 +97,16 @@ class MusicAsset(CreativeModel):
     instrumental: bool = True
     license: str
     attribution: str | None = None
+    artist: str | None = None
+    composer: str | None = None
+    allowed_platforms: tuple[str, ...] = ()
+    allowed_territories: tuple[str, ...] = ()
+    license_expires: date | None = None
+    generated: bool = False
+    generation_provider: str | None = None
+    generation_model: str | None = None
+    generation_prompt: str | None = None
+    generation_seed: int | None = None
 
 
 class SpeedTreatment(CreativeModel):
@@ -156,6 +167,15 @@ class SoundAsset(CreativeModel):
     tags: tuple[str, ...]
     license: str
     attribution: str | None = None
+    artist: str | None = None
+    allowed_platforms: tuple[str, ...] = ()
+    allowed_territories: tuple[str, ...] = ()
+    license_expires: date | None = None
+    generated: bool = False
+    generation_provider: str | None = None
+    generation_model: str | None = None
+    generation_prompt: str | None = None
+    generation_seed: int | None = None
 
 
 class SoundCue(CreativeModel):

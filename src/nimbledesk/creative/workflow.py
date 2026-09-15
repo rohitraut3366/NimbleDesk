@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 from nimbledesk.analysis.index import ContentIndexer
 from nimbledesk.creative.cancellation import CancellationToken
+from nimbledesk.creative.cue_sheet import write_cue_sheet
 from nimbledesk.creative.davinci import DaVinciResult, connect_to_resolve, execute_in_davinci
 from nimbledesk.creative.fcpxml import export_fcpxml
 from nimbledesk.creative.gaming import detect_game_events, load_game_pack, write_events
@@ -44,6 +45,8 @@ class CreationResult(BaseModel):
     vision_analysis_path: Path | None
     davinci: DaVinciResult | None = None
     plan: EditPlan
+    cue_sheet_path: Path | None = None
+    cue_sheet_csv_path: Path | None = None
 
 
 class CreationWorkflow:
@@ -153,6 +156,7 @@ class CreationWorkflow:
         if not validation.valid:
             raise PlanValidationError(validation)
         export_fcpxml(plan, timeline_path)
+        cue_sheet_path, cue_sheet_csv_path = write_cue_sheet(plan, output_directory)
         token.check()
         report("rendering review video", 0.75)
         render_path = output_directory / "final.mp4" if render else None
@@ -182,6 +186,8 @@ class CreationWorkflow:
             vision_analysis_path=vision_analysis_path,
             davinci=davinci,
             plan=plan,
+            cue_sheet_path=cue_sheet_path,
+            cue_sheet_csv_path=cue_sheet_csv_path,
         )
 
 

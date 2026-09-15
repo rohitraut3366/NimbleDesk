@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 from nimbledesk.creative.models import (
@@ -92,6 +93,13 @@ def validate_edit_plan(plan: EditPlan, source: MediaMetadata) -> PlanValidationR
             issues.append(_issue("music_offline", "Selected music file is unavailable"))
         if not music_cue.asset.license.strip():
             issues.append(_issue("music_license", "Selected music has no license evidence"))
+        _validate_asset_license(
+            issues,
+            "music",
+            plan.brief.platform,
+            music_cue.asset.allowed_platforms,
+            music_cue.asset.license_expires,
+        )
         if music_cue.source_range.end_seconds > music_cue.asset.duration_seconds + 0.001:
             issues.append(_issue("music_bounds", "Music cue extends past the selected asset"))
         if music_cue.timeline_range.end_seconds > timeline_cursor + 0.001:
@@ -104,6 +112,14 @@ def validate_edit_plan(plan: EditPlan, source: MediaMetadata) -> PlanValidationR
             issues.append(_issue("sound_offline", "Selected sound file is unavailable"))
         if not sound_cue.asset.license.strip():
             issues.append(_issue("sound_license", "Selected sound has no license evidence"))
+        _validate_asset_license(
+            issues,
+            "sound",
+            plan.brief.platform,
+            sound_cue.asset.allowed_platforms,
+            sound_cue.asset.license_expires,
+            sound_cue.segment_id,
+        )
         if sound_cue.source_range.end_seconds > sound_cue.asset.duration_seconds + 0.001:
             issues.append(_issue("sound_bounds", "Sound cue exceeds its source asset"))
         if sound_cue.timeline_range.end_seconds > timeline_cursor + 0.001:
@@ -137,3 +153,30 @@ def _issue(code: str, message: str, segment_id: str | None = None) -> Validation
         message=message,
         segment_id=segment_id,
     )
+
+
+def _validate_asset_license(
+    issues: list[ValidationIssue],
+    prefix: str,
+    platform: str,
+    allowed_platforms: tuple[str, ...],
+    expires: date | None,
+    segment_id: str | None = None,
+) -> None:
+    normalized = {item.casefold() for item in allowed_platforms}
+    if normalized and platform.casefold() not in normalized:
+        issues.append(
+            _issue(
+                f"{prefix}_platform_license",
+                f"Selected {prefix} is not licensed for {platform}",
+                segment_id,
+            )
+        )
+    if expires and expires < date.today():
+        issues.append(
+            _issue(
+                f"{prefix}_license_expired",
+                f"Selected {prefix} license expired on {expires.isoformat()}",
+                segment_id,
+            )
+        )

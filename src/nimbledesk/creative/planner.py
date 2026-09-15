@@ -111,7 +111,7 @@ def build_edit_plan(
         if music_asset
         else None
     )
-    sound_cues = plan_sound_cues(tuple(segments), sound_assets)
+    sound_cues = plan_sound_cues(tuple(segments), sound_assets, brief.platform)
     review_items = _review_items(brief, transcripts, music_assets, tuple(segments))
     return EditPlan(
         source_path=manifest.source.path,

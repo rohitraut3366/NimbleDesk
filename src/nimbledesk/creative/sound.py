@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 from pydantic import TypeAdapter
@@ -23,9 +24,18 @@ def load_sound_catalog(path: Path | None) -> tuple[SoundAsset, ...]:
 
 
 def plan_sound_cues(
-    segments: tuple[EditSegment, ...], assets: tuple[SoundAsset, ...]
+    segments: tuple[EditSegment, ...], assets: tuple[SoundAsset, ...], platform: str = "youtube"
 ) -> tuple[SoundCue, ...]:
-    if not assets:
+    eligible = tuple(
+        asset
+        for asset in assets
+        if asset.license.strip()
+        and (not asset.allowed_platforms or platform.casefold() in {
+            allowed.casefold() for allowed in asset.allowed_platforms
+        })
+        and (asset.license_expires is None or asset.license_expires >= date.today())
+    )
+    if not eligible:
         return ()
     cues: list[SoundCue] = []
     used_assets: set[Path] = set()
@@ -37,7 +47,7 @@ def plan_sound_cues(
         match = next(
             (
                 asset
-                for asset in assets
+                for asset in eligible
                 if asset.path not in used_assets
                 and desired_tags & {tag.casefold() for tag in asset.tags}
             ),

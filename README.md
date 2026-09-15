@@ -95,6 +95,7 @@ The command never changes the source. Its output directory contains:
 - `graphics/`: transparent title and speaker lower-third cards used by the review render and imported timeline.
 - `transcript.json`: normalized transcript when speech is available.
 - `detected_events.json`: merged automatic and supplied events.
+- `cue_sheet.json` and `cue_sheet.csv`: music and sound usage ranges, credits, licenses, platform/territory restrictions, expiry, attribution, purpose, and generated-content disclosure.
 - `analysis/vision/analysis.json`: accepted multimodal semantic events with provider, model, confidence, and configuration provenance when a vision provider is configured.
 - `analysis/index/content_index.json`: persistent rational-time analysis tracks, semantic moments, provenance, analyzer versions, and cache-hit metadata.
 - `analysis/`: ranked intermediate clips and `highlights.json`.
