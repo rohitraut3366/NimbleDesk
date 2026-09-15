@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
+from nimbledesk.analysis.models import ContentIndex
 from nimbledesk.creative.models import (
     AspectRatio,
     CaptionCue,
@@ -28,6 +29,7 @@ def build_edit_plan(
     brief: CreativeBrief,
     transcripts: tuple[TranscriptSegment, ...] = (),
     music_assets: tuple[MusicAsset, ...] = (),
+    content_index: ContentIndex | None = None,
 ) -> EditPlan:
     ordered = _story_order(manifest.candidates[: brief.clip_count])
     segments: list[EditSegment] = []
@@ -39,7 +41,7 @@ def build_edit_plan(
         rate, speed_reason = _speed_treatment(candidate, brief)
         maximum_source_duration = remaining * rate
         source_range = _trim_around_peak(candidate, maximum_source_duration)
-        evidence = tuple(
+        evidence = list(
             Evidence(
                 analyzer="nimbledesk-highlight-ranker",
                 analyzer_version="1.0.0",
@@ -49,6 +51,8 @@ def build_edit_plan(
             )
             for reason in candidate.reasons
         )
+        evidence.extend(_semantic_evidence(candidate, content_index))
+        exposure, saturation, color_reason = _color_treatment(candidate, content_index)
         role = _role(index, len(ordered))
         segments.append(
             EditSegment(
@@ -66,11 +70,13 @@ def build_edit_plan(
                     transition_in="dip_to_black" if role == "outro" else "cut",
                     punch_in_scale=1.08 if role in {"hook", "payoff"} else 1,
                     color_look=brief.color_look,
+                    exposure_adjustment_stops=exposure,
+                    saturation_multiplier=saturation,
                     title=brief.title if role == "hook" else None,
-                    rationale=_visual_reason(role),
+                    rationale=f"{_visual_reason(role)}; {color_reason}",
                 ),
                 score=candidate.score,
-                evidence=evidence,
+                evidence=tuple(evidence),
             )
         )
         timeline_cursor += source_range.duration_seconds / rate
@@ -228,3 +234,58 @@ def _delivery_size(aspect_ratio: AspectRatio) -> tuple[int, int]:
     if aspect_ratio is AspectRatio.SQUARE:
         return 1080, 1080
     return 1920, 1080
+
+
+def _semantic_evidence(
+    candidate: HighlightCandidate, content_index: ContentIndex | None
+) -> tuple[Evidence, ...]:
+    if content_index is None:
+        return ()
+    semantic = content_index.track("semantic")
+    evidence: list[Evidence] = []
+    for point in semantic.points:
+        start = point.source_range.start.seconds
+        if not candidate.start_seconds <= start <= candidate.end_seconds:
+            continue
+        description = ", ".join(point.labels)
+        if point.text:
+            description += f": {point.text}"
+        evidence.append(
+            Evidence(
+                analyzer=semantic.provenance.analyzer,
+                analyzer_version=semantic.provenance.analyzer_version,
+                confidence=point.confidence,
+                description=description,
+                source_range=TimeRange(
+                    start_seconds=start,
+                    end_seconds=start + point.source_range.duration.seconds,
+                ),
+            )
+        )
+    return tuple(evidence)
+
+
+def _color_treatment(
+    candidate: HighlightCandidate, content_index: ContentIndex | None
+) -> tuple[float, float, str]:
+    if content_index is None:
+        return 0, 1, "retain a conservative source-neutral correction"
+    color = content_index.track("color")
+    points = [
+        point
+        for point in color.points
+        if candidate.start_seconds <= point.source_range.start.seconds <= candidate.end_seconds
+    ]
+    if not points:
+        return 0, 1, "no color samples overlap this segment"
+    luminance = sum(point.metrics["luminance"] for point in points) / len(points)
+    source_saturation = sum(point.metrics["saturation"] for point in points) / len(points)
+    exposure = round(min(0.5, (0.38 - luminance) * 1.5), 3) if luminance < 0.38 else 0
+    if luminance > 0.72:
+        exposure = round(max(-0.35, 0.62 - luminance), 3)
+    saturation = 1.08 if source_saturation < 0.22 else 0.95 if source_saturation > 0.65 else 1
+    reason = (
+        f"technical correction from sampled luminance {luminance:.2f} and "
+        f"saturation {source_saturation:.2f}"
+    )
+    return exposure, saturation, reason

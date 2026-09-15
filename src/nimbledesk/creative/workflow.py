@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from nimbledesk.analysis.index import ContentIndexer
 from nimbledesk.creative.davinci import DaVinciResult, connect_to_resolve, execute_in_davinci
 from nimbledesk.creative.fcpxml import export_fcpxml
 from nimbledesk.creative.gaming import detect_game_events, load_game_pack, write_events
@@ -25,6 +26,7 @@ class CreationResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     output_directory: Path
+    content_index_path: Path
     plan_path: Path
     timeline_path: Path
     render_path: Path | None
@@ -60,10 +62,7 @@ class CreationWorkflow:
         events = list(load_events(supplied_events))
         if automatic_game_ocr:
             events.extend(detect_game_events(source, load_game_pack(game_pack)))
-        merged_events = _apply_event_constraints(_merge_events(tuple(events)), brief)
-        events_path = output_directory / "detected_events.json" if merged_events else None
-        if events_path:
-            write_events(merged_events, events_path)
+        merged_events = _merge_events(tuple(events))
 
         report("transcribing dialogue", 0.15)
         transcripts = load_transcript(supplied_transcript)
@@ -73,8 +72,21 @@ class CreationWorkflow:
         if transcript_path:
             write_transcript(transcripts, transcript_path)
 
+        index_directory = output_directory / "analysis" / "index"
+        content_index = ContentIndexer().build(
+            source,
+            index_directory,
+            transcripts=transcripts,
+            events=merged_events,
+            progress=lambda stage, value: report(stage, 0.2 + value * 0.3),
+        )
+        content_index_path = index_directory / "content_index.json"
+        merged_events = _apply_event_constraints(content_index.semantic_events, brief)
+        events_path = output_directory / "detected_events.json" if merged_events else None
+        if events_path:
+            write_events(merged_events, events_path)
         brief = _resolve_content_kind(brief, merged_events, transcripts)
-        report("analyzing audiovisual highlights", 0.3)
+        report("ranking and refining highlights", 0.52)
         analysis_directory = output_directory / "analysis"
         manifest = HighlightPipeline().analyze_and_render(
             source=source,
@@ -93,6 +105,7 @@ class CreationWorkflow:
             brief,
             transcripts=transcripts,
             music_assets=load_music_catalog(music_catalog),
+            content_index=content_index,
         )
         plan_path = output_directory / "edit_plan.json"
         timeline_path = output_directory / "davinci_timeline.fcpxml"
@@ -115,6 +128,7 @@ class CreationWorkflow:
         report("completed", 1)
         return CreationResult(
             output_directory=output_directory,
+            content_index_path=content_index_path,
             plan_path=plan_path,
             timeline_path=timeline_path,
             render_path=render_path,
@@ -161,7 +175,17 @@ def _resolve_content_kind(
 ) -> CreativeBrief:
     if brief.content_kind is not ContentKind.AUTO:
         return brief
-    if events:
+    gameplay_event_types = {
+        "kill",
+        "multi_kill",
+        "grenade_kill",
+        "clutch",
+        "narrow_survival",
+        "victory",
+        "death",
+        "round_win",
+    }
+    if any(event.event_type in gameplay_event_types for event in events):
         detected = ContentKind.GAMEPLAY
     elif transcripts:
         detected = ContentKind.TALKING_HEAD

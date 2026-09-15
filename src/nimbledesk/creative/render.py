@@ -18,13 +18,18 @@ def render_edit_plan(plan: EditPlan, output_path: Path) -> Path:
     for index, segment in enumerate(plan.segments):
         source = segment.source_range
         rate = segment.speed.rate
+        color_filter = _color_filter(
+            segment.visual.color_look,
+            segment.visual.exposure_adjustment_stops,
+            segment.visual.saturation_multiplier,
+        )
         video_filter = (
             f"[0:v]trim=start={source.start_seconds:.3f}:end={source.end_seconds:.3f},"
             f"setpts=(PTS-STARTPTS)/{rate:.6f},"
             f"scale={plan.delivery.width}:{plan.delivery.height}:"
             "force_original_aspect_ratio=increase,"
             f"crop={plan.delivery.width}:{plan.delivery.height},"
-            f"{_color_filter(segment.visual.color_look)},format=yuv420p[v{index}]"
+            f"{color_filter},format=yuv420p[v{index}]"
         )
         filters.append(video_filter)
         if metadata.has_audio:
@@ -102,15 +107,22 @@ def write_srt(cues: tuple[CaptionCue, ...], output_path: Path) -> None:
     output_path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
 
 
-def _color_filter(look: str) -> str:
+def _color_filter(look: str, exposure_stops: float, saturation_multiplier: float) -> str:
     normalized = look.casefold()
+    brightness = max(-0.12, min(0.12, exposure_stops * 0.08))
     if normalized in {"vivid", "high_contrast"}:
-        return "eq=contrast=1.10:saturation=1.12"
-    if normalized in {"cinematic", "moody"}:
-        return "eq=contrast=1.08:saturation=0.92:gamma=0.98"
-    if normalized in {"flat", "neutral"}:
-        return "eq=contrast=1.00:saturation=1.00"
-    return "eq=contrast=1.04:saturation=1.04"
+        contrast, saturation = 1.10, 1.12
+    elif normalized in {"cinematic", "moody"}:
+        contrast, saturation = 1.08, 0.92
+    elif normalized in {"flat", "neutral"}:
+        contrast, saturation = 1.0, 1.0
+    else:
+        contrast, saturation = 1.04, 1.04
+    saturation *= saturation_multiplier
+    return (
+        f"eq=brightness={brightness:.4f}:contrast={contrast:.4f}:"
+        f"saturation={saturation:.4f}"
+    )
 
 
 def _srt_time(seconds: float) -> str:

@@ -88,9 +88,16 @@ The command never changes the source. Its output directory contains:
 - `davinci_timeline.fcpxml`: editable timeline for DaVinci Resolve.
 - `transcript.json`: normalized transcript when speech is available.
 - `detected_events.json`: merged automatic and supplied events.
+- `analysis/index/content_index.json`: persistent rational-time analysis tracks, semantic moments, provenance, analyzer versions, and cache-hit metadata.
 - `analysis/`: ranked intermediate clips and `highlights.json`.
 
-With `content_kind=auto`, detected events select gameplay treatment, an available transcript selects talking-head treatment, and other footage uses the general vlog treatment. Mandatory event types are hard constraints: creation stops if they are absent. Excluded event types are removed before ranking.
+With `content_kind=auto`, detected gameplay events select gameplay treatment, an available transcript selects talking-head treatment, and other footage uses the general vlog treatment. Mandatory event types are hard constraints: creation stops if they are absent. Excluded event types are removed before ranking.
+
+### Persistent long-form analysis
+
+Every creation fingerprints the source and builds time-aligned motion, audio energy/silence, color/exposure, shot-boundary, transcript-semantic, and combined semantic tracks. Each point has a rational source range, confidence, evidence, analyzer/version, and configuration hash. Transcript questions, reactions, instructions, and payoffs become semantic moments; domain-pack events and coincident audiovisual action remain separate evidence.
+
+The index adapts its coarse sampling rate for recordings over 30 minutes and over two hours. Tracks are written atomically under `analysis/index`. Re-running the same output reuses unchanged tracks. Changing a transcript or event file rebuilds the semantic track while retaining valid motion, audio, color, and shot analysis. Changing the source fingerprint invalidates dependent tracks. Source media is always read-only.
 
 ### Creation options
 

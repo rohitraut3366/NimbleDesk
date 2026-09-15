@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from nimbledesk.creative.models import CreativeBrief
-from nimbledesk.creative.workflow import CreationWorkflow
+from nimbledesk.creative.models import ContentKind, CreativeBrief, TimeRange, TranscriptSegment
+from nimbledesk.creative.workflow import CreationWorkflow, _resolve_content_kind
 from nimbledesk.media.ffmpeg import probe_media
 
 
@@ -51,6 +51,7 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
     result = CreationWorkflow().create(source, output, brief)
 
     assert result.plan_path.is_file()
+    assert result.content_index_path.is_file()
     assert result.timeline_path.is_file()
     assert result.render_path is not None
     assert result.render_path.is_file()
@@ -58,9 +59,30 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
     assert rendered.width == 1920
     assert rendered.height == 1080
     assert rendered.has_audio
+    assert "sampled luminance" in result.plan.segments[0].visual.rationale
 
 
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
 def test_creation_workflow_enforces_mandatory_events(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=black:size=320x180:rate=30:duration=1",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        check=True,
+    )
     brief = CreativeBrief(
         title="Must include clutch",
         mandatory_event_types=("clutch",),
@@ -69,4 +91,15 @@ def test_creation_workflow_enforces_mandatory_events(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="mandatory event types were not detected: clutch"):
-        CreationWorkflow().create(tmp_path / "source.mp4", tmp_path / "output", brief)
+        CreationWorkflow().create(source, tmp_path / "output", brief)
+
+
+def test_content_kind_detection_does_not_mistake_transcript_semantics_for_gameplay() -> None:
+    transcript = TranscriptSegment(
+        source_range=TimeRange(start_seconds=0, end_seconds=1),
+        text="How did we do that?",
+    )
+
+    resolved = _resolve_content_kind(CreativeBrief(), (), (transcript,))
+
+    assert resolved.content_kind is ContentKind.TALKING_HEAD

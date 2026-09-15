@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from nimbledesk.analysis.index import ContentIndexer
+from nimbledesk.analysis.models import ContentIndex
+from nimbledesk.creative.models import TimeRange, TranscriptSegment
+from nimbledesk.media.models import TimelineEvent
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_content_index_is_time_aligned_semantic_and_resumable(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x180:rate=30:duration=3",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=880:duration=3",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(source),
+        ],
+        check=True,
+    )
+    transcript = TranscriptSegment(
+        source_range=TimeRange(start_seconds=0.5, end_seconds=1.5),
+        text="Wow, that was insane!",
+        confidence=0.95,
+    )
+    event = TimelineEvent(
+        time_seconds=2,
+        event_type="kill",
+        label="Eliminated opponent",
+        importance=0.9,
+    )
+    cache = tmp_path / "index"
+
+    first = ContentIndexer().build(source, cache, transcripts=(transcript,), events=(event,))
+    second = ContentIndexer().build(source, cache, transcripts=(transcript,), events=(event,))
+
+    assert {track.name for track in first.tracks} == {
+        "motion",
+        "audio",
+        "color",
+        "shots",
+        "semantic",
+    }
+    assert first.track("motion").points
+    assert first.track("audio").points
+    assert first.track("color").points
+    assert all(
+        point.source_range.duration.value > 0
+        for track in first.tracks
+        for point in track.points
+    )
+    assert {event.event_type for event in first.semantic_events} >= {"kill", "reaction"}
+    assert set(second.cache_hits) == {"motion", "audio", "color", "shots", "semantic"}
+    persisted = ContentIndex.model_validate_json(
+        (cache / "content_index.json").read_text(encoding="utf-8")
+    )
+    assert persisted.asset.sha256 == first.asset.sha256
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_transcript_change_only_invalidates_semantic_track(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=black:size=320x180:rate=30:duration=1",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        check=True,
+    )
+    cache = tmp_path / "index"
+    ContentIndexer().build(source, cache)
+    transcript = TranscriptSegment(
+        source_range=TimeRange(start_seconds=0, end_seconds=0.5),
+        text="How to begin?",
+    )
+
+    rebuilt = ContentIndexer().build(source, cache, transcripts=(transcript,))
+
+    assert set(rebuilt.cache_hits) == {"motion", "audio", "color", "shots"}
+    assert "question_or_hook" in {event.event_type for event in rebuilt.semantic_events}
