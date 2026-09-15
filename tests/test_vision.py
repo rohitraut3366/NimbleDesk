@@ -56,6 +56,9 @@ json.dump({'events': [
 
     assert analysis.sampled_frames == 13
     assert len(analysis.contact_sheets) == 2
+    assert analysis.usage.image_bytes > 0
+    assert analysis.usage.estimated_512px_tiles == 12
+    assert analysis.usage.estimated_image_tokens == 2210
     assert [event.event_type for event in analysis.events] == ["grenade_kill"]
     assert analysis.timeline_events()[0].importance == 0.91
     assert analysis.timeline_events()[0].provenance == (

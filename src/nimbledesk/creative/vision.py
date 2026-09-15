@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import shutil
 from pathlib import Path
 from typing import Annotated, Literal
@@ -50,8 +51,17 @@ class VisionEvent(VisionModel):
     evidence: str
 
 
+class VisionProviderUsage(VisionModel):
+    image_bytes: Annotated[int, Field(ge=0)]
+    estimated_512px_tiles: Annotated[int, Field(ge=0)]
+    estimated_image_tokens: Annotated[int, Field(ge=0)]
+    provider_input_tokens: Annotated[int, Field(ge=0)] | None = None
+    provider_output_tokens: Annotated[int, Field(ge=0)] | None = None
+
+
 class VisionProviderResponse(VisionModel):
     events: tuple[VisionEvent, ...]
+    usage: VisionProviderUsage | None = None
 
 
 class VisionAnalysis(VisionModel):
@@ -62,6 +72,7 @@ class VisionAnalysis(VisionModel):
     sampled_frames: int
     contact_sheets: tuple[Path, ...]
     events: tuple[VisionEvent, ...]
+    usage: VisionProviderUsage
 
     def timeline_events(self) -> tuple[TimelineEvent, ...]:
         return tuple(
@@ -146,11 +157,26 @@ def analyze_with_vision_provider(
         sampled_frames=len(frames),
         contact_sheets=tuple(sheet.path for sheet in sheets),
         events=accepted,
+        usage=response.usage or measure_sheet_usage(sheets),
     )
     (output_directory / "analysis.json").write_text(
         analysis.model_dump_json(indent=2), encoding="utf-8"
     )
     return analysis
+
+
+def measure_sheet_usage(sheets: tuple[VisionSheet, ...]) -> VisionProviderUsage:
+    image_bytes = 0
+    tiles = 0
+    for sheet in sheets:
+        image_bytes += sheet.path.stat().st_size
+        with Image.open(sheet.path) as image:
+            tiles += math.ceil(image.width / 512) * math.ceil(image.height / 512)
+    return VisionProviderUsage(
+        image_bytes=image_bytes,
+        estimated_512px_tiles=tiles,
+        estimated_image_tokens=85 * len(sheets) + 170 * tiles,
+    )
 
 
 def _extract_frames(

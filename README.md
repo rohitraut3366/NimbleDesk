@@ -104,7 +104,7 @@ The command never changes the source. Its output directory contains:
 - `cue_sheet.json` and `cue_sheet.csv`: music and sound usage ranges, credits, licenses, platform/territory restrictions, expiry, attribution, purpose, and generated-content disclosure.
 - `variants/variant_comparison.json`: validated strongest-hook, energetic-short, and context-first plans scored with per-metric evidence and explicit tradeoffs. These scores compare edit properties and never claim to predict virality.
 - `render_verification.json`: executed-output checks for duration, resolution, frame rate, streams, black/frozen ranges, silence, peak level, caption reading limits, and graphic safe areas. A blocking failure leaves this report in place and fails the creation job.
-- `analysis/vision/analysis.json`: accepted multimodal semantic events with provider, model, confidence, and configuration provenance when a vision provider is configured.
+- `analysis/vision/analysis.json`: accepted multimodal semantic events with provider, model, confidence, configuration provenance, measured image bytes/tiles, conservative image-token estimates, and provider-reported input/output tokens when available.
 - `analysis/index/content_index.json`: persistent rational-time analysis tracks, semantic moments, provenance, analyzer versions, and cache-hit metadata.
 - `analysis/`: ranked intermediate clips and `highlights.json`.
 

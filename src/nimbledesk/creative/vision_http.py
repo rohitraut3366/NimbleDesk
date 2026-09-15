@@ -9,7 +9,12 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from nimbledesk.creative.vision import VisionProviderResponse, VisionRequest
+from nimbledesk.creative.vision import (
+    VisionProviderResponse,
+    VisionProviderUsage,
+    VisionRequest,
+    measure_sheet_usage,
+)
 
 MAXIMUM_IMAGE_BYTES = 24 * 1024 * 1024
 MAXIMUM_HTTP_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -70,7 +75,21 @@ def analyze_request(
                 str(part.get("text", "")) for part in message if isinstance(part, dict)
             )
         decoded = _decode_json_content(str(message))
-        return VisionProviderResponse.model_validate(decoded)
+        response = VisionProviderResponse.model_validate(decoded)
+        provider_usage = envelope.get("usage", {})
+        measured = measure_sheet_usage(request.sheets)
+        usage = VisionProviderUsage(
+            image_bytes=measured.image_bytes,
+            estimated_512px_tiles=measured.estimated_512px_tiles,
+            estimated_image_tokens=measured.estimated_image_tokens,
+            provider_input_tokens=_optional_token_count(
+                provider_usage, "prompt_tokens", "input_tokens"
+            ),
+            provider_output_tokens=_optional_token_count(
+                provider_usage, "completion_tokens", "output_tokens"
+            ),
+        )
+        return response.model_copy(update={"usage": usage})
     except Exception as error:
         raise VisionHttpError("vision endpoint returned an invalid structured response") from error
 
@@ -102,6 +121,16 @@ def _decode_json_content(content: str) -> object:
             lines = lines[:-1]
         stripped = "\n".join(lines)
     return json.loads(stripped)
+
+
+def _optional_token_count(usage: object, *names: str) -> int | None:
+    if not isinstance(usage, dict):
+        return None
+    for name in names:
+        value = usage.get(name)
+        if isinstance(value, int) and value >= 0:
+            return value
+    return None
 
 
 def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:

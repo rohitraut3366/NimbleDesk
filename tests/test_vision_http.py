@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from PIL import Image
 from pytest import MonkeyPatch
 
 import nimbledesk.creative.vision_http as vision_http
@@ -15,7 +16,8 @@ def test_openai_compatible_vision_worker_sends_bounded_sheets_and_validates_even
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
     sheet = tmp_path / "sheet.jpg"
-    sheet.write_bytes(b"jpeg-fixture")
+    Image.new("RGB", (640, 360), "black").save(sheet)
+    sheet_bytes = sheet.stat().st_size
     request = VisionRequest(
         source_name="game.mp4",
         content_kind="gameplay",
@@ -34,6 +36,7 @@ def test_openai_compatible_vision_worker_sends_bounded_sheets_and_validates_even
         def read(self, _limit: int) -> bytes:
             return json.dumps(
                 {
+                    "usage": {"prompt_tokens": 321, "completion_tokens": 45},
                     "choices": [
                         {
                             "message": {
@@ -72,6 +75,10 @@ def test_openai_compatible_vision_worker_sends_bounded_sheets_and_validates_even
     )
 
     assert result.events[0].event_type == "kill"
+    assert result.usage is not None
+    assert result.usage.image_bytes == sheet_bytes
+    assert result.usage.provider_input_tokens == 321
+    assert result.usage.provider_output_tokens == 45
     assert captured["timeout"] == 30
     http_request = captured["request"]
     assert http_request.headers["Authorization"] == "Bearer secret-key"
