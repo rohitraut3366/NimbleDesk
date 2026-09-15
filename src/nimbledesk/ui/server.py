@@ -663,6 +663,9 @@ def _artifact_paths(state: PersistedJob) -> dict[str, Path]:
             "render-verification": result.verification_path,
             "davinci-verification": result.davinci_verification_path,
             "davinci-render": result.davinci.render_path if result.davinci else None,
+            "verification-contact-sheet": result.output_directory
+            / "verification-contact-sheet.png",
+            "verification-waveform": result.output_directory / "verification-waveform.png",
         }
         root = result.output_directory.expanduser().resolve()
     elif isinstance(result, RevisionResult):
@@ -673,6 +676,9 @@ def _artifact_paths(state: PersistedJob) -> dict[str, Path]:
             "validation": result.validation_path,
             "timeline": result.timeline_path,
             "render-verification": result.verification_path,
+            "verification-contact-sheet": result.output_directory
+            / "verification-contact-sheet.png",
+            "verification-waveform": result.output_directory / "verification-waveform.png",
         }
         root = result.output_directory.expanduser().resolve()
     else:
