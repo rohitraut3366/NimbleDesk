@@ -769,3 +769,7 @@ The unprivileged MCP gateway has no backend imports and no direct desktop author
 The audit file redacts typed text and links entries with hashes so tampering is detectable. The model never receives a shell through the desktop protocol. Review the [threat model](docs/THREAT_MODEL.md) and the process-boundary and protocol decisions in [docs/adr](docs/adr).
 
 The full target architecture, including native OS providers, semantic accessibility, game/domain packs, transcription, creative planning, music selection, editor adapters, recovery, evaluation, packaging, and staged release gates, is in [PLAN.md](PLAN.md).
+
+The requirement-by-requirement implementation and qualification status is tracked in
+[docs/RELEASE_ACCEPTANCE.md](docs/RELEASE_ACCEPTANCE.md). NimbleDesk is not labeled production
+complete while any row there remains partial or requires release qualification.
