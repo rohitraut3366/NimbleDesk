@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from nimbledesk.creative.cancellation import CancellationToken
 from nimbledesk.media.photos import PhotoPipeline
+from nimbledesk.media.process import ProcessCancelled
 
 
 def checkerboard(size: int = 320) -> Image.Image:
@@ -54,3 +56,18 @@ def test_photo_pipeline_can_render_valid_slideshow(tmp_path: Path) -> None:
 
     assert manifest.slideshow is not None
     assert manifest.slideshow.is_file()
+
+
+def test_photo_pipeline_stops_before_processing_when_cancelled(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    checkerboard().save(source / "one.png")
+    cancellation = CancellationToken()
+    cancellation.cancel()
+
+    with pytest.raises(ProcessCancelled):
+        PhotoPipeline().create(
+            source,
+            tmp_path / "output",
+            cancelled=cancellation.is_cancelled,
+        )

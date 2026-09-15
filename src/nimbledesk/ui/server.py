@@ -33,6 +33,7 @@ from nimbledesk.creative.revision import revise_edit_plan, write_revision
 from nimbledesk.creative.validation import validate_edit_plan, write_validation_report
 from nimbledesk.creative.workflow import CreationResult, CreationWorkflow
 from nimbledesk.media.ffmpeg import probe_media
+from nimbledesk.media.photos import PhotoManifest, PhotoPipeline
 from nimbledesk.media.process import ProcessCancelled
 
 
@@ -64,6 +65,16 @@ class ReviseJobRequest(BaseModel):
     ffmpeg_render: bool = False
     davinci: bool = False
     davinci_render: bool = False
+
+
+class PhotoJobRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Path
+    output_directory: Path
+    count: int = 20
+    create_slideshow: bool = False
+    slideshow_width: int = 1920
 
 
 class RevisionResult(BaseModel):
@@ -103,13 +114,13 @@ class PersistedJob(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     job_id: str
-    kind: Literal["create", "revision"] = "create"
-    request: CreateJobRequest | ReviseJobRequest
+    kind: Literal["create", "revision", "photo"] = "create"
+    request: CreateJobRequest | ReviseJobRequest | PhotoJobRequest
     parent_job_id: str | None = None
     status: JobStatus = "queued"
     stage: str = "queued"
     progress: float = 0
-    result: CreationResult | RevisionResult | None = None
+    result: CreationResult | RevisionResult | PhotoManifest | None = None
     error: str | None = None
     created_at: float
     updated_at: float
@@ -189,6 +200,25 @@ class JobService:
         self._executor.submit(self._run, job)
         return job
 
+    def submit_photo(self, request: PhotoJobRequest) -> JobRecord:
+        source = request.source.expanduser().resolve()
+        if not source.exists():
+            raise FileNotFoundError(f"photo source does not exist: {source}")
+        now = time.time()
+        state = PersistedJob(
+            job_id=str(uuid4()),
+            kind="photo",
+            request=request,
+            created_at=now,
+            updated_at=now,
+        )
+        job = JobRecord(state=state)
+        with self._lock:
+            self._jobs[state.job_id] = job
+        self._save(job)
+        self._executor.submit(self._run, job)
+        return job
+
     def get(self, job_id: str) -> JobRecord | None:
         with self._lock:
             return self._jobs.get(job_id)
@@ -228,9 +258,19 @@ class JobService:
             request = job.state.request
         self._save(job)
         try:
-            result: CreationResult | RevisionResult
+            result: CreationResult | RevisionResult | PhotoManifest
             if isinstance(request, ReviseJobRequest):
                 result = self._run_revision(job, request)
+            elif isinstance(request, PhotoJobRequest):
+                result = PhotoPipeline().create(
+                    request.source.expanduser().resolve(),
+                    request.output_directory.expanduser().resolve(),
+                    count=request.count,
+                    create_slideshow=request.create_slideshow,
+                    slideshow_width=request.slideshow_width,
+                    progress=lambda stage, value: self._update_progress(job, stage, value),
+                    cancelled=job.cancellation.is_cancelled,
+                )
             else:
                 result = CreationWorkflow().create(
                     request.source.expanduser().resolve(),
@@ -383,6 +423,15 @@ async def create_job(request: Request) -> JSONResponse:
     return JSONResponse(job.response(), status_code=202)
 
 
+async def create_photo_job(request: Request) -> JSONResponse:
+    try:
+        payload = PhotoJobRequest.model_validate(await request.json())
+        job = JOB_SERVICE.submit_photo(payload)
+    except Exception as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return JSONResponse(job.response(), status_code=202)
+
+
 async def list_jobs(request: Request) -> JSONResponse:
     return JSONResponse({"jobs": JOB_SERVICE.list()})
 
@@ -410,8 +459,11 @@ async def revise_job(request: Request) -> JSONResponse:
             return JSONResponse(
                 {"error": "only a completed job can be revised"}, status_code=409
             )
-        plan_path = parent.state.result.plan_path
-        output_root = parent.state.result.output_directory
+        result = parent.state.result
+        if isinstance(result, PhotoManifest):
+            return JSONResponse({"error": "photo jobs do not contain edit plans"}, status_code=409)
+        plan_path = result.plan_path
+        output_root = result.output_directory
     try:
         payload = RevisionSubmission.model_validate(await request.json())
         revision_id = f"revision-{int(time.time())}-{uuid4().hex[:8]}"
@@ -456,6 +508,7 @@ app = Starlette(
     routes=[
         Route("/", home),
         Route("/api/jobs", create_job, methods=["POST"]),
+        Route("/api/photo-jobs", create_photo_job, methods=["POST"]),
         Route("/api/jobs", list_jobs, methods=["GET"]),
         Route("/api/jobs/{job_id}", get_job, methods=["GET"]),
         Route("/api/jobs/{job_id}/cancel", cancel_job, methods=["POST"]),
@@ -552,9 +605,25 @@ _HTML = """<!doctype html>
     </div>
     <button>Create video</button>
   </form>
+  <form id="photos">
+    <h2>Create from photos</h2>
+    <div class="grid">
+      <label>Photo or folder
+        <input name="source" required placeholder="/absolute/path/photos">
+      </label>
+      <label>Output directory
+        <input name="output" required placeholder="/absolute/path/photo-output">
+      </label>
+      <label>Photos to select<input name="count" type="number" min="1" max="1000" value="20"></label>
+      <label>Slideshow width<input name="width" type="number" min="320" max="7680" value="1920"></label>
+    </div>
+    <div class="checks"><label><input name="slideshow" type="checkbox"> Create MP4 slideshow</label></div>
+    <button>Create photo story</button>
+  </form>
   <section id="jobs"></section>
 </main><script>
 const form = document.querySelector('#create'); const jobs = document.querySelector('#jobs');
+const photoForm = document.querySelector('#photos');
 const approvals = document.querySelector('#approvals');
 form.addEventListener('submit', async event => {
   event.preventDefault(); const data = new FormData(form);
@@ -574,6 +643,12 @@ form.addEventListener('submit', async event => {
   }); const result=await response.json();
   if(!response.ok){alert(result.error);return;} refresh();
 });
+photoForm.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(photoForm);
+  const payload={source:data.get('source'),output_directory:data.get('output'),count:Number(data.get('count')),
+    create_slideshow:data.has('slideshow'),slideshow_width:Number(data.get('width'))};
+  const response=await fetch('/api/photo-jobs',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
+  const result=await response.json();if(!response.ok){alert(result.error);return;}refresh();});
 const h=value=>String(value??'').replace(/[&<>"']/g,char=>({
   '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
 }[char]));
@@ -593,14 +668,19 @@ function revisionPanel(job){const plan=job.result?.plan;if(!plan||job.status!=='
       <label><input name="render" type="checkbox"> Render MP4</label>
       <label><input name="davinci" type="checkbox"> Import to Resolve</label>
       <button>Build revision</button></div></form></details>`;}
+function jobOutputs(job){if(!job.result)return '';
+  if(job.kind==='photo')return `<p>Selected: <strong>${job.result.selected.length}</strong><br>
+    Contact sheet: <code>${h(job.result.contact_sheet)}</code><br>
+    Slideshow: <code>${h(job.result.slideshow||'not requested')}</code></p>`;
+  return `<p>Render: <code>${h(job.result.render_path||'plan only')}</code><br>
+    DaVinci timeline: <code>${h(job.result.timeline_path)}</code></p>${revisionPanel(job)}`;}
 async function refresh(){const response=await fetch('/api/jobs');const data=await response.json();
   jobs.innerHTML=data.jobs.map(job=>`<article><strong>${h(job.kind)}</strong> · <strong>${h(job.status)}</strong> · ${h(job.stage)}
     <progress value="${job.progress}" max="1"></progress>
     ${job.error?`<p class="error">${h(job.error)}</p>`:''}
     ${['queued','running','cancelling'].includes(job.status)?
       `<button class="cancel" onclick="cancelJob('${h(job.job_id)}')">Cancel</button>`:''}
-    ${job.result?`<p>Render: <code>${h(job.result.render_path||'plan only')}</code><br>
-      DaVinci timeline: <code>${h(job.result.timeline_path)}</code></p>${revisionPanel(job)}`:''}</article>`).join('');}
+    ${jobOutputs(job)}</article>`).join('');}
 async function refreshApprovals(){const response=await fetch('/api/approvals');const data=await response.json();
   approvals.innerHTML=data.approvals?.length?`<h2>Actions awaiting your approval</h2>`+
     data.approvals.map(item=>{const action=item.action;const adapter=action.arguments?.adapter_id||'application';

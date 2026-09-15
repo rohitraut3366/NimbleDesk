@@ -1,6 +1,7 @@
 import time
 from pathlib import Path
 
+from PIL import Image
 from pytest import MonkeyPatch
 from starlette.testclient import TestClient
 
@@ -24,6 +25,7 @@ from nimbledesk.ui.server import (
     JobRecord,
     JobService,
     PersistedJob,
+    PhotoJobRequest,
     ReviseJobRequest,
     app,
 )
@@ -213,6 +215,33 @@ def test_job_service_builds_and_persists_validated_revision(
     assert job.state.result is not None
     assert job.state.result.plan.segments[0].locked
     assert (tmp_path / "revision" / "plan_diff.json").is_file()
+    persisted = PersistedJob.model_validate_json(
+        (storage / f"{job.state.job_id}.json").read_text(encoding="utf-8")
+    )
+    assert persisted.status == "completed"
+
+
+def test_job_service_creates_and_persists_photo_story(tmp_path: Path) -> None:
+    source = tmp_path / "photos"
+    source.mkdir()
+    Image.new("RGB", (320, 240), (200, 80, 30)).save(source / "one.jpg")
+    Image.new("RGB", (320, 240), (30, 120, 200)).save(source / "two.jpg")
+    storage = tmp_path / "jobs"
+    service = JobService(storage)
+
+    job = service.submit_photo(
+        PhotoJobRequest(
+            source=source,
+            output_directory=tmp_path / "photo-output",
+            count=2,
+        )
+    )
+    _wait_for_status(job, "completed")
+    service.close()
+
+    assert job.state.kind == "photo"
+    assert job.state.result is not None
+    assert job.state.result.contact_sheet.is_file()
     persisted = PersistedJob.model_validate_json(
         (storage / f"{job.state.job_id}.json").read_text(encoding="utf-8")
     )

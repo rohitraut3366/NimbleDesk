@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageOps
 from pydantic import BaseModel, ConfigDict
 
 from nimbledesk.media.ffmpeg import MediaToolError, probe_media, require_media_tools
+from nimbledesk.media.process import CancellationCheck, check_cancelled, run_cancellable
 
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 
@@ -53,26 +54,39 @@ class PhotoPipeline:
         count: int = 20,
         create_slideshow: bool = False,
         slideshow_width: int = 1920,
+        progress: Callable[[str, float], None] | None = None,
+        cancelled: CancellationCheck | None = None,
     ) -> PhotoManifest:
+        report = progress or (lambda _stage, _value: None)
+        check_cancelled(cancelled)
         if not 1 <= count <= 1_000:
             raise ValueError("count must be between 1 and 1000")
         paths = discover_images(source)
         if not paths:
             raise ValueError(f"no supported images found in {source}")
-        analyses = _mark_duplicates(tuple(analyze_photo(path) for path in paths))
+        analyses_list: list[PhotoAnalysis] = []
+        for index, path in enumerate(paths):
+            check_cancelled(cancelled)
+            report("analyzing photos", 0.05 + 0.35 * (index / len(paths)))
+            analyses_list.append(analyze_photo(path))
+        analyses = _mark_duplicates(tuple(analyses_list))
+        report("selecting diverse photos", 0.45)
         selected_analyses = select_photos(analyses, count)
         selected_directory = output_directory / "selected"
         selected_directory.mkdir(parents=True, exist_ok=True)
-        rendered = tuple(
-            _render_photo(analysis, selected_directory, index)
-            for index, analysis in enumerate(selected_analyses, start=1)
-        )
+        rendered_list: list[RenderedPhoto] = []
+        for index, analysis in enumerate(selected_analyses, start=1):
+            check_cancelled(cancelled)
+            report("correcting selected photos", 0.5 + 0.25 * index / len(selected_analyses))
+            rendered_list.append(_render_photo(analysis, selected_directory, index))
+        rendered = tuple(rendered_list)
         contact_sheet = output_directory / "contact_sheet.jpg"
         render_contact_sheet(rendered, contact_sheet)
         slideshow = None
         if create_slideshow:
+            report("rendering photo slideshow", 0.85)
             slideshow = output_directory / "slideshow.mp4"
-            render_slideshow(rendered, slideshow, slideshow_width)
+            render_slideshow(rendered, slideshow, slideshow_width, cancelled=cancelled)
         manifest = PhotoManifest(
             analyzed=analyses,
             selected=rendered,
@@ -83,6 +97,7 @@ class PhotoPipeline:
             manifest.model_dump_json(indent=2),
             encoding="utf-8",
         )
+        report("completed", 1)
         return manifest
 
 
@@ -173,6 +188,7 @@ def render_slideshow(
     rendered: tuple[RenderedPhoto, ...],
     output_path: Path,
     output_width: int,
+    cancelled: CancellationCheck | None = None,
 ) -> None:
     require_media_tools()
     if output_width < 320 or output_width > 7680:
@@ -208,7 +224,7 @@ def render_slideshow(
         "+faststart",
         str(output_path),
     ]
-    completed = subprocess.run(command, capture_output=True, check=False, text=True)
+    completed = run_cancellable(command, cancelled=cancelled)
     if completed.returncode != 0:
         raise MediaToolError(completed.stderr.strip() or "slideshow render failed")
     probe_media(output_path)
