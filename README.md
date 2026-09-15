@@ -114,17 +114,32 @@ With `content_kind=auto`, detected gameplay events select gameplay treatment, an
 
 OCR remains useful for kill-feed text, but it cannot reliably understand a grenade throw, a near-death escape, an emotional reaction, or the narrative meaning of a visual sequence. Configure a multimodal provider command to add those events:
 
+NimbleDesk includes an OpenAI-compatible worker for local multimodal servers and explicitly allowed
+remote endpoints. Configure its endpoint and model without putting the API key in project files:
+
+```bash
+export NIMBLEDESK_VISION_ENDPOINT=https://provider.example/v1/chat/completions
+export NIMBLEDESK_VISION_MODEL=multimodal-model
+export NIMBLEDESK_VISION_API_KEY=your-provider-key
+```
+
 ```json
 {
-  "provider_id": "my-vision-worker",
+  "provider_id": "nimbledesk-openai-compatible",
   "model": "configured-multimodal-model",
-  "command": ["/absolute/path/to/worker", "{request}", "{response}"],
+  "command": ["nimbledesk", "vision-http", "{request}", "{response}"],
   "sample_interval_seconds": 4,
   "maximum_frames": 48,
   "timeout_seconds": 300,
-  "minimum_confidence": 0.65
+  "minimum_confidence": 0.65,
+  "execution_location": "remote"
 }
 ```
+
+For a local OpenAI-compatible server, use a loopback `http://127.0.0.1:...` endpoint and set
+`execution_location` to `local`. Remote execution is rejected unless the creative brief explicitly
+sets `data_policy.allow_remote_frames=true`. The worker rejects non-HTTPS remote URLs, sends
+low-detail bounded contact sheets, accepts only structured events, and never writes the API key.
 
 NimbleDesk extracts at most the configured number of 640-pixel samples and packs twelve timestamped frames into each contact sheet. The worker receives the request JSON path and response JSON path as separate arguments without a shell. It must write `{"events":[{"time_seconds":12,"event_type":"grenade_kill","label":"Grenade double kill","confidence":0.91,"evidence":"throw, explosion, and two elimination markers"}]}`. Responses are schema-validated, limited to one megabyte, filtered by confidence, merged with OCR and supplied events, and retained with provenance. This bounded contact-sheet protocol keeps image-token use predictable and lets local models, hosted APIs, or future providers implement the same contract.
 

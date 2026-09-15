@@ -12,6 +12,7 @@ from pathlib import Path
 from nimbledesk.creative.cli import main as create_main
 from nimbledesk.creative.music_cli import main as music_main
 from nimbledesk.creative.revision_cli import main as revise_main
+from nimbledesk.creative.vision_http import main as vision_http_main
 from nimbledesk.daemon.approval_cli import main as approve_main
 from nimbledesk.daemon.server import main as daemon_main
 from nimbledesk.diagnostics import main as diagnostics_main
@@ -41,6 +42,7 @@ COMMANDS: dict[str, Callable[[], None]] = {
     "diagnostics": diagnostics_main,
     "qualify": qualification_main,
     "fixture": fixture_main,
+    "vision-http": vision_http_main,
     "update": update_main,
 }
 
