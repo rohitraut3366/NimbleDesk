@@ -311,7 +311,7 @@ uv run nimbledesk-create gameplay.mp4 output/my-video \
   --davinci-render
 ```
 
-`--davinci` stops after creating/selecting the project and importing the editable timeline. `--davinci-render` additionally creates an MP4/H.264 job, starts it, checks Resolve's final job status, and verifies `davinci-final.mp4`. The standalone `davinci_timeline.fcpxml` can also be imported manually with **File → Import → Timeline**.
+`--davinci` stops after creating/selecting the project and importing the editable timeline. `--davinci-render` additionally creates an MP4/H.264 job, starts it, checks Resolve's final job status, and verifies `davinci-final.mp4`. Resolve scripting runs in a dedicated subprocess with a minimal environment and a bounded typed result, so an API crash does not terminate Studio. Cancellation is cooperative: the worker observes a cancellation marker and calls Resolve's `StopRendering`; an unresponsive worker is terminated after a bounded grace period. The standalone `davinci_timeline.fcpxml` can also be imported manually with **File → Import → Timeline**.
 
 ## Run the creation console
 

@@ -1,9 +1,10 @@
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from nimbledesk.creative.davinci import execute_in_davinci
+from nimbledesk.creative.davinci import execute_davinci_isolated, execute_in_davinci
 from nimbledesk.creative.models import (
     CreativeBrief,
     DeliverySpec,
@@ -175,3 +176,71 @@ def test_davinci_adapter_stops_active_render_when_cancelled(tmp_path: Path) -> N
         )
 
     assert project.stopped
+
+
+def test_isolated_davinci_worker_returns_bounded_typed_result(tmp_path: Path) -> None:
+    plan_path = tmp_path / "plan.json"
+    timeline_path = tmp_path / "timeline.fcpxml"
+    plan_path.write_text("{}", encoding="utf-8")
+    timeline_path.write_text("<fcpxml />", encoding="utf-8")
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        """
+import json
+import sys
+json.dump({
+  'success': True,
+  'result': {
+    'project_name': 'Isolated project',
+    'timeline_name': 'Imported timeline',
+    'render_job_id': None,
+    'render_path': None
+  },
+  'error': None
+}, open(sys.argv[6], 'w', encoding='utf-8'))
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = execute_davinci_isolated(
+        plan_path,
+        timeline_path,
+        tmp_path,
+        render=False,
+        worker_command=(sys.executable, str(worker)),
+    )
+
+    assert result.project_name == "Isolated project"
+    assert result.timeline_name == "Imported timeline"
+
+
+def test_isolated_davinci_worker_cooperatively_cancels(tmp_path: Path) -> None:
+    plan_path = tmp_path / "plan.json"
+    timeline_path = tmp_path / "timeline.fcpxml"
+    plan_path.write_text("{}", encoding="utf-8")
+    timeline_path.write_text("<fcpxml />", encoding="utf-8")
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        """
+import json
+import sys
+import time
+from pathlib import Path
+cancel = Path(sys.argv[7])
+while not cancel.exists():
+    time.sleep(0.01)
+json.dump({'success': False, 'result': None, 'error': 'cancelled'},
+          open(sys.argv[6], 'w', encoding='utf-8'))
+raise SystemExit(1)
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProcessCancelled, match="DaVinci rendering was stopped"):
+        execute_davinci_isolated(
+            plan_path,
+            timeline_path,
+            tmp_path,
+            worker_command=(sys.executable, str(worker)),
+            cancelled=lambda: True,
+        )

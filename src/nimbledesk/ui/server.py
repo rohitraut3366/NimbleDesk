@@ -20,7 +20,7 @@ from starlette.routing import Route
 
 from nimbledesk.client import DaemonClient
 from nimbledesk.creative.cancellation import CancellationToken
-from nimbledesk.creative.davinci import connect_to_resolve, execute_in_davinci
+from nimbledesk.creative.davinci import execute_davinci_isolated
 from nimbledesk.creative.fcpxml import export_fcpxml
 from nimbledesk.creative.models import (
     CreativeBrief,
@@ -347,9 +347,8 @@ class JobService:
             render_edit_plan(revision.plan, render_path, cancelled=token.is_cancelled)
         if request.davinci or request.davinci_render:
             self._update_progress(job, "executing revision in DaVinci Resolve", 0.85)
-            execute_in_davinci(
-                connect_to_resolve(),
-                revision.plan,
+            execute_davinci_isolated(
+                plan_path,
                 timeline_path,
                 output,
                 render=request.davinci_render,

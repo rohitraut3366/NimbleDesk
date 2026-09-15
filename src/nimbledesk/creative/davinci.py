@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
+import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -25,6 +28,101 @@ class DaVinciResult(BaseModel):
     timeline_name: str
     render_job_id: str | None = None
     render_path: Path | None = None
+
+
+class DaVinciWorkerResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    success: bool
+    result: DaVinciResult | None = None
+    error: str | None = None
+
+
+def execute_davinci_isolated(
+    plan_path: Path,
+    timeline_path: Path,
+    output_directory: Path,
+    *,
+    render: bool = True,
+    timeout_seconds: float = 3_600,
+    cancelled: Callable[[], bool] | None = None,
+    worker_command: tuple[str, ...] | None = None,
+) -> DaVinciResult:
+    command_prefix = worker_command or (
+        sys.executable,
+        "-m",
+        "nimbledesk.creative.davinci_worker",
+    )
+    with tempfile.TemporaryDirectory(prefix="nimbledesk-davinci-") as temporary:
+        working = Path(temporary)
+        result_path = working / "result.json"
+        cancel_path = working / "cancel"
+        command = [
+            *command_prefix,
+            str(plan_path.resolve()),
+            str(timeline_path.resolve()),
+            str(output_directory.resolve()),
+            "1" if render else "0",
+            str(timeout_seconds),
+            str(result_path),
+            str(cancel_path),
+        ]
+        allowed_environment = {
+            "PATH",
+            "SYSTEMROOT",
+            "WINDIR",
+            "TEMP",
+            "TMP",
+            "TMPDIR",
+            "RESOLVE_SCRIPT_API",
+            "RESOLVE_SCRIPT_LIB",
+        }
+        environment = {
+            key: value for key, value in os.environ.items() if key in allowed_environment
+        }
+        environment["PYTHONNOUSERSITE"] = "1"
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            env=environment,
+            cwd=tempfile.gettempdir(),
+        )
+        cancel_requested = False
+        deadline = time.monotonic() + timeout_seconds + 10
+        while process.poll() is None:
+            if cancelled and cancelled() and not cancel_requested:
+                cancel_path.touch()
+                cancel_requested = True
+            if time.monotonic() >= deadline:
+                cancel_path.touch()
+                process.terminate()
+                _wait_or_kill(process)
+                raise DaVinciError("isolated DaVinci worker timed out")
+            if cancel_requested and cancel_path.stat().st_mtime < time.time() - 5:
+                process.terminate()
+                _wait_or_kill(process)
+                raise ProcessCancelled("DaVinci worker did not stop after cancellation")
+            time.sleep(0.1)
+        assert process.stderr is not None
+        stderr = process.stderr.read(65_537)
+        if cancel_requested:
+            raise ProcessCancelled("creation was cancelled; DaVinci rendering was stopped")
+        if len(stderr) > 65_536:
+            raise DaVinciError("DaVinci worker stderr exceeded 64 kilobytes")
+        if process.returncode != 0 and not result_path.is_file():
+            message = stderr.decode("utf-8", errors="replace").strip()
+            raise DaVinciError(message or f"DaVinci worker exited with {process.returncode}")
+        if not result_path.is_file() or result_path.stat().st_size > 65_536:
+            raise DaVinciError("DaVinci worker returned no valid bounded result")
+        try:
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+            response = DaVinciWorkerResponse.model_validate(payload)
+        except Exception as error:
+            raise DaVinciError("DaVinci worker returned malformed output") from error
+        if not response.success or response.result is None:
+            raise DaVinciError(response.error or "DaVinci worker failed")
+        return response.result
 
 
 def connect_to_resolve() -> Any:
@@ -149,3 +247,11 @@ def _default_module_paths() -> list[Path]:
             / "Modules"
         ]
     return [Path("/opt/resolve/Developer/Scripting/Modules")]
+
+
+def _wait_or_kill(process: subprocess.Popen[bytes]) -> None:
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=2)

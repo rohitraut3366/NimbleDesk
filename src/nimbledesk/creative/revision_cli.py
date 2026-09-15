@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from nimbledesk.creative.davinci import connect_to_resolve, execute_in_davinci
+from nimbledesk.creative.davinci import execute_davinci_isolated
 from nimbledesk.creative.fcpxml import export_fcpxml
 from nimbledesk.creative.models import EditPlan, Pace, PlanRevisionRequest
 from nimbledesk.creative.render import render_edit_plan
@@ -62,9 +62,8 @@ def main() -> None:
         render_edit_plan(revision.plan, render_path)
     davinci = None
     if arguments.davinci or arguments.davinci_render:
-        davinci = execute_in_davinci(
-            connect_to_resolve(),
-            revision.plan,
+        davinci = execute_davinci_isolated(
+            plan_path,
             timeline_path,
             output,
             render=arguments.davinci_render,

@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from nimbledesk.analysis.index import ContentIndexer
 from nimbledesk.creative.cancellation import CancellationToken
 from nimbledesk.creative.cue_sheet import write_cue_sheet
-from nimbledesk.creative.davinci import DaVinciResult, connect_to_resolve, execute_in_davinci
+from nimbledesk.creative.davinci import DaVinciResult, execute_davinci_isolated
 from nimbledesk.creative.fcpxml import export_fcpxml
 from nimbledesk.creative.gaming import detect_game_events, load_game_pack, write_events
 from nimbledesk.creative.models import ContentKind, CreativeBrief, EditPlan, TranscriptSegment
@@ -181,9 +181,8 @@ class CreationWorkflow:
         davinci = None
         if execute_davinci:
             report("executing in DaVinci Resolve", 0.9)
-            davinci = execute_in_davinci(
-                connect_to_resolve(),
-                plan,
+            davinci = execute_davinci_isolated(
+                plan_path,
                 timeline_path,
                 output_directory,
                 render=render_in_davinci,
