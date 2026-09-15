@@ -102,6 +102,25 @@ class DaemonTransport:
                 options,
             )
             return capture.model_dump(mode="json")
+        if method == "media_index_open":
+            return self._runtime.open_content_index(
+                str(params["session_id"]), Path(str(params["index_path"]))
+            )
+        if method == "media_index_search":
+            return self._runtime.search_content_index(
+                str(params["session_id"]),
+                str(params["index_id"]),
+                str(params["query"]),
+                int(params.get("maximum_results", 20)),
+                int(params.get("maximum_tokens", 2_000)),
+            )
+        if method == "media_index_detail":
+            return self._runtime.content_index_detail(
+                str(params["session_id"]),
+                str(params["index_id"]),
+                str(params["result_id"]),
+                int(params.get("maximum_tokens", 2_000)),
+            )
         if method == "action_execute":
             result = self._runtime.execute(ActionRequest.model_validate(params["action"]))
             return result.model_dump(mode="json")

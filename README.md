@@ -476,7 +476,7 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 ### Recommended model workflow
 
 1. Call `health`.
-2. Call `session_start` with a clear reason. Set `input_enabled` to `true` only when input is intended.
+2. Call `session_start` with a clear reason. Set `input_enabled` to `true` only when input is intended. Add only the project or analysis directories needed by media tools to `granted_paths`.
 3. Call `desktop_observe` and retain its `observation_id`, active application, focused window, semantic elements, and display bounds.
 4. Call `take_screenshot` with that observation. Prefer a crop when the relevant region is known.
 5. Prefer `click_element` when the observation contains the intended accessible control. Use `click_text` for visible labels in inaccessible applications. For a model-detected visual box, call `capture_region_signature` immediately before `click_visual`. Use raw coordinates only when none of these targets apply. Include expected application and window IDs when available.
@@ -490,6 +490,9 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `health` | None | Checks daemon availability. |
 | `session_start` | `reason` | `input_enabled=false`; `allowed_applications=[]`. Sessions default to 1,000 actions and one hour. |
 | `desktop_observe` | `session_id` | `max_estimated_text_tokens=2000` (128–100,000); `max_windows=10` (0–200); `max_elements=100` (0–2,000). Reports truncation separately for windows and elements. |
+| `media_index_open` | `session_id`, `index_path` | Opens a content index only within the session's explicit `granted_paths`; returns a session-scoped, content-derived handle without exposing the source path. |
+| `media_index_search` | `session_id`, `index_id`, `query` | Searches labels, transcript text, event types, and evidence. `maximum_results=20`; `maximum_tokens=2000`; returns stable result IDs and explicit usage/truncation. |
+| `media_index_detail` | `session_id`, `index_id`, `result_id` | Retrieves one time-aligned result by stable ID. `maximum_tokens=2000`; expires when the session stops. |
 | `take_screenshot` | `session_id`, `observation_id` | Crop with all of `left`, `top`, `width`, `height`; `image_format=jpeg`; `max_width=1280`; `max_height=800`; `jpeg_quality=75`. |
 | `capture_region_signature` | `session_id`, `observation_id`, `left`, `top`, `width`, `height` | Losslessly recaptures a target crop and returns its SHA-256 plus measured image usage without returning duplicate image bytes. |
 | `move_mouse` | `session_id`, `observation_id`, `x`, `y` | `duration=0.2`; expected application/window IDs. |

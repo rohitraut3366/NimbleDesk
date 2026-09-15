@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
+import os
+from pathlib import Path
 from time import time
 
+from nimbledesk.analysis.models import ContentIndex
 from nimbledesk.daemon.approvals import ApprovalDecision, ApprovalManager, PendingApproval
 from nimbledesk.daemon.audit import AuditLog
 from nimbledesk.daemon.policy import ActionPolicy
@@ -51,6 +56,7 @@ class DesktopRuntime:
         self._ocr_provider = ocr_provider
         self._observations: dict[str, DesktopObservation] = {}
         self._observation_history: dict[str, dict[str, DesktopObservation]] = {}
+        self._content_indexes: dict[tuple[str, str], ContentIndex] = {}
 
     def health(self) -> dict[str, object]:
         capabilities = set(self._backend.capabilities)
@@ -70,6 +76,138 @@ class DesktopRuntime:
         session = self._sessions.set_state(session_id, state)
         if state in {SessionState.PAUSED, SessionState.STOPPED}:
             self._backend.cancel_input()
+        if state is SessionState.STOPPED:
+            self._content_indexes = {
+                key: value for key, value in self._content_indexes.items() if key[0] != session_id
+            }
+        return session
+
+    def open_content_index(self, session_id: str, index_path: Path) -> dict[str, object]:
+        session = self._active_session(session_id)
+        resolved = _granted_file(index_path, session.config.granted_paths)
+        index = ContentIndex.model_validate_json(resolved.read_text(encoding="utf-8"))
+        identity = hashlib.sha256(
+            (session_id + index.asset.asset_id + _index_configuration(index)).encode()
+        ).hexdigest()[:24]
+        index_id = f"index-{identity}"
+        self._content_indexes[(session_id, index_id)] = index
+        return {
+            "index_id": index_id,
+            "asset_id": index.asset.asset_id,
+            "duration_seconds": index.asset.metadata.duration_seconds,
+            "tracks": [track.name for track in index.tracks],
+            "semantic_event_count": len(index.semantic_events),
+        }
+
+    def search_content_index(
+        self,
+        session_id: str,
+        index_id: str,
+        query: str,
+        maximum_results: int,
+        maximum_tokens: int,
+    ) -> dict[str, object]:
+        index = self._content_index(session_id, index_id)
+        if not query.strip():
+            raise ValueError("media search query cannot be empty")
+        if not 1 <= maximum_results <= 200 or not 128 <= maximum_tokens <= 100_000:
+            raise ValueError("media search result or token budget is outside allowed bounds")
+        terms = query.casefold().split()
+        results: list[dict[str, object]] = []
+        for track in index.tracks:
+            for point_number, point in enumerate(track.points):
+                searchable = " ".join((*point.labels, point.text or "", *point.evidence)).casefold()
+                if all(term in searchable for term in terms):
+                    results.append(
+                        {
+                            "result_id": _point_id(
+                                track.name,
+                                point_number,
+                                track.provenance.configuration_hash,
+                            ),
+                            "kind": "track_point",
+                            "track": track.name,
+                            "start_seconds": point.source_range.start.seconds,
+                            "duration_seconds": point.source_range.duration.seconds,
+                            "confidence": point.confidence,
+                            "labels": point.labels,
+                            "excerpt": (point.text or " ".join(point.evidence))[:300],
+                        }
+                    )
+        for event_number, event in enumerate(index.semantic_events):
+            searchable = " ".join(
+                (event.event_type, event.label or "", *event.provenance, *event.evidence)
+            ).casefold()
+            if all(term in searchable for term in terms):
+                results.append(
+                    {
+                        "result_id": _event_id(event_number, index.asset.asset_id),
+                        "kind": "semantic_event",
+                        "event_type": event.event_type,
+                        "time_seconds": event.time_seconds,
+                        "confidence": event.importance,
+                        "label": event.label,
+                    }
+                )
+        return _bounded_media_results(results, maximum_results, maximum_tokens)
+
+    def content_index_detail(
+        self, session_id: str, index_id: str, result_id: str, maximum_tokens: int
+    ) -> dict[str, object]:
+        index = self._content_index(session_id, index_id)
+        if not 128 <= maximum_tokens <= 100_000:
+            raise ValueError("media detail token budget is outside allowed bounds")
+        detail: dict[str, object]
+        truncated_fields: list[str] = []
+        if result_id.startswith("event:"):
+            event_number = int(result_id.split(":", 2)[1])
+            if not 0 <= event_number < len(index.semantic_events):
+                raise ValueError("unknown media result ID")
+            event = index.semantic_events[event_number]
+            if result_id != _event_id(event_number, index.asset.asset_id):
+                raise ValueError("media result ID is stale")
+            detail = event.model_dump(mode="json")
+        elif result_id.startswith("track:"):
+            _, track_name, point_text, configuration = result_id.split(":", 3)
+            track = index.track(track_name)
+            point_number = int(point_text)
+            if not 0 <= point_number < len(track.points):
+                raise ValueError("unknown media result ID")
+            if configuration != track.provenance.configuration_hash[:12]:
+                raise ValueError("media result ID is stale")
+            detail = track.points[point_number].model_dump(mode="json")
+            detail["track"] = track.name
+            detail["provenance"] = track.provenance.model_dump(mode="json")
+        else:
+            raise ValueError("unknown media result ID")
+        usage = _estimated_tokens(detail)
+        if usage > maximum_tokens:
+            detail.pop("text", None)
+            detail["evidence"] = []
+            truncated_fields.extend(("text", "evidence"))
+            usage = _estimated_tokens(detail)
+        if usage > maximum_tokens:
+            raise ValueError("media detail budget is too small for required fields")
+        return {
+            "detail": detail,
+            "usage": {
+                "estimated_text_tokens": usage,
+                "maximum_text_tokens": maximum_tokens,
+                "truncated_fields": truncated_fields,
+            },
+        }
+
+    def _content_index(self, session_id: str, index_id: str) -> ContentIndex:
+        self._active_session(session_id)
+        try:
+            return self._content_indexes[(session_id, index_id)]
+        except KeyError as error:
+            raise ValueError("unknown or expired media index handle") from error
+
+    def _active_session(self, session_id: str) -> Session:
+        session = self._sessions.get(session_id)
+        if session.state is not SessionState.ACTIVE:
+            raise SessionError("session is not active")
         return session
 
     def observe(self, session_id: str) -> DesktopObservation:
@@ -449,3 +587,53 @@ class DesktopRuntime:
         )
         self._audit.record(action, result)
         return result
+
+
+def _granted_file(path: Path, granted_paths: tuple[str, ...]) -> Path:
+    absolute = Path(os.path.abspath(path.expanduser()))
+    for candidate in (absolute, *absolute.parents):
+        if candidate.is_symlink():
+            raise ValueError("media index path contains a symbolic link")
+    resolved = absolute.resolve()
+    grants = tuple(Path(value).expanduser().resolve() for value in granted_paths)
+    if not any(resolved == grant or grant in resolved.parents for grant in grants):
+        raise ValueError("media index path is outside session grants")
+    if not resolved.is_file():
+        raise ValueError("media index path is not a file")
+    return resolved
+
+
+def _index_configuration(index: ContentIndex) -> str:
+    return "|".join(track.provenance.configuration_hash for track in index.tracks)
+
+
+def _point_id(track_name: str, point_number: int, configuration_hash: str) -> str:
+    return f"track:{track_name}:{point_number}:{configuration_hash[:12]}"
+
+
+def _event_id(event_number: int, asset_id: str) -> str:
+    return f"event:{event_number}:{asset_id[:12]}"
+
+
+def _estimated_tokens(value: object) -> int:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    return max(1, (len(encoded) + 3) // 4)
+
+
+def _bounded_media_results(
+    results: list[dict[str, object]], maximum_results: int, maximum_tokens: int
+) -> dict[str, object]:
+    selected: list[dict[str, object]] = []
+    for result in results[:maximum_results]:
+        if _estimated_tokens({"results": [*selected, result]}) > maximum_tokens:
+            break
+        selected.append(result)
+    return {
+        "results": selected,
+        "usage": {
+            "estimated_text_tokens": _estimated_tokens({"results": selected}),
+            "maximum_text_tokens": maximum_tokens,
+            "truncated": len(selected) < len(results),
+            "available_results": len(results),
+        },
+    }

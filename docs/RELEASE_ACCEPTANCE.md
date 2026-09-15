@@ -37,7 +37,7 @@ Status meanings:
 | 19 | Partial | DaVinci, semantic vision, and application adapters execute in bounded subprocesses. macOS third-party adapters use a tested deny-by-default sandbox; Linux requires Bubblewrap and disables networking by default. | Implement an equivalent Windows restricted-token/AppContainer boundary and physically exercise malicious-provider fixtures on every OS. |
 | 20 | External release gate | `.github/workflows/release.yml`, `packaging/`, `src/nimbledesk/update.py`, `tests/test_update.py`, and installer CI cover signed metadata, verified download, transactional switch, rollback, and clean install/uninstall logic. | Supply Apple, Windows, and Ed25519 release credentials and record a tagged signed install/update/rollback/uninstall matrix. |
 | 21 | Implemented | `README.md`, `docs/ADAPTERS.md`, `docs/DISTRIBUTION.md`, `docs/TESTING.md`, and `docs/THREAT_MODEL.md` cover setup, permissions, model connection, policy, briefs, profiles, domain packs, adapter development, troubleshooting, privacy, testing, and distribution. | Keep version support and screenshots current for each release. |
-| 22 | Partial | Desktop observations and images enforce response budgets and report truncation/usage; content indexes use stable asset and track IDs. Tests cover desktop budget enforcement. | Expose media index search/detail as bounded, stable-ID MCP operations instead of relying only on file artifacts and Studio routes. |
+| 22 | Implemented | Desktop observations and images enforce response budgets and report truncation/usage. `media_index_open`, `media_index_search`, and `media_index_detail` use explicit session file grants, content-derived session handles, stable result IDs, bounded results, and reported token usage. Tests cover desktop and media budgets. | None at the code-contract level. |
 | 23 | Implemented | Desktop capture reports exact bytes/pixels and estimated tiles/tokens. Semantic vision analysis records measured sheet bytes/tiles, conservative image-token estimates, and provider-reported input/output tokens without retaining credentials. Tests cover both paths. | Provider estimates remain labeled because billing formulas vary. |
 
 ## Required release evidence
@@ -50,7 +50,7 @@ artifacts exist:
 3. An eight-hour mixed-workload endurance report.
 4. Event and ranking reports from representative multi-hour labeled media corpora.
 5. Signed public installers plus install/update/rollback/uninstall reports.
-6. Windows third-party adapter isolation and bounded stable-ID media retrieval through MCP.
+6. Windows third-party adapter isolation.
 
 Use the exact qualification commands in `docs/TESTING.md`. Store generated reports outside the
 repository when they contain private machine or media details; publish sanitized summaries with the

@@ -161,3 +161,23 @@ async def test_gateway_only_exposes_read_side_of_approval(
 
     assert recording_client.method == "approval_status"
     assert recording_client.params == {"approval_id": "approval-1"}
+
+
+@pytest.mark.asyncio
+async def test_gateway_passes_media_grants_and_bounded_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recording_client = RecordingClient()
+    monkeypatch.setattr(gateway, "client", lambda: recording_client)
+
+    await gateway.session_start(
+        "inspect edit", granted_paths=["/projects/edit/analysis"]
+    )
+    assert recording_client.params["config"]["granted_paths"] == [  # type: ignore[index]
+        "/projects/edit/analysis"
+    ]
+
+    await gateway.media_index_search("session", "index-1", "clutch", 5, 512)
+    assert recording_client.method == "media_index_search"
+    assert recording_client.params["maximum_results"] == 5
+    assert recording_client.params["maximum_tokens"] == 512

@@ -47,6 +47,7 @@ async def session_start(
     reason: str,
     input_enabled: bool = False,
     allowed_applications: list[str] | None = None,
+    granted_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     """Start a bounded desktop-control session for a clear user-provided reason."""
     return await client().call(
@@ -56,6 +57,7 @@ async def session_start(
             "config": {
                 "input_enabled": input_enabled,
                 "allowed_applications": allowed_applications or [],
+                "granted_paths": granted_paths or [],
             },
         },
     )
@@ -76,6 +78,54 @@ async def desktop_observe(
         max_elements=max_elements,
     )
     return compact_observation(observation, budget)
+
+
+@mcp.tool()
+async def media_index_open(session_id: str, index_path: str) -> dict[str, Any]:
+    """Open a content index within the session's explicit file grants and return a stable handle."""
+    return await client().call(
+        "media_index_open", {"session_id": session_id, "index_path": index_path}
+    )
+
+
+@mcp.tool()
+async def media_index_search(
+    session_id: str,
+    index_id: str,
+    query: str,
+    maximum_results: int = 20,
+    maximum_tokens: int = 2_000,
+) -> dict[str, Any]:
+    """Search time-aligned labels, transcript text, and evidence with a bounded response."""
+    return await client().call(
+        "media_index_search",
+        {
+            "session_id": session_id,
+            "index_id": index_id,
+            "query": query,
+            "maximum_results": maximum_results,
+            "maximum_tokens": maximum_tokens,
+        },
+    )
+
+
+@mcp.tool()
+async def media_index_detail(
+    session_id: str,
+    index_id: str,
+    result_id: str,
+    maximum_tokens: int = 2_000,
+) -> dict[str, Any]:
+    """Retrieve one media search result by stable ID within a text-token budget."""
+    return await client().call(
+        "media_index_detail",
+        {
+            "session_id": session_id,
+            "index_id": index_id,
+            "result_id": result_id,
+            "maximum_tokens": maximum_tokens,
+        },
+    )
 
 
 @mcp.tool()
