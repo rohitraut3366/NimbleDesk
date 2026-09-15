@@ -1,8 +1,11 @@
 from pathlib import Path
 from xml.etree import ElementTree
 
+from PIL import Image
+
 from nimbledesk.creative.fcpxml import export_fcpxml
 from nimbledesk.creative.models import (
+    BrandRules,
     BriefMoment,
     CreativeBrief,
     MusicAsset,
@@ -23,6 +26,8 @@ def test_planner_builds_treatments_captions_music_and_davinci_timeline(tmp_path:
     source = tmp_path / "gameplay.mp4"
     music_path = tmp_path / "music.wav"
     music_path.write_bytes(b"catalog fixture")
+    logo_path = tmp_path / "logo.png"
+    Image.new("RGBA", (200, 80), (255, 80, 20, 255)).save(logo_path)
     manifest = HighlightManifest(
         source=MediaMetadata(
             path=source,
@@ -76,6 +81,7 @@ def test_planner_builds_treatments_captions_music_and_davinci_timeline(tmp_path:
         pace="fast",
         mood="exciting",
         clip_count=2,
+        brand=BrandRules(logo_path=logo_path, logo_position="top_left"),
     )
 
     plan = build_edit_plan(manifest, brief, (transcript,), (music,))
@@ -92,9 +98,10 @@ def test_planner_builds_treatments_captions_music_and_davinci_timeline(tmp_path:
     assert not plan.review_items
     parsed = ElementTree.parse(timeline)
     assert parsed.find(".//project").attrib["name"] == "Best round"
-    assert len(parsed.findall(".//asset-clip")) == 5
+    assert len(parsed.findall(".//asset-clip")) == 7
     assert (tmp_path / "graphics" / "segment-001-title.png").is_file()
     assert (tmp_path / "graphics" / "segment-001-lower-third.png").is_file()
+    assert (tmp_path / "graphics" / "brand-logo.png").is_file()
 
 
 def test_planner_splits_long_caption_into_readable_proportional_cues(tmp_path: Path) -> None:

@@ -11,7 +11,13 @@ from nimbledesk.creative.cue_sheet import write_cue_sheet
 from nimbledesk.creative.davinci import DaVinciResult, execute_davinci_isolated
 from nimbledesk.creative.fcpxml import export_fcpxml
 from nimbledesk.creative.gaming import detect_game_events, load_game_pack, write_events
-from nimbledesk.creative.models import ContentKind, CreativeBrief, EditPlan, TranscriptSegment
+from nimbledesk.creative.models import (
+    AutonomyLevel,
+    ContentKind,
+    CreativeBrief,
+    EditPlan,
+    TranscriptSegment,
+)
 from nimbledesk.creative.music import load_music_catalog
 from nimbledesk.creative.planner import build_edit_plan, write_edit_plan
 from nimbledesk.creative.render import render_edit_plan
@@ -28,7 +34,7 @@ from nimbledesk.creative.validation import (
 )
 from nimbledesk.creative.variants import generate_variant_comparison
 from nimbledesk.creative.verify import RenderVerificationError, verify_render
-from nimbledesk.creative.vision import analyze_with_vision_provider
+from nimbledesk.creative.vision import VisionProviderConfig, analyze_with_vision_provider
 from nimbledesk.media.models import AnalysisConfig, TimelineEvent
 from nimbledesk.media.pipeline import HighlightPipeline, load_events
 
@@ -79,6 +85,12 @@ class CreationWorkflow:
     ) -> CreationResult:
         report = progress or (lambda _stage, _progress: None)
         token = cancellation or CancellationToken()
+        if render and brief.autonomy is AutonomyLevel.PLAN_ONLY:
+            raise ValueError("creative brief autonomy allows planning only")
+        if render and brief.autonomy is AutonomyLevel.REVIEW_BEFORE_RENDER:
+            raise ValueError("creative brief requires plan approval before rendering")
+        if execute_davinci and brief.autonomy is not AutonomyLevel.EXECUTE_EDITOR:
+            raise ValueError("creative brief autonomy does not allow editor execution")
         token.check()
         output_directory.mkdir(parents=True, exist_ok=True)
         report("detecting events", 0.05)
@@ -91,6 +103,16 @@ class CreationWorkflow:
             )
         vision_analysis_path = None
         if vision_provider:
+            vision_config = VisionProviderConfig.model_validate_json(
+                vision_provider.read_text(encoding="utf-8")
+            )
+            if (
+                vision_config.execution_location == "remote"
+                and not brief.data_policy.allow_remote_frames
+            ):
+                raise ValueError(
+                    "creative brief data policy does not allow frames to leave the laptop"
+                )
             report("analyzing semantic vision", 0.1)
             vision_directory = output_directory / "analysis" / "vision"
             vision = analyze_with_vision_provider(

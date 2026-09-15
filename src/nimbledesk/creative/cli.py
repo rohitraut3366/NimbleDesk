@@ -4,7 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
-from nimbledesk.creative.models import AspectRatio, ContentKind, CreativeBrief, Pace
+from nimbledesk.creative.models import AspectRatio, AutonomyLevel, ContentKind, Pace
+from nimbledesk.creative.style import load_profile, resolve_brief
 from nimbledesk.creative.workflow import CreationWorkflow
 
 
@@ -15,19 +16,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("source", type=Path)
     parser.add_argument("output_directory", type=Path)
     parser.add_argument("--brief", type=Path, help="Complete CreativeBrief JSON file")
-    parser.add_argument("--title", default="Untitled creation")
+    parser.add_argument("--style-profile", type=Path, help="Reusable StyleProfile JSON file")
+    parser.add_argument("--title")
     parser.add_argument(
-        "--content-kind", choices=[item.value for item in ContentKind], default="auto"
+        "--content-kind", choices=[item.value for item in ContentKind]
     )
-    parser.add_argument("--platform", default="youtube")
-    parser.add_argument("--duration", type=float, default=60)
+    parser.add_argument("--platform")
+    parser.add_argument("--duration", type=float)
     parser.add_argument(
-        "--aspect-ratio", choices=[item.value for item in AspectRatio], default="16:9"
+        "--aspect-ratio", choices=[item.value for item in AspectRatio]
     )
-    parser.add_argument("--pace", choices=[item.value for item in Pace], default="balanced")
-    parser.add_argument("--mood", default="engaging")
-    parser.add_argument("--clip-count", type=int, default=10)
-    parser.add_argument("--color-look", default="natural_contrast")
+    parser.add_argument("--pace", choices=[item.value for item in Pace])
+    parser.add_argument("--mood")
+    parser.add_argument("--clip-count", type=int)
+    parser.add_argument("--color-look")
+    parser.add_argument("--autonomy", choices=[item.value for item in AutonomyLevel])
     parser.add_argument("--no-captions", action="store_true")
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--events", type=Path, help="Supplied event timeline JSON")
@@ -64,22 +67,32 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     arguments = parse_args()
+    profile = load_profile(arguments.style_profile)
     if arguments.brief:
-        brief = CreativeBrief.model_validate_json(arguments.brief.read_text(encoding="utf-8"))
+        raw_brief = json.loads(arguments.brief.read_text(encoding="utf-8"))
+        if not isinstance(raw_brief, dict):
+            raise ValueError("creative brief must contain a JSON object")
     else:
-        brief = CreativeBrief(
-            title=arguments.title,
-            content_kind=arguments.content_kind,
-            platform=arguments.platform,
-            target_duration_seconds=arguments.duration,
-            aspect_ratio=arguments.aspect_ratio,
-            pace=arguments.pace,
-            mood=arguments.mood,
-            clip_count=arguments.clip_count,
-            captions=not arguments.no_captions,
-            music=not arguments.no_music,
-            color_look=arguments.color_look,
-        )
+        raw_brief = {
+            "title": arguments.title,
+            "content_kind": arguments.content_kind,
+            "platform": arguments.platform,
+            "target_duration_seconds": arguments.duration,
+            "aspect_ratio": arguments.aspect_ratio,
+            "pace": arguments.pace,
+            "mood": arguments.mood,
+            "clip_count": arguments.clip_count,
+            "color_look": arguments.color_look,
+            "autonomy": arguments.autonomy,
+        }
+        raw_brief = {key: value for key, value in raw_brief.items() if value is not None}
+        if arguments.no_captions:
+            raw_brief["captions"] = False
+        if arguments.no_music:
+            raw_brief["music"] = False
+    if (arguments.davinci or arguments.davinci_render) and "autonomy" not in raw_brief:
+        raw_brief["autonomy"] = AutonomyLevel.EXECUTE_EDITOR.value
+    brief = resolve_brief(raw_brief, profile)
     result = CreationWorkflow().create(
         arguments.source,
         arguments.output_directory,

@@ -211,3 +211,49 @@ def test_required_event_is_bound_to_source_range_for_final_validation() -> None:
     assert bound.mandatory_moments[0].label == "One versus four clutch"
     assert bound.mandatory_moments[0].start_seconds == 41
     assert bound.mandatory_moments[0].end_seconds == 43
+
+
+def test_remote_vision_requires_explicit_frame_data_permission(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"fixture")
+    provider = tmp_path / "remote-vision.json"
+    provider.write_text(
+        json.dumps(
+            {
+                "provider_id": "remote-vision",
+                "model": "vision-model",
+                "command": ["provider", "{request}", "{response}"],
+                "execution_location": "remote",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="does not allow frames to leave the laptop"):
+        CreationWorkflow().create(
+            source,
+            tmp_path / "output",
+            CreativeBrief(captions=False, music=False),
+            vision_provider=provider,
+            render=False,
+        )
+
+
+def test_autonomy_blocks_unapproved_render_and_editor_execution(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+
+    with pytest.raises(ValueError, match="requires plan approval"):
+        CreationWorkflow().create(
+            source,
+            tmp_path / "review-first",
+            CreativeBrief(autonomy="review_before_render"),
+            render=True,
+        )
+    with pytest.raises(ValueError, match="does not allow editor execution"):
+        CreationWorkflow().create(
+            source,
+            tmp_path / "editor",
+            CreativeBrief(autonomy="render_review"),
+            render=False,
+            execute_davinci=True,
+        )

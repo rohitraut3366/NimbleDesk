@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from PIL import Image, ImageDraw
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,6 +26,7 @@ class VisionProviderConfig(VisionModel):
     maximum_frames: Annotated[int, Field(ge=4, le=240)] = 48
     timeout_seconds: Annotated[float, Field(ge=5, le=3600)] = 300
     minimum_confidence: Annotated[float, Field(ge=0, le=1)] = 0.65
+    execution_location: Literal["local", "remote"] = "local"
 
 
 class VisionSheet(VisionModel):

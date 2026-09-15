@@ -212,6 +212,44 @@ source occurrence, forced into candidate selection, and checked again after the 
 Explicit required source moments receive the same final-timeline check. Excluded source moments
 are removed before selection and make validation fail if any edit operation reintroduces them.
 
+Creative briefs also accept reusable production controls: `references`, `preferred_speakers`,
+`excluded_content`, `title_style`, `transition_style`, `music_style`, `brand`, `accessibility`,
+`autonomy`, and `data_policy`. Brand settings can name a logo, its corner and size, a font file,
+and protected colors. NimbleDesk validates required assets, renders the chosen font and accent
+color into titles/lower thirds, and places the logo in both FFmpeg reviews and editable FCPXML
+timelines. Accessibility-required captions are hard constraints. Requesting audio description
+without an available description track blocks validation instead of silently omitting it.
+
+`autonomy` is one of `plan_only`, `review_before_render`, `render_review`, or `execute_editor`.
+Editor execution requires the last value. A provider configuration declaring
+`"execution_location": "remote"` cannot receive contact-sheet frames unless the brief explicitly
+sets `data_policy.allow_remote_frames` to `true`.
+
+### Style profiles
+
+A style profile stores visible defaults without overriding values supplied in the current brief:
+
+```json
+{
+  "profile_id": "gaming-shorts",
+  "name": "Gaming shorts",
+  "defaults": {
+    "audience": "competitive FPS players",
+    "platform": "youtube_shorts",
+    "aspect_ratio": "9:16",
+    "pace": "fast",
+    "color_look": "vivid",
+    "brand": {"logo_path": "/path/logo.png", "primary_color": "#ff5500"},
+    "autonomy": "render_review"
+  }
+}
+```
+
+Pass a profile file with `nimbledesk create ... --style-profile profile.json`. Studio profiles are
+stored under `~/.nimbledesk/style-profiles`, selected from the creation form, and managed through
+`GET /api/style-profiles` and `PUT /api/style-profiles/{profile_id}`. Choosing a watchability
+variant records explicit feedback in the selected profile; no implicit viewing behavior is used.
+
 ### Transcription
 
 Install Whisper in a separate Python environment appropriate for your hardware and make its `whisper` command available on `PATH`. Then pass `--transcribe`. NimbleDesk invokes Whisper locally and records normalized segments; media is not uploaded by this provider.

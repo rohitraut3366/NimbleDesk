@@ -18,6 +18,11 @@ class ContentKind(StrEnum):
     TALKING_HEAD = "talking_head"
     TUTORIAL = "tutorial"
     VLOG = "vlog"
+    PODCAST = "podcast"
+    SPORTS = "sports"
+    EVENT = "event"
+    PRODUCT = "product"
+    PHOTO_COLLECTION = "photo_collection"
 
 
 class Pace(StrEnum):
@@ -30,6 +35,42 @@ class AspectRatio(StrEnum):
     LANDSCAPE = "16:9"
     VERTICAL = "9:16"
     SQUARE = "1:1"
+
+
+class AutonomyLevel(StrEnum):
+    PLAN_ONLY = "plan_only"
+    REVIEW_BEFORE_RENDER = "review_before_render"
+    RENDER_REVIEW = "render_review"
+    EXECUTE_EDITOR = "execute_editor"
+
+
+class BrandRules(CreativeModel):
+    logo_path: Path | None = None
+    logo_position: Literal["top_left", "top_right", "bottom_left", "bottom_right"] = (
+        "top_right"
+    )
+    logo_width_fraction: Annotated[float, Field(ge=0.03, le=0.35)] = 0.12
+    font_path: Path | None = None
+    primary_color: str | None = None
+    secondary_color: str | None = None
+    protected_colors: tuple[str, ...] = ()
+    required: bool = False
+
+
+class AccessibilityRequirements(CreativeModel):
+    captions_required: bool = False
+    caption_language: str | None = None
+    speaker_labels: bool = True
+    maximum_caption_characters_per_line: Annotated[int, Field(ge=20, le=60)] = 42
+    maximum_caption_characters_per_second: Annotated[float, Field(ge=8, le=30)] = 22
+    audio_description_required: bool = False
+
+
+class DataPolicy(CreativeModel):
+    allow_remote_transcript: bool = False
+    allow_remote_audio: bool = False
+    allow_remote_frames: bool = False
+    retain_analysis_cache: bool = True
 
 
 class BriefMoment(CreativeModel):
@@ -46,6 +87,7 @@ class BriefMoment(CreativeModel):
 
 
 class CreativeBrief(CreativeModel):
+    brief_version: Literal["1.0.0"] = "1.0.0"
     title: str = "Untitled creation"
     content_kind: ContentKind = ContentKind.AUTO
     audience: str = "general"
@@ -62,6 +104,16 @@ class CreativeBrief(CreativeModel):
     excluded_event_types: tuple[str, ...] = ()
     mandatory_moments: tuple[BriefMoment, ...] = ()
     excluded_moments: tuple[BriefMoment, ...] = ()
+    references: tuple[str, ...] = ()
+    preferred_speakers: tuple[str, ...] = ()
+    excluded_content: tuple[str, ...] = ()
+    title_style: str = "clean"
+    transition_style: Literal["restrained", "energetic", "cinematic"] = "restrained"
+    music_style: tuple[str, ...] = ()
+    brand: BrandRules = BrandRules()
+    accessibility: AccessibilityRequirements = AccessibilityRequirements()
+    autonomy: AutonomyLevel = AutonomyLevel.RENDER_REVIEW
+    data_policy: DataPolicy = DataPolicy()
 
 
 class TimeRange(CreativeModel):
@@ -144,6 +196,12 @@ class VisualTreatment(CreativeModel):
     reframe_mode: Literal["center", "spatial_motion"] = "center"
     title: str | None = None
     lower_third: str | None = None
+    logo_path: Path | None = None
+    logo_position: Literal["top_left", "top_right", "bottom_left", "bottom_right"] = (
+        "top_right"
+    )
+    logo_width_fraction: Annotated[float, Field(ge=0.03, le=0.35)] = 0.12
+    font_path: Path | None = None
     rationale: str
 
 

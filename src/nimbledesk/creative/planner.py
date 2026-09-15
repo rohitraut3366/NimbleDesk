@@ -101,6 +101,10 @@ def build_edit_plan(
                     reframe_mode=reframe_mode,
                     title=brief.title if role == "hook" else None,
                     lower_third=lower_third,
+                    logo_path=brief.brand.logo_path,
+                    logo_position=brief.brand.logo_position,
+                    logo_width_fraction=brief.brand.logo_width_fraction,
+                    font_path=brief.brand.font_path,
                     rationale=f"{_visual_reason(role)}; {color_reason}; {reframe_reason}",
                 ),
                 score=candidate.score,
@@ -109,7 +113,8 @@ def build_edit_plan(
         )
         timeline_cursor += source_range.duration_seconds / rate
 
-    captions = _map_captions(tuple(segments), transcripts) if brief.captions else ()
+    captions_enabled = brief.captions or brief.accessibility.captions_required
+    captions = _map_captions(tuple(segments), transcripts) if captions_enabled else ()
     music_cues = plan_scene_music(brief, music_assets, tuple(segments), timeline_cursor)
     sound_cues = plan_sound_cues(tuple(segments), sound_assets, brief.platform)
     review_items = _review_items(brief, transcripts, music_assets, tuple(segments))

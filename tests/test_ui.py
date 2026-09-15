@@ -18,6 +18,7 @@ from nimbledesk.creative.models import (
     TimeRange,
     VisualTreatment,
 )
+from nimbledesk.creative.style import StyleProfileStore
 from nimbledesk.creative.variants import VariantComparison, VariantEvaluation, VariantMetric
 from nimbledesk.creative.workflow import CreationResult, CreationWorkflow
 from nimbledesk.media.models import MediaMetadata
@@ -61,6 +62,25 @@ def test_console_returns_unknown_job() -> None:
 
     assert response.status_code == 404
     assert response.json() == {"error": "unknown job"}
+
+
+def test_console_persists_and_lists_style_profiles(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ui, "STYLE_PROFILE_STORE", StyleProfileStore(tmp_path / "profiles"))
+    client = TestClient(app)
+    profile = {
+        "profile_id": "gaming",
+        "name": "Gaming channel",
+        "defaults": {"pace": "fast", "aspect_ratio": "9:16", "color_look": "vivid"},
+    }
+
+    saved = client.put("/api/style-profiles/gaming", json=profile)
+    listed = client.get("/api/style-profiles")
+
+    assert saved.status_code == 200
+    assert listed.json()["profiles"][0]["profile_id"] == "gaming"
+    assert listed.json()["profiles"][0]["defaults"]["pace"] == "fast"
 
 
 def test_console_serves_only_registered_generated_artifacts(

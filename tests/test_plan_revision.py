@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from nimbledesk.creative.models import (
+    AccessibilityRequirements,
+    BrandRules,
     CaptionCue,
     CreativeBrief,
     DeliverySpec,
@@ -69,6 +71,35 @@ def test_validation_rejects_source_overrun_and_timeline_gap(tmp_path: Path) -> N
     assert {issue.code for issue in report.issues} >= {
         "source_bounds",
         "timeline_gap_or_overlap",
+    }
+
+
+def test_validation_blocks_missing_required_brand_and_accessibility_assets(
+    tmp_path: Path,
+) -> None:
+    plan = _plan(tmp_path)
+    plan = plan.model_copy(
+        update={
+            "captions": (),
+            "brief": plan.brief.model_copy(
+                update={
+                    "brand": BrandRules(required=True),
+                    "accessibility": AccessibilityRequirements(
+                        captions_required=True,
+                        audio_description_required=True,
+                    ),
+                }
+            )
+        }
+    )
+
+    report = validate_edit_plan(plan, _metadata(tmp_path))
+
+    assert not report.valid
+    assert {issue.code for issue in report.issues} >= {
+        "brand_assets_missing",
+        "required_captions_missing",
+        "audio_description_unavailable",
     }
 
 

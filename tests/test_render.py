@@ -7,6 +7,7 @@ from pytest import MonkeyPatch
 
 import nimbledesk.creative.render as renderer
 from nimbledesk.creative.models import (
+    BrandRules,
     CaptionCue,
     CreativeBrief,
     DeliverySpec,
@@ -26,9 +27,16 @@ def test_render_compiles_speed_interpolation_punch_in_and_dip(
 ) -> None:
     source = tmp_path / "source.mp4"
     source.write_bytes(b"fixture")
+    logo = tmp_path / "logo.png"
+    logo.write_bytes(b"fixture")
     plan = EditPlan(
         source_path=source,
-        brief=CreativeBrief(target_duration_seconds=20, captions=False, music=False),
+        brief=CreativeBrief(
+            target_duration_seconds=20,
+            captions=False,
+            music=False,
+            brand=BrandRules(logo_path=logo, primary_color="#ff5500"),
+        ),
         segments=(
             EditSegment(
                 segment_id="segment-001",
@@ -46,6 +54,8 @@ def test_render_compiles_speed_interpolation_punch_in_and_dip(
                     punch_in_scale=1.2,
                     title="Ranked play",
                     lower_third="Rohit",
+                    logo_path=logo,
+                    logo_position="bottom_right",
                     rationale="animated emphasis",
                 ),
                 score=1,
@@ -92,6 +102,8 @@ def test_render_compiles_speed_interpolation_punch_in_and_dip(
     assert "loudnorm=I=-14.0:LRA=11:TP=-1.5" in filter_graph
     assert "alimiter=limit=0.95" in filter_graph
     assert filter_graph.count("overlay=0:0") == 2
+    assert "scale=77:-1" in filter_graph
+    assert "overlay=main_w-overlay_w-16:main_h-overlay_h-16" in filter_graph
     assert (tmp_path / "graphics" / "segment-001-title.png").is_file()
     assert (tmp_path / "graphics" / "segment-001-lower-third.png").is_file()
 

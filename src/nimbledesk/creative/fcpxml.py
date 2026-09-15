@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from xml.etree import ElementTree
 
-from nimbledesk.creative.graphics import GraphicKind, write_text_graphic
+from nimbledesk.creative.graphics import GraphicKind, write_logo_graphic, write_text_graphic
 from nimbledesk.creative.models import EditPlan
 
 
@@ -65,6 +65,31 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
             duration=_seconds(cue.asset.duration_seconds),
             hasAudio="1",
         )
+    logo_reference: str | None = None
+    logo_path: Path | None = None
+    if plan.brief.brand.logo_path:
+        logo_reference = f"r{next_resource}"
+        next_resource += 1
+        logo_path = output_path.parent / "graphics" / "brand-logo.png"
+        write_logo_graphic(
+            plan.brief.brand.logo_path,
+            plan.brief.brand.logo_position,
+            plan.brief.brand.logo_width_fraction,
+            plan.delivery.width,
+            plan.delivery.height,
+            logo_path,
+        )
+        ElementTree.SubElement(
+            resources,
+            "asset",
+            id=logo_reference,
+            name="Brand logo",
+            src=logo_path.resolve().as_uri(),
+            start="0s",
+            duration=_seconds(plan.duration_seconds),
+            hasVideo="1",
+            format="r1",
+        )
     graphic_references: dict[tuple[str, GraphicKind], tuple[str, Path, float, float]] = {}
     for segment in plan.segments:
         graphic_specs: list[tuple[GraphicKind, str, float, float]] = []
@@ -90,7 +115,15 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
             path = output_path.parent / "graphics" / (
                 f"{segment.segment_id}-{kind.replace('_', '-')}.png"
             )
-            write_text_graphic(text, kind, plan.delivery.width, plan.delivery.height, path)
+            write_text_graphic(
+                text,
+                kind,
+                plan.delivery.width,
+                plan.delivery.height,
+                path,
+                font_path=segment.visual.font_path,
+                primary_color=plan.brief.brand.primary_color,
+            )
             reference = f"r{next_resource}"
             next_resource += 1
             graphic_references[(segment.segment_id, kind)] = (reference, path, start, end)
@@ -167,6 +200,17 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
                 offset=_seconds(segment.timeline_start_seconds + start),
                 start="0s",
                 duration=_seconds(end - start),
+            )
+        if logo_reference and logo_path:
+            ElementTree.SubElement(
+                clip,
+                "asset-clip",
+                name=logo_path.stem,
+                ref=logo_reference,
+                lane="2",
+                offset=_seconds(segment.timeline_start_seconds),
+                start="0s",
+                duration=_seconds(segment.timeline_duration_seconds),
             )
     for music_reference, music_cue in zip(
         music_references, plan.all_music_cues, strict=True

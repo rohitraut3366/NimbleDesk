@@ -84,7 +84,8 @@ def render_edit_plan(
                     min(4.5, segment.timeline_duration_seconds),
                 )
             )
-        raw_video_label = f"vraw{index}" if graphic_specs else f"v{index}"
+        has_logo = segment.visual.logo_path is not None
+        raw_video_label = f"vraw{index}" if graphic_specs or has_logo else f"v{index}"
         video_steps.extend(
             (f"fps={plan.delivery.frame_rate:.6f}", f"format=yuv420p[{raw_video_label}]")
         )
@@ -103,12 +104,14 @@ def render_edit_plan(
                 plan.delivery.width,
                 plan.delivery.height,
                 graphic_path,
+                font_path=segment.visual.font_path,
+                primary_color=plan.brief.brand.primary_color,
             )
             command.extend(["-loop", "1", "-i", str(graphic_path)])
             graphic_label = f"graphic{index}_{graphic_index}"
             output_label = (
                 f"v{index}"
-                if graphic_index == len(graphic_specs) - 1
+                if graphic_index == len(graphic_specs) - 1 and not has_logo
                 else f"voverlay{index}_{graphic_index}"
             )
             filters.append(f"[{next_input}:v]format=rgba[{graphic_label}]")
@@ -117,6 +120,22 @@ def render_edit_plan(
                 f"enable='between(t,{start:.3f},{end:.3f})'[{output_label}]"
             )
             previous_label = output_label
+            next_input += 1
+        if segment.visual.logo_path:
+            command.extend(["-loop", "1", "-i", str(segment.visual.logo_path)])
+            logo_label = f"logo{index}"
+            margin = max(12, round(plan.delivery.width * 0.025))
+            x, y = _logo_position(segment.visual.logo_position, margin)
+            logo_width = round(
+                plan.delivery.width * segment.visual.logo_width_fraction
+            )
+            filters.append(
+                f"[{next_input}:v]scale={logo_width}:-1,"
+                f"format=rgba[{logo_label}]"
+            )
+            filters.append(
+                f"[{previous_label}][{logo_label}]overlay={x}:{y}[v{index}]"
+            )
             next_input += 1
         if metadata.has_audio:
             audio_filter = (
@@ -150,6 +169,8 @@ def render_edit_plan(
                     plan.delivery.width,
                     plan.delivery.height,
                     graphic_path,
+                    font_path=plan.brief.brand.font_path,
+                    primary_color=plan.brief.brand.primary_color,
                 )
                 command.extend(["-loop", "1", "-i", str(graphic_path)])
                 graphic_label = f"caption{index}"
@@ -263,6 +284,12 @@ def write_srt(cues: tuple[CaptionCue, ...], output_path: Path) -> None:
         for index, cue in enumerate(cues, start=1)
     ]
     output_path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
+
+
+def _logo_position(position: str, margin: int) -> tuple[str, str]:
+    x = str(margin) if position.endswith("left") else f"main_w-overlay_w-{margin}"
+    y = str(margin) if position.startswith("top") else f"main_h-overlay_h-{margin}"
+    return x, y
 
 
 def _compile_timeline(plan: EditPlan, filters: list[str]) -> None:

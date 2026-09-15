@@ -3,9 +3,32 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageColor, ImageDraw, ImageFont
 
 GraphicKind = Literal["title", "lower_third", "caption"]
+
+
+def write_logo_graphic(
+    source_path: Path,
+    position: str,
+    width_fraction: float,
+    width: int,
+    height: int,
+    output_path: Path,
+) -> Path:
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    with Image.open(source_path) as source:
+        logo = source.convert("RGBA")
+    target_width = max(1, round(width * width_fraction))
+    target_height = max(1, round(logo.height * target_width / logo.width))
+    logo = logo.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    margin = max(12, round(width * 0.025))
+    x = margin if position.endswith("left") else width - target_width - margin
+    y = margin if position.startswith("top") else height - target_height - margin
+    canvas.alpha_composite(logo, (x, y))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(output_path)
+    return output_path
 
 
 def write_text_graphic(
@@ -14,22 +37,27 @@ def write_text_graphic(
     width: int,
     height: int,
     output_path: Path,
+    *,
+    font_path: Path | None = None,
+    primary_color: str | None = None,
 ) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
     if kind == "title":
-        _draw_title(draw, text, width, height)
+        _draw_title(draw, text, width, height, font_path)
     elif kind == "lower_third":
-        _draw_lower_third(draw, text, width, height)
+        _draw_lower_third(draw, text, width, height, font_path, primary_color)
     else:
         _draw_caption(draw, text, width, height)
     image.save(output_path)
     return output_path
 
 
-def _draw_title(draw: ImageDraw.ImageDraw, text: str, width: int, height: int) -> None:
-    font = _font(max(28, round(height * 0.075)))
+def _draw_title(
+    draw: ImageDraw.ImageDraw, text: str, width: int, height: int, font_path: Path | None
+) -> None:
+    font = _font(max(28, round(height * 0.075)), font_path)
     wrapped = _wrap_for_pixels(draw, text, font, width * 0.78)
     bounds = draw.multiline_textbbox((0, 0), wrapped, font=font, spacing=round(height * 0.015))
     text_width = bounds[2] - bounds[0]
@@ -55,8 +83,15 @@ def _draw_title(draw: ImageDraw.ImageDraw, text: str, width: int, height: int) -
     )
 
 
-def _draw_lower_third(draw: ImageDraw.ImageDraw, text: str, width: int, height: int) -> None:
-    font = _font(max(22, round(height * 0.046)))
+def _draw_lower_third(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    width: int,
+    height: int,
+    font_path: Path | None,
+    primary_color: str | None,
+) -> None:
+    font = _font(max(22, round(height * 0.046)), font_path)
     bounds = draw.textbbox((0, 0), text, font=font)
     text_width = bounds[2] - bounds[0]
     text_height = bounds[3] - bounds[1]
@@ -73,7 +108,7 @@ def _draw_lower_third(draw: ImageDraw.ImageDraw, text: str, width: int, height: 
     )
     draw.rectangle(
         (left, top, left + max(5, round(width * 0.006)), bottom),
-        fill=(68, 160, 255, 255),
+        fill=(*_color(primary_color, (68, 160, 255)), 255),
     )
     draw.text(
         (left + padding_x, top + padding_y - bounds[1]),
@@ -84,7 +119,7 @@ def _draw_lower_third(draw: ImageDraw.ImageDraw, text: str, width: int, height: 
 
 
 def _draw_caption(draw: ImageDraw.ImageDraw, text: str, width: int, height: int) -> None:
-    font = _font(max(20, min(72, round(height * 0.045))))
+    font = _font(max(20, min(72, round(height * 0.045))), None)
     bounds = draw.multiline_textbbox(
         (0, 0), text, font=font, spacing=round(height * 0.008), align="center"
     )
@@ -113,11 +148,25 @@ def _draw_caption(draw: ImageDraw.ImageDraw, text: str, width: int, height: int)
     )
 
 
-def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+def _font(
+    size: int, font_path: Path | None
+) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     try:
-        return ImageFont.truetype("DejaVuSans-Bold.ttf", size=size)
+        return ImageFont.truetype(
+            str(font_path) if font_path else "DejaVuSans-Bold.ttf", size=size
+        )
     except OSError:
         return ImageFont.load_default(size=size)
+
+
+def _color(value: str | None, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
+    if value is None:
+        return fallback
+    try:
+        parsed = ImageColor.getrgb(value)
+    except ValueError:
+        return fallback
+    return parsed[:3]
 
 
 def _wrap_for_pixels(

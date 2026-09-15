@@ -22,6 +22,23 @@ class PlanValidationError(RuntimeError):
 
 def validate_edit_plan(plan: EditPlan, source: MediaMetadata) -> PlanValidationReport:
     issues: list[ValidationIssue] = []
+    brand = plan.brief.brand
+    if brand.required and brand.logo_path is None and brand.font_path is None:
+        issues.append(_issue("brand_assets_missing", "Required brand assets were not supplied"))
+    if brand.logo_path is not None and not brand.logo_path.expanduser().is_file():
+        issues.append(_issue("brand_logo_offline", "Configured brand logo is unavailable"))
+    if brand.font_path is not None and not brand.font_path.expanduser().is_file():
+        issues.append(_issue("brand_font_offline", "Configured brand font is unavailable"))
+    accessibility = plan.brief.accessibility
+    if accessibility.captions_required and not plan.captions:
+        issues.append(_issue("required_captions_missing", "Required captions were not generated"))
+    if accessibility.audio_description_required:
+        issues.append(
+            _issue(
+                "audio_description_unavailable",
+                "Audio description was required but no description track was generated",
+            )
+        )
     timeline_cursor = 0.0
     if not plan.segments:
         issues.append(_issue("no_segments", "The edit plan contains no segments"))

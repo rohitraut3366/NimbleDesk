@@ -31,6 +31,7 @@ from nimbledesk.creative.models import (
 )
 from nimbledesk.creative.render import render_edit_plan
 from nimbledesk.creative.revision import revise_edit_plan, write_revision
+from nimbledesk.creative.style import StyleProfile, StyleProfileStore, resolve_brief
 from nimbledesk.creative.validation import validate_edit_plan, write_validation_report
 from nimbledesk.creative.verify import RenderVerificationError, verify_render
 from nimbledesk.creative.workflow import CreationResult, CreationWorkflow
@@ -58,6 +59,7 @@ class CreateJobRequest(BaseModel):
     ffmpeg_render: bool = True
     davinci: bool = False
     davinci_render: bool = False
+    style_profile_id: str | None = None
 
 
 class ReviseJobRequest(BaseModel):
@@ -468,6 +470,7 @@ class JobService:
 
 
 JOB_SERVICE = JobService()
+STYLE_PROFILE_STORE = StyleProfileStore()
 
 
 def daemon_client() -> DaemonClient:
@@ -486,7 +489,13 @@ async def home(request: Request) -> HTMLResponse:
 
 async def create_job(request: Request) -> JSONResponse:
     try:
-        payload = CreateJobRequest.model_validate(await request.json())
+        raw = await request.json()
+        profile_id = raw.get("style_profile_id") if isinstance(raw, dict) else None
+        if profile_id:
+            raw["brief"] = resolve_brief(
+                raw.get("brief", {}), STYLE_PROFILE_STORE.load(profile_id)
+            ).model_dump(mode="json")
+        payload = CreateJobRequest.model_validate(raw)
         job = JOB_SERVICE.submit(payload)
     except Exception as error:
         return JSONResponse({"error": str(error)}, status_code=400)
@@ -580,9 +589,37 @@ async def select_variant(request: Request) -> JSONResponse:
         selected = JOB_SERVICE.select_variant(
             job, request.path_params["variant_id"], payload
         )
+        with job.lock:
+            parent_request = job.state.request
+            profile_id = (
+                parent_request.style_profile_id
+                if isinstance(parent_request, CreateJobRequest)
+                else None
+            )
+        if profile_id:
+            STYLE_PROFILE_STORE.record_feedback(
+                profile_id, request.path_params["variant_id"]
+            )
     except Exception as error:
         return JSONResponse({"error": str(error)}, status_code=400)
     return JSONResponse(selected.response(), status_code=202)
+
+
+async def list_style_profiles(request: Request) -> JSONResponse:
+    return JSONResponse(
+        {"profiles": [profile.model_dump(mode="json") for profile in STYLE_PROFILE_STORE.list()]}
+    )
+
+
+async def save_style_profile(request: Request) -> JSONResponse:
+    try:
+        profile = StyleProfile.model_validate(await request.json())
+        if profile.profile_id != request.path_params["profile_id"]:
+            raise ValueError("profile ID in the URL and document must match")
+        STYLE_PROFILE_STORE.save(profile)
+    except Exception as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return JSONResponse(profile.model_dump(mode="json"))
 
 
 async def list_approvals(request: Request) -> JSONResponse:
@@ -699,6 +736,8 @@ app = Starlette(
     routes=[
         Route("/", home),
         Route("/api/jobs", create_job, methods=["POST"]),
+        Route("/api/style-profiles", list_style_profiles, methods=["GET"]),
+        Route("/api/style-profiles/{profile_id}", save_style_profile, methods=["PUT"]),
         Route("/api/photo-jobs", create_photo_job, methods=["POST"]),
         Route("/api/jobs", list_jobs, methods=["GET"]),
         Route("/api/jobs/{job_id}", get_job, methods=["GET"]),
@@ -790,6 +829,7 @@ _HTML = """<!doctype html>
         <input name="output" required placeholder="/absolute/path/output">
       </label>
       <label>Title<input name="title" value="My creation"></label>
+      <label>Style profile<select name="styleProfile"><option value="">No saved profile</option></select></label>
       <label>Audience<input name="audience" value="general"></label>
       <label>Content type<select name="kind"><option>auto</option><option>gameplay</option>
         <option>talking_head</option><option>tutorial</option><option>vlog</option></select></label>
@@ -802,6 +842,9 @@ _HTML = """<!doctype html>
         <option>calm</option></select></label>
       <label>Mood<input name="mood" value="engaging"></label>
       <label>Color look<input name="colorLook" value="natural_contrast"></label>
+      <label>Autonomy<select name="autonomy"><option value="render_review">Render review</option>
+        <option value="review_before_render">Review before render</option><option value="plan_only">Plan only</option>
+        <option value="execute_editor">Allow editor execution</option></select></label>
       <label>Required event types<input name="mandatoryEvents" placeholder="clutch, victory"></label>
       <label>Excluded event types<input name="excludedEvents" placeholder="death, loading"></label>
       <label>Transcript JSON<input name="transcript" placeholder="Optional"></label>
@@ -854,6 +897,7 @@ form.addEventListener('submit', async event => {
       target_duration_seconds:Number(data.get('duration')),aspect_ratio:data.get('ratio'),
       pace:data.get('pace'),mood:data.get('mood'),clip_count:Number(data.get('clipCount')),
       captions:data.has('captions'),music:data.has('musicEnabled'),color_look:data.get('colorLook'),
+      autonomy:data.get('autonomy'),
       mandatory_event_types:list('mandatoryEvents'),excluded_event_types:list('excludedEvents')},
     transcript:optional('transcript'),music_catalog:optional('music'),sound_catalog:optional('sounds'),
     events:optional('events'),
@@ -861,7 +905,7 @@ form.addEventListener('submit', async event => {
     vision_provider:optional('visionProvider'),
     game_ocr:data.has('gameOcr'),transcribe:data.has('transcribe'),
     whisper_model:data.get('whisperModel'),language:optional('language'),
-    ffmpeg_render:data.has('ffmpegRender'),davinci:data.has('davinci'),
+    style_profile_id:optional('styleProfile'),ffmpeg_render:data.has('ffmpegRender'),davinci:data.has('davinci'),
     davinci_render:data.has('davinciRender')};
   const response = await fetch('/api/jobs',{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)
@@ -932,6 +976,15 @@ async function selectVariant(jobId,variantId){const response=await fetch(
   `/api/jobs/${jobId}/variants/${variantId}/select`,{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({ffmpeg_render:true,davinci:false,davinci_render:false})});
   const result=await response.json();if(!response.ok){alert(result.error);return;}refresh();}
+async function loadStyleProfiles(){const response=await fetch('/api/style-profiles');const data=await response.json();
+  const select=form.elements.styleProfile;select.innerHTML='<option value="">No saved profile</option>'+
+    data.profiles.map(profile=>`<option value="${h(profile.profile_id)}">${h(profile.name)}</option>`).join('');
+  select.addEventListener('change',()=>{const profile=data.profiles.find(item=>item.profile_id===select.value);
+    if(!profile)return;const defaults=profile.defaults;
+    const fields={audience:'audience',platform:'platform',aspect_ratio:'ratio',pace:'pace',mood:'mood',
+      color_look:'colorLook',autonomy:'autonomy'};for(const [key,name] of Object.entries(fields))if(defaults[key]!=null)form.elements[name].value=defaults[key];
+    if(defaults.captions!=null)form.elements.captions.checked=defaults.captions;
+    if(defaults.music!=null)form.elements.musicEnabled.checked=defaults.music;});}
 jobs.addEventListener('submit',async event=>{if(!event.target.matches('.revision-form'))return;
   event.preventDefault();const revisionForm=event.target;const data=new FormData(revisionForm);
   const segmentIds=[...revisionForm.querySelectorAll('input[name="locked"]')].map(input=>input.value);
@@ -943,6 +996,6 @@ jobs.addEventListener('submit',async event=>{if(!event.target.matches('.revision
   const response=await fetch(`/api/jobs/${revisionForm.dataset.jobId}/revisions`,{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
   const result=await response.json();if(!response.ok){alert(result.error);return;}refresh();});
-refresh();refreshApprovals();setInterval(()=>{refreshApprovals();
+refresh();refreshApprovals();loadStyleProfiles();setInterval(()=>{refreshApprovals();
   if(!document.querySelector('.revision-form:focus-within'))refresh();},2000);
 </script></body></html>"""
