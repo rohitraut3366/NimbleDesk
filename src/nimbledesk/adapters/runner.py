@@ -60,6 +60,7 @@ class IsolatedAdapterRunner:
             if key in {"PATH", "SYSTEMROOT", "WINDIR", "TMPDIR", "TEMP", "TMP"}
         }
         environment["PYTHONNOUSERSITE"] = "1"
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
         payload = invocation.model_dump_json().encode("utf-8")
         with (
             tempfile.TemporaryDirectory(prefix="nimbledesk-adapter-") as scratch_name,
@@ -98,15 +99,38 @@ class IsolatedAdapterRunner:
                 request_path = scratch / "request.json"
                 request_path.write_bytes(payload)
                 environment["NIMBLEDESK_ADAPTER_REQUEST"] = str(request_path)
-                from nimbledesk.adapters.windows_process import start_windows_restricted_process
+                if getattr(sys, "frozen", False):
+                    from nimbledesk.adapters.windows_appcontainer import (
+                        start_windows_appcontainer_process,
+                    )
 
-                process = start_windows_restricted_process(
-                    worker_command,
-                    stdout_file=stdout_file,
-                    stderr_file=stderr_file,
-                    environment=environment,
-                    cwd=scratch,
-                )
+                    readable_paths, writable_paths = _windows_appcontainer_paths(
+                        worker_command,
+                        manifest,
+                        arguments,
+                        granted_paths,
+                        scratch,
+                    )
+                    process = start_windows_appcontainer_process(
+                        worker_command,
+                        stdout_file=stdout_file,
+                        stderr_file=stderr_file,
+                        environment=environment,
+                        cwd=scratch,
+                        readable_paths=readable_paths,
+                        writable_paths=writable_paths,
+                        network_access=manifest.network_access,
+                    )
+                else:
+                    from nimbledesk.adapters.windows_process import start_windows_restricted_process
+
+                    process = start_windows_restricted_process(
+                        worker_command,
+                        stdout_file=stdout_file,
+                        stderr_file=stderr_file,
+                        environment=environment,
+                        cwd=scratch,
+                    )
             else:
                 process = subprocess.Popen(
                     worker_command,
@@ -287,6 +311,46 @@ def _sandboxed_worker_command(
     if current_platform == "Windows":
         return worker_command
     raise AdapterError("sandboxed adapters are not available on this platform")
+
+
+def _windows_appcontainer_paths(
+    worker_command: list[str],
+    manifest: AdapterManifest,
+    arguments: dict[str, object],
+    granted_paths: tuple[Path, ...],
+    scratch: Path,
+) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    executable = _canonical_without_symlinks(Path(worker_command[0]), "worker executable")
+    package_paths = (
+        (_canonical_without_symlinks(manifest.package_path, "adapter package path"),)
+        if manifest.package_path is not None
+        else ()
+    )
+    readable_paths = tuple(
+        dict.fromkeys(
+            (
+                executable,
+                *(_canonical_without_symlinks(path, "granted path") for path in granted_paths),
+                *package_paths,
+            )
+        )
+    )
+    writable_paths = tuple(
+        dict.fromkeys(
+            (
+                scratch.resolve(),
+                *(
+                    _canonical_without_symlinks(
+                        Path(str(arguments[name])),
+                        f"writable adapter path argument {name}",
+                    )
+                    for name in manifest.writable_path_arguments
+                    if name in arguments
+                ),
+            )
+        )
+    )
+    return readable_paths, writable_paths
 
 
 def _close_process(process: AdapterProcess) -> None:

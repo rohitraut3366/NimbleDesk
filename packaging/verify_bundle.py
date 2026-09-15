@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import subprocess
 import tempfile
 from pathlib import Path
@@ -79,6 +80,27 @@ def verify_bundle(executable: Path) -> None:
             or "missing-plan.json" not in str(davinci_payload.get("error", ""))
         ):
             raise RuntimeError("bundled DaVinci worker returned an invalid failure contract")
+
+        if platform.system() == "Windows":
+            windows_report = root / "windows-adapter-contract.json"
+            windows_contract = subprocess.run(
+                [
+                    str(executable),
+                    "windows-adapter-contract",
+                    "--output",
+                    str(windows_report),
+                ],
+                capture_output=True,
+                check=False,
+                timeout=120,
+            )
+            if windows_contract.returncode != 0 or not windows_report.is_file():
+                raise RuntimeError(
+                    "bundled Windows adapter contract failed: "
+                    + windows_contract.stderr.decode("utf-8", errors="replace")[:8_192]
+                )
+            if json.loads(windows_report.read_text(encoding="utf-8")).get("passed") is not True:
+                raise RuntimeError("bundled Windows adapter isolation did not pass")
 
 
 if __name__ == "__main__":

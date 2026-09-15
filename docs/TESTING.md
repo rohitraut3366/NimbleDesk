@@ -114,6 +114,15 @@ Physical fixture reports record the operating-system release, desktop environmen
 backend, capabilities, and permission state. DaVinci reports record the operating-system release
 and the Resolve version returned by its scripting API. Keep these fields in sanitized release
 evidence so a passing result cannot be mistaken for qualification of a different target version.
+On Windows, run the contract from the standalone executable so it tests the production
+AppContainer boundary rather than the source-development restricted-token fallback:
+
+```powershell
+.\nimbledesk.exe windows-adapter-contract `
+  --output evidence\windows-adapter-contract.json
+```
+
+The same contract runs automatically during every Windows bundle build.
 Use the target IDs and minimum corpus mix declared in [SUPPORT.md](SUPPORT.md). Pass
 `--corpus-id` and `--source-duration-seconds` to both `nimbledesk qualify events` and
 `nimbledesk qualify ranking`; the identifiers must match for reports derived from the same source.

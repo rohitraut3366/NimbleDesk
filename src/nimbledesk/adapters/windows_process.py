@@ -134,21 +134,7 @@ def start_windows_restricted_process(
             startup,
         )
         job_handle = win32job.CreateJobObject(None, None)
-        limits = win32job.QueryInformationJobObject(
-            job_handle, win32job.JobObjectExtendedLimitInformation
-        )
-        limits["BasicLimitInformation"]["LimitFlags"] |= (
-            win32job.JOB_OBJECT_LIMIT_ACTIVE_PROCESS
-            | win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-            | win32job.JOB_OBJECT_LIMIT_PROCESS_MEMORY
-        )
-        limits["BasicLimitInformation"]["ActiveProcessLimit"] = 1
-        limits["ProcessMemoryLimit"] = MAXIMUM_WORKER_MEMORY_BYTES
-        win32job.SetInformationJobObject(
-            job_handle,
-            win32job.JobObjectExtendedLimitInformation,
-            limits,
-        )
+        _configure_job(job_handle, modules, active_process_limit=1)
         win32job.AssignProcessToJobObject(job_handle, process_handle)
         win32process.ResumeThread(thread_handle)
         win32api.CloseHandle(thread_handle)
@@ -184,3 +170,29 @@ def _windows_modules() -> dict[str, ModuleType]:
             "win32security",
         )
     }
+
+
+def _configure_job(
+    job_handle: Any,
+    modules: dict[str, ModuleType],
+    *,
+    active_process_limit: int,
+) -> None:
+    win32job = modules["win32job"]
+    limits = win32job.QueryInformationJobObject(
+        job_handle, win32job.JobObjectExtendedLimitInformation
+    )
+    limits["BasicLimitInformation"]["LimitFlags"] |= (
+        win32job.JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+        | win32job.JOB_OBJECT_LIMIT_JOB_MEMORY
+        | win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        | win32job.JOB_OBJECT_LIMIT_PROCESS_MEMORY
+    )
+    limits["BasicLimitInformation"]["ActiveProcessLimit"] = active_process_limit
+    limits["ProcessMemoryLimit"] = MAXIMUM_WORKER_MEMORY_BYTES
+    limits["JobMemoryLimit"] = MAXIMUM_WORKER_MEMORY_BYTES
+    win32job.SetInformationJobObject(
+        job_handle,
+        win32job.JobObjectExtendedLimitInformation,
+        limits,
+    )

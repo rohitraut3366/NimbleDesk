@@ -25,3 +25,5 @@
 - Keep input cancellation independent from the model connection.
 - Write append-only, redacted audit events for every attempted action.
 - Never expose a generic shell through the desktop protocol.
+- Give third-party adapter workers only declared filesystem paths and opt-in network capabilities;
+  remove temporary Windows AppContainer ACL entries after every invocation.

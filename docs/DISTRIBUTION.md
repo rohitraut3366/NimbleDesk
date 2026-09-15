@@ -46,7 +46,9 @@ Every bundle build executes its embedded adapter and DaVinci worker routes befor
 archive or installer. The adapter route must complete a structured fixture invocation. The
 DaVinci route must parse its internal seven-argument protocol and write a bounded structured error
 for a deliberately missing plan. A frozen executable that still tries to invoke `python -m` fails
-packaging.
+packaging. Windows builds additionally run the malicious-adapter AppContainer contract; packaging
+fails unless undeclared reads and child processes are denied, declared reads and writes work, the
+512 MiB limit is enforced, and the internet-client capability exactly follows the manifest.
 
 ## Signed updates and rollback
 

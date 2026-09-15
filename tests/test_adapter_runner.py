@@ -14,6 +14,7 @@ from nimbledesk.adapters.runner import (
     _sandbox_path,
     _sandboxed_worker_command,
     _strict_adapter_result,
+    _windows_appcontainer_paths,
 )
 from nimbledesk.backends.adapters import AdapterDesktopBackend, AdapterRegistry
 from nimbledesk.backends.simulator import SimulatorBackend
@@ -206,6 +207,83 @@ def test_windows_sandbox_uses_restricted_process_launcher(
     )
 
     assert command == ["python", "worker.py"]
+
+
+def test_windows_appcontainer_paths_separate_read_and_write_grants(tmp_path: Path) -> None:
+    executable = tmp_path / "nimbledesk.exe"
+    executable.touch()
+    granted = tmp_path / "media"
+    granted.mkdir()
+    package = tmp_path / "adapter-package"
+    package.mkdir()
+    output = tmp_path / "output"
+    output.mkdir()
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    manifest = _manifest().model_copy(
+        update={
+            "package_path": package,
+            "writable_path_arguments": ("project",),
+        }
+    )
+
+    readable, writable = _windows_appcontainer_paths(
+        [str(executable), "adapter-worker"],
+        manifest,
+        {"project": str(output)},
+        (granted,),
+        scratch,
+    )
+
+    assert readable == (executable.resolve(), granted.resolve(), package.resolve())
+    assert writable == (scratch.resolve(), output.resolve())
+
+
+def test_frozen_windows_adapter_uses_appcontainer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class CompletedProcess:
+        stdin = None
+        returncode = 0
+
+        def poll(self) -> int:
+            return 0
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+        def terminate(self) -> None:
+            raise AssertionError("completed process must not be terminated")
+
+        def kill(self) -> None:
+            raise AssertionError("completed process must not be killed")
+
+        def close(self) -> None:
+            return None
+
+    def fake_start(command: list[str], **keywords: object) -> CompletedProcess:
+        captured.update(keywords)
+        stdout_file = keywords["stdout_file"]
+        stdout_file.write(b'{"success":true,"result":{"isolated":true},"error":null}')
+        return CompletedProcess()
+
+    monkeypatch.setattr(platform, "system", lambda: "Windows")
+    monkeypatch.setattr("nimbledesk.adapters.runner.sys.frozen", True, raising=False)
+    monkeypatch.setattr(
+        "nimbledesk.adapters.windows_appcontainer.start_windows_appcontainer_process",
+        fake_start,
+    )
+    manifest = _manifest().model_copy(
+        update={"supported_platforms": frozenset({"Windows"}), "isolation": "sandboxed"}
+    )
+
+    result = IsolatedAdapterRunner().execute(manifest, "windows_security", {})
+
+    assert result.result == {"isolated": True}
+    assert captured["network_access"] is False
+    assert Path(str(captured["cwd"])).resolve() in captured["writable_paths"]
 
 
 @pytest.mark.skipif(platform.system() != "Windows", reason="requires Windows security APIs")

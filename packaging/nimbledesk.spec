@@ -1,9 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
+import platform
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_submodules
 
 root = Path(SPECPATH).parent
+
+windows_hiddenimports = (
+    [
+        "pywintypes",
+        "win32api",
+        "win32con",
+        "win32event",
+        "win32job",
+        "win32process",
+        "win32security",
+    ]
+    if platform.system() == "Windows"
+    else []
+)
 
 hiddenimports = (
     collect_submodules("dbus_next")
@@ -12,6 +27,7 @@ hiddenimports = (
     + collect_submodules("nimbledesk")
     + collect_submodules("starlette")
     + collect_submodules("uvicorn")
+    + windows_hiddenimports
 )
 
 analysis = Analysis(

@@ -743,6 +743,13 @@ uv run nimbledesk-davinci-contract \
   --output evidence/davinci-contract
 ```
 
+On Windows, retain the standalone bundle's AppContainer isolation report:
+
+```powershell
+.\nimbledesk.exe windows-adapter-contract `
+  --output evidence\windows-adapter-contract.json
+```
+
 Measure event recognition against a labeled corpus with the release qualification command:
 
 ```bash
