@@ -31,6 +31,11 @@ class AdapterRegistry:
             return cls(manifests)
         for path in sorted(directory.glob("*.json")):
             manifest = AdapterManifest.model_validate_json(path.read_text(encoding="utf-8"))
+            if manifest.package_path is not None:
+                package_path = manifest.package_path.expanduser()
+                if not package_path.is_absolute():
+                    package_path = path.parent / package_path
+                manifest = manifest.model_copy(update={"package_path": package_path.resolve()})
             if manifest.adapter_id in manifests:
                 raise ValueError(f"duplicate adapter ID: {manifest.adapter_id}")
             manifests[manifest.adapter_id] = manifest

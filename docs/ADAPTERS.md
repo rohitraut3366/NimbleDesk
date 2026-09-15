@@ -8,6 +8,7 @@ NimbleDesk adapters expose documented application APIs without adding editor-spe
   "version": "1.0.0",
   "vendor": "Example",
   "entrypoint": "example_editor.nimbledesk:handle",
+  "package_path": ".",
   "supported_platforms": ["Darwin", "Windows", "Linux"],
   "commands": {
     "render": {
@@ -21,6 +22,11 @@ NimbleDesk adapters expose documented application APIs without adding editor-spe
   }
 }
 ```
+
+`package_path` is required for external adapters. Relative paths resolve from the manifest
+directory. The worker adds exactly that directory to its import path, and platform sandboxes grant
+it read-only access. This also makes external source packages importable from the standalone
+NimbleDesk executable without exposing unrelated Python or user directories.
 
 The entrypoint receives `command: str` and `arguments: dict` and returns a JSON-compatible dictionary. It runs in a separate worker process with a minimal environment, no user-site packages, a temporary working directory, a deadline, cancellation, one-megabyte stdout, and 64-kilobyte stderr limits enforced while the process runs. Duplicate JSON keys, unknown fields, malformed output, oversized output, crashes, and hangs fail the action without crashing the daemon. Declare every file argument in `path_arguments`; the runtime rejects symbolic-link components and paths outside the session's canonical `granted_paths` before starting the worker.
 

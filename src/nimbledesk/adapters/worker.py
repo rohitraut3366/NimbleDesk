@@ -17,6 +17,9 @@ def main() -> None:
     if len(sys.argv) != 2 or ":" not in sys.argv[1]:
         raise SystemExit("adapter worker requires module:function entrypoint")
     module_name, function_name = sys.argv[1].split(":", 1)
+    package_path = os.getenv("NIMBLEDESK_ADAPTER_PACKAGE")
+    if package_path:
+        sys.path.insert(0, package_path)
     request_path = os.getenv("NIMBLEDESK_ADAPTER_REQUEST")
     payload = (
         Path(request_path).read_bytes()

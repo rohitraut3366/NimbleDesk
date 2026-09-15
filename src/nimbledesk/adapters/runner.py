@@ -77,6 +77,13 @@ class IsolatedAdapterRunner:
                     "PYTHONPATH": os.pathsep.join(path for path in sys.path if path),
                 }
             )
+            if manifest.package_path is not None:
+                package_path = _canonical_without_symlinks(
+                    manifest.package_path, "adapter package path"
+                )
+                if not package_path.is_dir():
+                    raise AdapterError("adapter package path must be an existing directory")
+                environment["NIMBLEDESK_ADAPTER_PACKAGE"] = str(package_path)
             worker_command = _adapter_worker_command(manifest.entrypoint)
             if manifest.isolation == "sandboxed":
                 worker_command = _sandboxed_worker_command(
@@ -222,13 +229,23 @@ def _sandboxed_worker_command(
         for name in manifest.writable_path_arguments
         if name in arguments
     )
+    package_paths = (
+        (_canonical_without_symlinks(manifest.package_path, "adapter package path"),)
+        if manifest.package_path is not None
+        else ()
+    )
     if current_platform == "Darwin":
         sandbox = shutil.which("sandbox-exec")
         if sandbox is None:
             raise AdapterError("sandboxed adapters require sandbox-exec on macOS")
         profile = scratch / "adapter.sb"
         profile.write_text(
-            _macos_sandbox_profile(granted_paths, writable_paths, scratch, manifest.network_access),
+            _macos_sandbox_profile(
+                (*granted_paths, *package_paths),
+                writable_paths,
+                scratch,
+                manifest.network_access,
+            ),
             encoding="utf-8",
         )
         return [sandbox, "-f", str(profile), *worker_command]
@@ -247,6 +264,7 @@ def _sandboxed_worker_command(
         readable_paths = {
             *(_existing_path(path) for path in _linux_runtime_paths()),
             *(_canonical_without_symlinks(path, "granted path") for path in granted_paths),
+            *package_paths,
         }
         readable = tuple(path for path in readable_paths if path is not None)
         created_directories: set[Path] = set()

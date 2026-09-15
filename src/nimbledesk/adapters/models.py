@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -23,6 +24,7 @@ class AdapterManifest(AdapterModel):
     version: str
     vendor: str
     entrypoint: str = Field(pattern=r"^[a-zA-Z_][a-zA-Z0-9_.]*:[a-zA-Z_][a-zA-Z0-9_]*$")
+    package_path: Path | None = None
     supported_platforms: frozenset[Literal["Darwin", "Windows", "Linux"]]
     commands: dict[str, AdapterCommand]
     isolation: Literal["trusted", "sandboxed"] = "trusted"
@@ -42,6 +44,8 @@ class AdapterManifest(AdapterModel):
                 "writable adapter paths must be declared path arguments: "
                 + ", ".join(sorted(undeclared))
             )
+        if not self.entrypoint.startswith("nimbledesk.") and self.package_path is None:
+            raise ValueError("external adapters require package_path")
         return self
 
 

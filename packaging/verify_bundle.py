@@ -20,15 +20,26 @@ def verify_bundle(executable: Path) -> None:
             ),
             encoding="utf-8",
         )
+        adapter_package = root / "adapter-package"
+        adapter_package.mkdir()
+        (adapter_package / "bundle_external.py").write_text(
+            "def handle(command, arguments):\n"
+            "    return {'command': command, 'value': arguments['project']}\n",
+            encoding="utf-8",
+        )
         adapter = subprocess.run(
             [
                 str(executable),
                 "adapter-worker",
-                "nimbledesk.adapters.fixture:handle",
+                "bundle_external:handle",
             ],
             capture_output=True,
             check=False,
-            env={**os.environ, "NIMBLEDESK_ADAPTER_REQUEST": str(request)},
+            env={
+                **os.environ,
+                "NIMBLEDESK_ADAPTER_REQUEST": str(request),
+                "NIMBLEDESK_ADAPTER_PACKAGE": str(adapter_package),
+            },
             timeout=60,
         )
         if adapter.returncode != 0:
@@ -38,7 +49,8 @@ def verify_bundle(executable: Path) -> None:
             )
         payload = json.loads(adapter.stdout)
         if payload.get("success") is not True or payload.get("result") != {
-            "received": {"project": "bundle-contract"}
+            "command": "inspect",
+            "value": "bundle-contract",
         }:
             raise RuntimeError("bundled adapter worker returned an invalid contract result")
 

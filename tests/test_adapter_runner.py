@@ -1,3 +1,4 @@
+import json
 import platform
 from pathlib import Path
 
@@ -241,6 +242,83 @@ def test_manifest_rejects_undeclared_writable_path_argument() -> None:
             isolation="sandboxed",
             writable_path_arguments=("output",),
         )
+
+
+def test_external_adapter_requires_explicit_package_root() -> None:
+    with pytest.raises(ValidationError, match="external adapters require package_path"):
+        AdapterManifest(
+            adapter_id="example.external",
+            version="1.0.0",
+            vendor="Example",
+            entrypoint="example_adapter:handle",
+            supported_platforms=frozenset({platform.system()}),
+            commands={"inspect": AdapterCommand(risk="observe", read_only=True)},
+        )
+
+
+def test_registry_resolves_and_worker_imports_external_package(tmp_path: Path) -> None:
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "example_adapter.py").write_text(
+        "def handle(command, arguments):\n"
+        "    return {'command': command, 'value': arguments['value']}\n",
+        encoding="utf-8",
+    )
+    manifest_path = tmp_path / "example.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "adapter_id": "example.external",
+                "version": "1.0.0",
+                "vendor": "Example",
+                "entrypoint": "example_adapter:handle",
+                "package_path": "package",
+                "supported_platforms": [platform.system()],
+                "commands": {
+                    "inspect": {
+                        "risk": "observe",
+                        "read_only": True,
+                        "required_arguments": ["value"],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = AdapterRegistry.load(tmp_path).manifests["example.external"]
+    result = IsolatedAdapterRunner().execute(manifest, "inspect", {"value": "loaded"})
+
+    assert manifest.package_path == package.resolve()
+    assert result.result == {"command": "inspect", "value": "loaded"}
+
+
+def test_sandbox_includes_external_adapter_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = tmp_path / "adapter-package"
+    package.mkdir()
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    manifest = AdapterManifest(
+        adapter_id="example.external",
+        version="1.0.0",
+        vendor="Example",
+        entrypoint="example_adapter:handle",
+        package_path=package,
+        supported_platforms=frozenset({"Linux"}),
+        commands={"inspect": AdapterCommand(risk="observe", read_only=True)},
+        isolation="sandboxed",
+    )
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr("nimbledesk.adapters.runner.shutil.which", lambda _name: "/usr/bin/bwrap")
+
+    command = _sandboxed_worker_command(
+        ["python", "worker.py"], manifest, {}, (), scratch
+    )
+
+    triples = [command[index : index + 3] for index in range(len(command))]
+    assert ["--ro-bind", str(package.resolve()), str(package.resolve())] in triples
 
 
 def test_adapter_command_runs_after_exact_approval_with_session_paths(
