@@ -120,6 +120,14 @@ def main() -> None:
                     if result.variant_comparison_path
                     else None
                 ),
+                "verification": (
+                    str(result.verification_path) if result.verification_path else None
+                ),
+                "davinci_verification": (
+                    str(result.davinci_verification_path)
+                    if result.davinci_verification_path
+                    else None
+                ),
                 "duration_seconds": result.plan.duration_seconds,
                 "review_items": [item.model_dump() for item in result.plan.review_items],
                 "davinci": result.davinci.model_dump(mode="json") if result.davinci else None,

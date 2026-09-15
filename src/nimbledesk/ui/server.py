@@ -31,6 +31,7 @@ from nimbledesk.creative.models import (
 from nimbledesk.creative.render import render_edit_plan
 from nimbledesk.creative.revision import revise_edit_plan, write_revision
 from nimbledesk.creative.validation import validate_edit_plan, write_validation_report
+from nimbledesk.creative.verify import RenderVerificationError, verify_render
 from nimbledesk.creative.workflow import CreationResult, CreationWorkflow
 from nimbledesk.media.ffmpeg import probe_media
 from nimbledesk.media.photos import PhotoManifest, PhotoPipeline
@@ -90,6 +91,7 @@ class RevisionResult(BaseModel):
     render_path: Path | None
     validation: PlanValidationReport
     plan: EditPlan
+    verification_path: Path | None = None
 
 
 class RevisionSubmission(BaseModel):
@@ -342,9 +344,19 @@ class JobService:
         export_fcpxml(revision.plan, timeline_path)
         token.check()
         render_path = output / "final.mp4" if request.ffmpeg_render else None
+        verification_path = None
         if render_path:
             self._update_progress(job, "rendering revised video", 0.55)
             render_edit_plan(revision.plan, render_path, cancelled=token.is_cancelled)
+            verification_path = output / "render_verification.json"
+            verification = verify_render(
+                revision.plan,
+                render_path,
+                verification_path,
+                cancelled=token.is_cancelled,
+            )
+            if not verification.valid:
+                raise RenderVerificationError(verification)
         if request.davinci or request.davinci_render:
             self._update_progress(job, "executing revision in DaVinci Resolve", 0.85)
             execute_davinci_isolated(
@@ -363,6 +375,7 @@ class JobService:
             render_path=render_path,
             validation=validation,
             plan=revision.plan,
+            verification_path=verification_path,
         )
 
     def _update_progress(self, job: JobRecord, stage: str, value: float) -> None:
@@ -696,7 +709,8 @@ function jobOutputs(job){if(!job.result)return '';
   return `<p>Render: <code>${h(job.result.render_path||'plan only')}</code><br>
     DaVinci timeline: <code>${h(job.result.timeline_path)}</code><br>
     Cue sheet: <code>${h(job.result.cue_sheet_path||'not applicable')}</code><br>
-    Variant comparison: <code>${h(job.result.variant_comparison_path||'not applicable')}</code></p>${revisionPanel(job)}`;}
+    Variant comparison: <code>${h(job.result.variant_comparison_path||'not applicable')}</code><br>
+    Render verification: <code>${h(job.result.verification_path||'not rendered')}</code></p>${revisionPanel(job)}`;}
 async function refresh(){const response=await fetch('/api/jobs');const data=await response.json();
   jobs.innerHTML=data.jobs.map(job=>`<article><strong>${h(job.kind)}</strong> · <strong>${h(job.status)}</strong> · ${h(job.stage)}
     <progress value="${job.progress}" max="1"></progress>

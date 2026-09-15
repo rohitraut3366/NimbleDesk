@@ -27,6 +27,7 @@ from nimbledesk.creative.validation import (
     write_validation_report,
 )
 from nimbledesk.creative.variants import generate_variant_comparison
+from nimbledesk.creative.verify import RenderVerificationError, verify_render
 from nimbledesk.creative.vision import analyze_with_vision_provider
 from nimbledesk.media.models import AnalysisConfig, TimelineEvent
 from nimbledesk.media.pipeline import HighlightPipeline, load_events
@@ -49,6 +50,8 @@ class CreationResult(BaseModel):
     cue_sheet_path: Path | None = None
     cue_sheet_csv_path: Path | None = None
     variant_comparison_path: Path | None = None
+    verification_path: Path | None = None
+    davinci_verification_path: Path | None = None
 
 
 class CreationWorkflow:
@@ -176,9 +179,20 @@ class CreationWorkflow:
         token.check()
         report("rendering review video", 0.75)
         render_path = output_directory / "final.mp4" if render else None
+        verification_path = None
         if render_path:
             render_edit_plan(plan, render_path, cancelled=token.is_cancelled)
+            verification_path = output_directory / "render_verification.json"
+            verification = verify_render(
+                plan,
+                render_path,
+                verification_path,
+                cancelled=token.is_cancelled,
+            )
+            if not verification.valid:
+                raise RenderVerificationError(verification)
         davinci = None
+        davinci_verification_path = None
         if execute_davinci:
             report("executing in DaVinci Resolve", 0.9)
             davinci = execute_davinci_isolated(
@@ -188,6 +202,16 @@ class CreationWorkflow:
                 render=render_in_davinci,
                 cancelled=token.is_cancelled,
             )
+            if davinci.render_path:
+                davinci_verification_path = output_directory / "davinci_render_verification.json"
+                davinci_verification = verify_render(
+                    plan,
+                    davinci.render_path,
+                    davinci_verification_path,
+                    cancelled=token.is_cancelled,
+                )
+                if not davinci_verification.valid:
+                    raise RenderVerificationError(davinci_verification)
         report("completed", 1)
         return CreationResult(
             output_directory=output_directory,
@@ -204,6 +228,8 @@ class CreationWorkflow:
             cue_sheet_path=cue_sheet_path,
             cue_sheet_csv_path=cue_sheet_csv_path,
             variant_comparison_path=variant_comparison_path,
+            verification_path=verification_path,
+            davinci_verification_path=davinci_verification_path,
         )
 
 

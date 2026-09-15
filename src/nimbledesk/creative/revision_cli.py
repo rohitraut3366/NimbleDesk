@@ -14,6 +14,7 @@ from nimbledesk.creative.validation import (
     validate_edit_plan,
     write_validation_report,
 )
+from nimbledesk.creative.verify import RenderVerificationError, verify_render
 from nimbledesk.media.ffmpeg import probe_media
 
 
@@ -60,6 +61,13 @@ def main() -> None:
     render_path = output / "final.mp4" if arguments.render else None
     if render_path:
         render_edit_plan(revision.plan, render_path)
+        verification = verify_render(
+            revision.plan,
+            render_path,
+            output / "render_verification.json",
+        )
+        if not verification.valid:
+            raise RenderVerificationError(verification)
     davinci = None
     if arguments.davinci or arguments.davinci_render:
         davinci = execute_davinci_isolated(

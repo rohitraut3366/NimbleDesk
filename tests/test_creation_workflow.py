@@ -128,6 +128,8 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
     assert result.cue_sheet_csv_path is not None and result.cue_sheet_csv_path.is_file()
     assert result.variant_comparison_path is not None
     assert result.variant_comparison_path.is_file()
+    assert result.verification_path is not None
+    assert result.verification_path.is_file()
     assert result.render_path is not None
     assert result.render_path.is_file()
     rendered = probe_media(result.render_path)
