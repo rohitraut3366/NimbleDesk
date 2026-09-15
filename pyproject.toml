@@ -35,6 +35,7 @@ bundle = [
 
 [project.scripts]
 nimbledesk = "nimbledesk.cli:main"
+nimbledesk-service = "nimbledesk.service:main"
 nimbledesk-mcp = "nimbledesk.gateway.server:main"
 nimbledesk-daemon = "nimbledesk.daemon.server:main"
 nimbledesk-smoke = "nimbledesk.testing.smoke:main"

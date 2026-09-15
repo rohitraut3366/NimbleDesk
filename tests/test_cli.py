@@ -12,3 +12,7 @@ def test_unified_cli_dispatches_component_arguments(monkeypatch: MonkeyPatch) ->
     cli.main(["smoke", "--test-input"])
 
     assert called == [["nimbledesk smoke", "--test-input"]]
+
+
+def test_unified_cli_lists_service_management() -> None:
+    assert "service" in cli.COMMANDS

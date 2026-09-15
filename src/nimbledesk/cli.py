@@ -16,6 +16,7 @@ from nimbledesk.daemon.server import main as daemon_main
 from nimbledesk.gateway.server import main as gateway_main
 from nimbledesk.media.cli import main as highlights_main
 from nimbledesk.media.photo_cli import main as photos_main
+from nimbledesk.service import main as service_main
 from nimbledesk.testing.smoke import main as smoke_main
 from nimbledesk.ui.server import main as studio_main
 
@@ -30,6 +31,7 @@ COMMANDS: dict[str, Callable[[], None]] = {
     "music-index": music_main,
     "approve": approve_main,
     "smoke": smoke_main,
+    "service": service_main,
 }
 
 

@@ -14,9 +14,13 @@ nimbledesk photos ...
 nimbledesk music-index ...
 nimbledesk approve ...
 nimbledesk smoke ...
+nimbledesk service install
+nimbledesk service uninstall
 ```
 
 `nimbledesk start` launches the local authenticated daemon, waits for its fresh connection file, runs Studio on loopback, and terminates the daemon when Studio exits. Model clients should run `nimbledesk mcp` and use the same connection file.
+
+`nimbledesk service install` configures the daemon for the current user only: a LaunchAgent on macOS, a systemd user unit on Linux, or a limited-privilege logon task on Windows. It starts the service immediately and restarts it after failures or later logins. `nimbledesk service uninstall` stops and removes that registration without deleting projects, configuration, or audit data.
 
 Build a platform archive on that platform:
 
