@@ -3,12 +3,14 @@ from xml.etree import ElementTree
 
 from nimbledesk.creative.fcpxml import export_fcpxml
 from nimbledesk.creative.models import (
+    BriefMoment,
     CreativeBrief,
     MusicAsset,
     TimeRange,
     TranscriptSegment,
 )
 from nimbledesk.creative.planner import build_edit_plan
+from nimbledesk.creative.validation import validate_edit_plan
 from nimbledesk.media.models import (
     AnalysisConfig,
     HighlightCandidate,
@@ -151,3 +153,124 @@ def test_planner_splits_long_caption_into_readable_proportional_cues(tmp_path: P
         assert previous.source_range is not None
         assert current.source_range is not None
         assert previous.source_range.end_seconds == current.source_range.start_seconds
+
+
+def test_planner_retains_required_story_beat_and_removes_excluded_range(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "game.mp4"
+    metadata = MediaMetadata(
+        path=source,
+        duration_seconds=120,
+        width=1920,
+        height=1080,
+        frame_rate=60,
+        has_audio=True,
+        video_codec="h264",
+    )
+    manifest = HighlightManifest(
+        source=metadata,
+        config=AnalysisConfig(),
+        candidates=(
+            HighlightCandidate(
+                rank=1,
+                start_seconds=10,
+                end_seconds=20,
+                peak_seconds=15,
+                score=1,
+                reasons=("high motion",),
+            ),
+            HighlightCandidate(
+                rank=2,
+                start_seconds=40,
+                end_seconds=50,
+                peak_seconds=45,
+                score=0.9,
+                reasons=("reaction",),
+            ),
+            HighlightCandidate(
+                rank=3,
+                start_seconds=80,
+                end_seconds=90,
+                peak_seconds=85,
+                score=0.7,
+                reasons=("match-winning clutch",),
+            ),
+        ),
+        clips=(),
+    )
+    brief = CreativeBrief(
+        target_duration_seconds=30,
+        clip_count=2,
+        captions=False,
+        music=False,
+        mandatory_moments=(
+            BriefMoment(
+                label="match-winning clutch",
+                event_type="clutch",
+                start_seconds=84,
+                end_seconds=86,
+            ),
+        ),
+        excluded_moments=(
+            BriefMoment(label="private chat", start_seconds=39, end_seconds=51),
+        ),
+    )
+
+    plan = build_edit_plan(manifest, brief)
+    report = validate_edit_plan(plan, metadata)
+
+    assert any(
+        segment.source_range.start_seconds <= 85 <= segment.source_range.end_seconds
+        for segment in plan.segments
+    )
+    assert all(
+        not (
+            segment.source_range.start_seconds < 51
+            and segment.source_range.end_seconds > 39
+        )
+        for segment in plan.segments
+    )
+    assert report.valid
+
+
+def test_validation_blocks_omitted_required_story_beat(tmp_path: Path) -> None:
+    source = tmp_path / "game.mp4"
+    metadata = MediaMetadata(
+        path=source,
+        duration_seconds=30,
+        width=1920,
+        height=1080,
+        frame_rate=30,
+        has_audio=False,
+        video_codec="h264",
+    )
+    manifest = HighlightManifest(
+        source=metadata,
+        config=AnalysisConfig(),
+        candidates=(
+            HighlightCandidate(
+                rank=1,
+                start_seconds=0,
+                end_seconds=10,
+                peak_seconds=5,
+                score=1,
+                reasons=("opening",),
+            ),
+        ),
+        clips=(),
+    )
+    brief = CreativeBrief(
+        target_duration_seconds=10,
+        clip_count=1,
+        captions=False,
+        music=False,
+        mandatory_moments=(
+            BriefMoment(label="ending reveal", start_seconds=20, end_seconds=22),
+        ),
+    )
+
+    report = validate_edit_plan(build_edit_plan(manifest, brief), metadata)
+
+    assert not report.valid
+    assert "mandatory_moment_missing" in {issue.code for issue in report.issues}

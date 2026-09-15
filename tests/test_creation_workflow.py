@@ -8,8 +8,13 @@ from pathlib import Path
 import pytest
 
 from nimbledesk.creative.models import ContentKind, CreativeBrief, TimeRange, TranscriptSegment
-from nimbledesk.creative.workflow import CreationWorkflow, _resolve_content_kind
+from nimbledesk.creative.workflow import (
+    CreationWorkflow,
+    _bind_event_moments,
+    _resolve_content_kind,
+)
 from nimbledesk.media.ffmpeg import probe_media
+from nimbledesk.media.models import TimelineEvent
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
@@ -187,3 +192,22 @@ def test_content_kind_detection_does_not_mistake_transcript_semantics_for_gamepl
     resolved = _resolve_content_kind(CreativeBrief(), (), (transcript,))
 
     assert resolved.content_kind is ContentKind.TALKING_HEAD
+
+
+def test_required_event_is_bound_to_source_range_for_final_validation() -> None:
+    brief = CreativeBrief(mandatory_event_types=("clutch",))
+    events = (
+        TimelineEvent(
+            time_seconds=42,
+            event_type="clutch",
+            label="One versus four clutch",
+            importance=0.95,
+        ),
+    )
+
+    bound = _bind_event_moments(brief, events, source_duration_seconds=60)
+
+    assert len(bound.mandatory_moments) == 1
+    assert bound.mandatory_moments[0].label == "One versus four clutch"
+    assert bound.mandatory_moments[0].start_seconds == 41
+    assert bound.mandatory_moments[0].end_seconds == 43

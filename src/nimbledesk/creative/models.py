@@ -32,6 +32,19 @@ class AspectRatio(StrEnum):
     SQUARE = "1:1"
 
 
+class BriefMoment(CreativeModel):
+    label: str
+    start_seconds: Annotated[float, Field(ge=0)]
+    end_seconds: Annotated[float, Field(gt=0)]
+    event_type: str | None = None
+
+    @model_validator(mode="after")
+    def ordered(self) -> BriefMoment:
+        if self.end_seconds <= self.start_seconds:
+            raise ValueError("brief moment end must be after start")
+        return self
+
+
 class CreativeBrief(CreativeModel):
     title: str = "Untitled creation"
     content_kind: ContentKind = ContentKind.AUTO
@@ -47,6 +60,8 @@ class CreativeBrief(CreativeModel):
     color_look: str = "natural_contrast"
     mandatory_event_types: tuple[str, ...] = ()
     excluded_event_types: tuple[str, ...] = ()
+    mandatory_moments: tuple[BriefMoment, ...] = ()
+    excluded_moments: tuple[BriefMoment, ...] = ()
 
 
 class TimeRange(CreativeModel):

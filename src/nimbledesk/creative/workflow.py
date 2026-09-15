@@ -125,6 +125,9 @@ class CreationWorkflow:
         )
         content_index_path = index_directory / "content_index.json"
         merged_events = _apply_event_constraints(content_index.semantic_events, brief)
+        brief = _bind_event_moments(
+            brief, merged_events, content_index.asset.metadata.duration_seconds
+        )
         events_path = output_directory / "detected_events.json" if merged_events else None
         if events_path:
             write_events(merged_events, events_path)
@@ -260,6 +263,33 @@ def _apply_event_constraints(
         raise ValueError("mandatory event types were not detected: " + ", ".join(sorted(missing)))
     excluded = set(brief.excluded_event_types)
     return tuple(event for event in events if event.event_type not in excluded)
+
+
+def _bind_event_moments(
+    brief: CreativeBrief,
+    events: tuple[TimelineEvent, ...],
+    source_duration_seconds: float,
+) -> CreativeBrief:
+    from nimbledesk.creative.models import BriefMoment
+
+    moments = list(brief.mandatory_moments)
+    already_bound = {moment.event_type for moment in moments if moment.event_type}
+    for event_type in brief.mandatory_event_types:
+        if event_type in already_bound:
+            continue
+        matching = [event for event in events if event.event_type == event_type]
+        if not matching:
+            continue
+        event = max(matching, key=lambda item: item.importance)
+        moments.append(
+            BriefMoment(
+                label=event.label or event.event_type,
+                event_type=event.event_type,
+                start_seconds=max(0, event.time_seconds - 1),
+                end_seconds=min(source_duration_seconds, event.time_seconds + 1),
+            )
+        )
+    return brief.model_copy(update={"mandatory_moments": tuple(moments)})
 
 
 def _resolve_content_kind(

@@ -82,6 +82,30 @@ def validate_edit_plan(plan: EditPlan, source: MediaMetadata) -> PlanValidationR
                 )
             )
         timeline_cursor = segment.timeline_start_seconds + segment.timeline_duration_seconds
+    for moment in plan.brief.mandatory_moments:
+        midpoint = (moment.start_seconds + moment.end_seconds) / 2
+        if not any(
+            segment.source_range.start_seconds <= midpoint <= segment.source_range.end_seconds
+            for segment in plan.segments
+        ):
+            issues.append(
+                _issue(
+                    "mandatory_moment_missing",
+                    f"Required story moment was omitted: {moment.label}",
+                )
+            )
+    for moment in plan.brief.excluded_moments:
+        if any(
+            min(segment.source_range.end_seconds, moment.end_seconds)
+            > max(segment.source_range.start_seconds, moment.start_seconds)
+            for segment in plan.segments
+        ):
+            issues.append(
+                _issue(
+                    "excluded_moment_present",
+                    f"Excluded source moment is present: {moment.label}",
+                )
+            )
     if timeline_cursor > plan.brief.target_duration_seconds + 0.05:
         issues.append(_issue("target_duration", "Timeline exceeds the requested target duration"))
     for caption in plan.captions:

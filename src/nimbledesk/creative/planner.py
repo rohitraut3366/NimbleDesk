@@ -37,7 +37,10 @@ def build_edit_plan(
     *,
     story_strategy: Literal["strongest_hook", "chronological"] = "strongest_hook",
 ) -> EditPlan:
-    ordered = _story_order(manifest.candidates[: brief.clip_count], story_strategy)
+    selected, required_candidates = _select_candidates(manifest, brief)
+    ordered = _prioritize_required(
+        _story_order(selected, story_strategy), required_candidates
+    )
     width, height = _delivery_size(brief.aspect_ratio)
     segments: list[EditSegment] = []
     introduced_speakers: set[str] = set()
@@ -150,6 +153,67 @@ def _story_order(
         key=lambda candidate: candidate.peak_seconds,
     )
     return (hook, *remainder)
+
+
+def _select_candidates(
+    manifest: HighlightManifest, brief: CreativeBrief
+) -> tuple[tuple[HighlightCandidate, ...], tuple[HighlightCandidate, ...]]:
+    eligible = tuple(
+        candidate
+        for candidate in manifest.candidates
+        if not any(
+            _ranges_overlap(
+                candidate.start_seconds,
+                candidate.end_seconds,
+                excluded.start_seconds,
+                excluded.end_seconds,
+            )
+            for excluded in brief.excluded_moments
+        )
+    )
+    required: list[HighlightCandidate] = []
+    for moment in brief.mandatory_moments:
+        matches = [
+            candidate
+            for candidate in eligible
+            if _ranges_overlap(
+                candidate.start_seconds,
+                candidate.end_seconds,
+                moment.start_seconds,
+                moment.end_seconds,
+            )
+        ]
+        if matches:
+            candidate = max(matches, key=lambda item: item.score)
+            if candidate not in required:
+                required.append(candidate)
+    selected = list(required)
+    for candidate in eligible:
+        if candidate not in selected:
+            selected.append(candidate)
+        if len(selected) >= brief.clip_count:
+            break
+    return tuple(selected[: brief.clip_count]), tuple(required)
+
+
+def _prioritize_required(
+    ordered: tuple[HighlightCandidate, ...],
+    required: tuple[HighlightCandidate, ...],
+) -> tuple[HighlightCandidate, ...]:
+    if not ordered or not required:
+        return ordered
+    hook = ordered[0]
+    required_after_hook = [candidate for candidate in required if candidate is not hook]
+    remaining = [
+        candidate
+        for candidate in ordered[1:]
+        if candidate not in required_after_hook
+    ]
+    return (hook, *required_after_hook, *remaining)
+
+
+def _ranges_overlap(start: float, end: float, other_start: float, other_end: float) -> bool:
+    return min(end, other_end) > max(start, other_start)
 
 
 def _role(

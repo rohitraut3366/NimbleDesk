@@ -197,11 +197,20 @@ You can supply one complete brief instead of flags:
   "music": true,
   "color_look": "vivid",
   "mandatory_event_types": ["clutch"],
-  "excluded_event_types": ["death"]
+  "excluded_event_types": ["death"],
+  "mandatory_moments": [
+    {"label": "Sponsor message", "start_seconds": 12.0, "end_seconds": 18.5}
+  ],
+  "excluded_moments": [
+    {"label": "Private chat", "start_seconds": 105.0, "end_seconds": 112.0}
+  ]
 }
 ```
 
-Use it with `--brief brief.json`.
+Use it with `--brief brief.json`. Required event types are bound to the strongest detected
+source occurrence, forced into candidate selection, and checked again after the plan is trimmed.
+Explicit required source moments receive the same final-timeline check. Excluded source moments
+are removed before selection and make validation fail if any edit operation reintroduces them.
 
 ### Transcription
 
