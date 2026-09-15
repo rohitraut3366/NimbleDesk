@@ -3,16 +3,18 @@ from xml.etree import ElementTree
 
 from PIL import Image
 
+from nimbledesk.analysis.models import RationalRange, TrackPoint
 from nimbledesk.creative.fcpxml import export_fcpxml
 from nimbledesk.creative.models import (
     BrandRules,
     BriefMoment,
     CreativeBrief,
     MusicAsset,
+    ReframeKeyframe,
     TimeRange,
     TranscriptSegment,
 )
-from nimbledesk.creative.planner import build_edit_plan
+from nimbledesk.creative.planner import _tracked_reframe_keyframes, build_edit_plan
 from nimbledesk.creative.validation import validate_edit_plan
 from nimbledesk.media.models import (
     AnalysisConfig,
@@ -97,6 +99,30 @@ def test_planner_builds_treatments_captions_music_and_davinci_timeline(tmp_path:
         }
     )
     plan = plan.model_copy(update={"segments": (plan.segments[0], incoming)})
+    tracked_hook = plan.segments[0].model_copy(
+        update={
+            "visual": plan.segments[0].visual.model_copy(
+                update={
+                    "reframe_mode": "tracked_motion",
+                    "reframe_keyframes": (
+                        ReframeKeyframe(
+                            timeline_offset_seconds=0,
+                            center_x=0.25,
+                            center_y=0.5,
+                            confidence=0.8,
+                        ),
+                        ReframeKeyframe(
+                            timeline_offset_seconds=1,
+                            center_x=0.75,
+                            center_y=0.5,
+                            confidence=0.8,
+                        ),
+                    ),
+                }
+            )
+        }
+    )
+    plan = plan.model_copy(update={"segments": (tracked_hook, plan.segments[1])})
     timeline = export_fcpxml(plan, tmp_path / "timeline.fcpxml")
 
     assert len(plan.segments) == 2
@@ -112,6 +138,7 @@ def test_planner_builds_treatments_captions_music_and_davinci_timeline(tmp_path:
     assert parsed.find(".//project").attrib["name"] == "Best round"
     assert len(parsed.findall(".//asset-clip")) == 7
     assert parsed.find(".//transition/filter-video") is not None
+    assert len(parsed.findall(".//adjust-transform/param/keyframeAnimation/keyframe")) == 2
     assert [element.text for element in parsed.findall(".//caption/text/text-style")] == [
         "That was close!"
     ]
@@ -176,6 +203,33 @@ def test_planner_splits_long_caption_into_readable_proportional_cues(tmp_path: P
         assert previous.source_range is not None
         assert current.source_range is not None
         assert previous.source_range.end_seconds == current.source_range.start_seconds
+
+
+def test_reframe_tracker_smooths_motion_and_uses_timeline_offsets() -> None:
+    points = [
+        TrackPoint(
+            source_range=RationalRange.from_seconds(timestamp, 0.5),
+            confidence=0.9,
+            metrics={
+                "spatial_motion": 0.8,
+                "motion_center_x": center_x,
+                "motion_center_y": 0.5,
+            },
+        )
+        for timestamp, center_x in ((10, 0.1), (11, 0.5), (12, 0.9))
+    ]
+
+    keyframes = _tracked_reframe_keyframes(
+        points,
+        TimeRange(start_seconds=10, end_seconds=13),
+        playback_rate=2,
+        confidence=0.8,
+    )
+
+    assert [keyframe.timeline_offset_seconds for keyframe in keyframes] == [0, 0.5, 1]
+    assert keyframes[0].center_x == 0.3
+    assert keyframes[1].center_x == 0.5
+    assert keyframes[2].center_x == 0.7
 
 
 def test_planner_retains_required_story_beat_and_removes_excluded_range(

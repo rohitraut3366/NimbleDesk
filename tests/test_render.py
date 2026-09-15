@@ -14,6 +14,7 @@ from nimbledesk.creative.models import (
     EditPlan,
     EditSegment,
     Evidence,
+    ReframeKeyframe,
     SpeedTreatment,
     TimeRange,
     VisualTreatment,
@@ -56,6 +57,21 @@ def test_render_compiles_speed_interpolation_punch_in_and_dip(
                     lower_third="Rohit",
                     logo_path=logo,
                     logo_position="bottom_right",
+                    reframe_mode="tracked_motion",
+                    reframe_keyframes=(
+                        ReframeKeyframe(
+                            timeline_offset_seconds=0,
+                            center_x=0.2,
+                            center_y=0.4,
+                            confidence=0.8,
+                        ),
+                        ReframeKeyframe(
+                            timeline_offset_seconds=4,
+                            center_x=0.8,
+                            center_y=0.6,
+                            confidence=0.8,
+                        ),
+                    ),
                     rationale="animated emphasis",
                 ),
                 score=1,
@@ -97,6 +113,8 @@ def test_render_compiles_speed_interpolation_punch_in_and_dip(
     filter_graph = commands[0][commands[0].index("-filter_complex") + 1]
     assert "mi_mode=mci" in filter_graph
     assert "zoompan=" in filter_graph
+    assert "if(lt(t,4.000000)" in filter_graph
+    assert "0.200000+(0.800000-0.200000)" in filter_graph
     assert "fade=t=in:st=0:d=0.25" in filter_graph
     assert "atempo=0.500000,atempo=0.500000" in filter_graph
     assert "loudnorm=I=-14.0:LRA=11:TP=-1.5" in filter_graph
@@ -189,6 +207,60 @@ def test_ffmpeg_renders_burned_captions_with_portable_fallback(tmp_path: Path) -
     assert output.with_suffix(".srt").is_file()
     if not renderer._ffmpeg_supports_filter("subtitles"):
         assert (output.parent / "graphics" / "caption-0001.png").is_file()
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_ffmpeg_renders_dynamic_vertical_reframe(tmp_path: Path) -> None:
+    source = tmp_path / "wide-source.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=640x360:rate=24:duration=2",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(source),
+        ],
+        check=True,
+    )
+    plan = _single_segment_plan(source).model_copy(
+        update={"delivery": DeliverySpec(width=320, height=568, frame_rate=24)}
+    )
+    visual = plan.segments[0].visual.model_copy(
+        update={
+            "reframe_mode": "tracked_motion",
+            "reframe_keyframes": (
+                ReframeKeyframe(
+                    timeline_offset_seconds=0,
+                    center_x=0.1,
+                    center_y=0.5,
+                    confidence=0.8,
+                ),
+                ReframeKeyframe(
+                    timeline_offset_seconds=2,
+                    center_x=0.9,
+                    center_y=0.5,
+                    confidence=0.8,
+                ),
+            ),
+        }
+    )
+    plan = plan.model_copy(
+        update={"segments": (plan.segments[0].model_copy(update={"visual": visual}),)}
+    )
+    output = tmp_path / "vertical.mp4"
+
+    renderer.render_edit_plan(plan, output)
+
+    metadata = probe_media(output)
+    assert (metadata.width, metadata.height) == (320, 568)
 
 
 def test_timeline_compiler_builds_video_and_audio_cross_dissolve(tmp_path: Path) -> None:

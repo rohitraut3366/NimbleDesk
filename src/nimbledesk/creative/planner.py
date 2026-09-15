@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import math
 import textwrap
 from pathlib import Path
 from typing import Literal
 
-from nimbledesk.analysis.models import ContentIndex
+from nimbledesk.analysis.models import ContentIndex, TrackPoint
 from nimbledesk.creative.models import (
     AspectRatio,
     CaptionCue,
@@ -15,6 +16,7 @@ from nimbledesk.creative.models import (
     Evidence,
     MusicAsset,
     MusicCue,
+    ReframeKeyframe,
     ReviewItem,
     SoundAsset,
     SpeedTreatment,
@@ -64,9 +66,17 @@ def build_edit_plan(
         )
         evidence.extend(_semantic_evidence(candidate, content_index))
         exposure, saturation, color_reason = _color_treatment(candidate, content_index)
-        reframe_x, reframe_y, reframe_confidence, reframe_mode, reframe_reason = (
+        (
+            reframe_x,
+            reframe_y,
+            reframe_confidence,
+            reframe_mode,
+            reframe_keyframes,
+            reframe_reason,
+        ) = (
             _reframe_treatment(
-                candidate,
+                source_range,
+                rate,
                 content_index,
                 manifest.source.width / manifest.source.height,
                 width / height,
@@ -99,6 +109,7 @@ def build_edit_plan(
                     reframe_center_y=reframe_y,
                     reframe_confidence=reframe_confidence,
                     reframe_mode=reframe_mode,
+                    reframe_keyframes=reframe_keyframes,
                     title=brief.title if role == "hook" else None,
                     lower_third=lower_third,
                     logo_path=brief.brand.logo_path,
@@ -532,24 +543,34 @@ def _color_treatment(
 
 
 def _reframe_treatment(
-    candidate: HighlightCandidate,
+    source_range: TimeRange,
+    playback_rate: float,
     content_index: ContentIndex | None,
     source_ratio: float,
     output_ratio: float,
-) -> tuple[float, float, float, Literal["center", "spatial_motion"], str]:
+) -> tuple[
+    float,
+    float,
+    float,
+    Literal["center", "spatial_motion", "tracked_motion"],
+    tuple[ReframeKeyframe, ...],
+    str,
+]:
     if abs(source_ratio - output_ratio) < 0.05:
-        return 0.5, 0.5, 1, "center", "source already matches the delivery aspect ratio"
+        return 0.5, 0.5, 1, "center", (), "source already matches the delivery aspect ratio"
     if content_index is None:
-        return 0.5, 0.5, 0, "center", "spatial evidence unavailable; use center framing"
+        return 0.5, 0.5, 0, "center", (), "spatial evidence unavailable; use center framing"
     points = [
         point
         for point in content_index.track("color").points
-        if candidate.start_seconds <= point.source_range.start.seconds <= candidate.end_seconds
+        if source_range.start_seconds
+        <= point.source_range.start.seconds
+        <= source_range.end_seconds
         and point.metrics.get("spatial_motion", 0) > 0
     ]
     total_motion = sum(point.metrics["spatial_motion"] for point in points)
     if total_motion < 0.05:
-        return 0.5, 0.5, 0.2, "center", "motion is too weak for a reliable crop anchor"
+        return 0.5, 0.5, 0.2, "center", (), "motion is too weak for a reliable crop anchor"
     center_x = sum(
         point.metrics["motion_center_x"] * point.metrics["spatial_motion"] for point in points
     ) / total_motion
@@ -557,10 +578,63 @@ def _reframe_treatment(
         point.metrics["motion_center_y"] * point.metrics["spatial_motion"] for point in points
     ) / total_motion
     confidence = min(0.95, 0.45 + total_motion / max(1, len(points)))
+    keyframes = _tracked_reframe_keyframes(points, source_range, playback_rate, confidence)
+    mode: Literal["spatial_motion", "tracked_motion"] = (
+        "tracked_motion" if len(keyframes) > 1 else "spatial_motion"
+    )
     return (
         round(center_x, 4),
         round(center_y, 4),
         round(confidence, 4),
-        "spatial_motion",
-        f"anchor reframing to measured motion center ({center_x:.2f}, {center_y:.2f})",
+        mode,
+        keyframes,
+        (
+            f"track measured motion through {len(keyframes)} smoothed crop keyframes"
+            if len(keyframes) > 1
+            else f"anchor reframing to measured motion center ({center_x:.2f}, {center_y:.2f})"
+        ),
+    )
+
+
+def _tracked_reframe_keyframes(
+    points: list[TrackPoint],
+    source_range: TimeRange,
+    playback_rate: float,
+    confidence: float,
+) -> tuple[ReframeKeyframe, ...]:
+    if len(points) < 2:
+        return ()
+    smoothed: list[tuple[float, float, float]] = []
+    for index, point in enumerate(points):
+        neighborhood = points[max(0, index - 1) : min(len(points), index + 2)]
+        motion = sum(item.metrics["spatial_motion"] for item in neighborhood)
+        if motion <= 0:
+            continue
+        center_x = sum(
+            item.metrics["motion_center_x"] * item.metrics["spatial_motion"]
+            for item in neighborhood
+        ) / motion
+        center_y = sum(
+            item.metrics["motion_center_y"] * item.metrics["spatial_motion"]
+            for item in neighborhood
+        ) / motion
+        timestamp = point.source_range.start.seconds
+        smoothed.append((timestamp, center_x, center_y))
+    if len(smoothed) < 2:
+        return ()
+    maximum_keyframes = 12
+    stride = max(1, math.ceil(len(smoothed) / maximum_keyframes))
+    selected = smoothed[::stride]
+    if selected[-1] != smoothed[-1]:
+        selected.append(smoothed[-1])
+    return tuple(
+        ReframeKeyframe(
+            timeline_offset_seconds=round(
+                max(0, timestamp - source_range.start_seconds) / playback_rate, 4
+            ),
+            center_x=round(center_x, 4),
+            center_y=round(center_y, 4),
+            confidence=round(confidence, 4),
+        )
+        for timestamp, center_x, center_y in selected
     )

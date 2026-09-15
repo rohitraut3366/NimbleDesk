@@ -183,6 +183,13 @@ class SpeedTreatment(CreativeModel):
     rationale: str
 
 
+class ReframeKeyframe(CreativeModel):
+    timeline_offset_seconds: Annotated[float, Field(ge=0)]
+    center_x: Annotated[float, Field(ge=0, le=1)]
+    center_y: Annotated[float, Field(ge=0, le=1)]
+    confidence: Annotated[float, Field(ge=0, le=1)]
+
+
 class VisualTreatment(CreativeModel):
     transition_in: Literal["cut", "cross_dissolve", "dip_to_black"] = "cut"
     transition_duration_seconds: Annotated[float, Field(ge=0.1, le=2)] = 0.35
@@ -193,7 +200,8 @@ class VisualTreatment(CreativeModel):
     reframe_center_x: Annotated[float, Field(ge=0, le=1)] = 0.5
     reframe_center_y: Annotated[float, Field(ge=0, le=1)] = 0.5
     reframe_confidence: Annotated[float, Field(ge=0, le=1)] = 0
-    reframe_mode: Literal["center", "spatial_motion"] = "center"
+    reframe_mode: Literal["center", "spatial_motion", "tracked_motion"] = "center"
+    reframe_keyframes: tuple[ReframeKeyframe, ...] = ()
     title: str | None = None
     lower_third: str | None = None
     logo_path: Path | None = None

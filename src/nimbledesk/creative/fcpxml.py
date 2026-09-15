@@ -198,16 +198,30 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
             segment.visual.punch_in_scale != 1
             or segment.visual.reframe_center_x != 0.5
             or segment.visual.reframe_center_y != 0.5
+            or segment.visual.reframe_keyframes
         ):
             scale = segment.visual.punch_in_scale
             horizontal = (0.5 - segment.visual.reframe_center_x) * 100
             vertical = (segment.visual.reframe_center_y - 0.5) * 100
-            ElementTree.SubElement(
+            transform = ElementTree.SubElement(
                 clip,
                 "adjust-transform",
                 scale=f"{scale} {scale}",
                 position=f"{horizontal:.3f} {vertical:.3f}",
             )
+            if len(segment.visual.reframe_keyframes) > 1:
+                position = ElementTree.SubElement(transform, "param", name="position")
+                animation = ElementTree.SubElement(position, "keyframeAnimation")
+                for keyframe in segment.visual.reframe_keyframes:
+                    keyframe_horizontal = (0.5 - keyframe.center_x) * 100
+                    keyframe_vertical = (keyframe.center_y - 0.5) * 100
+                    ElementTree.SubElement(
+                        animation,
+                        "keyframe",
+                        time=_seconds(keyframe.timeline_offset_seconds),
+                        value=f"{keyframe_horizontal:.3f} {keyframe_vertical:.3f}",
+                        interp="linear",
+                    )
         for kind in ("title", "lower_third"):
             graphic = graphic_references.get((segment.segment_id, kind))
             if graphic is None:

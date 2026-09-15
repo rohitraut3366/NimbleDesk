@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from nimbledesk.creative.graphics import GraphicKind, write_text_graphic
-from nimbledesk.creative.models import CaptionCue, EditPlan
+from nimbledesk.creative.models import CaptionCue, EditPlan, ReframeKeyframe
 from nimbledesk.media.ffmpeg import MediaToolError, probe_media, require_media_tools
 from nimbledesk.media.process import run_cancellable
 
@@ -44,13 +44,23 @@ def render_edit_plan(
                 f"minterpolate=fps={plan.delivery.frame_rate:.6f}:"
                 "mi_mode=mci:mc_mode=aobmc:me_mode=bidir"
             )
+        reframe_x = _reframe_expression(
+            segment.visual.reframe_keyframes,
+            "center_x",
+            segment.visual.reframe_center_x,
+        )
+        reframe_y = _reframe_expression(
+            segment.visual.reframe_keyframes,
+            "center_y",
+            segment.visual.reframe_center_y,
+        )
         video_steps.extend(
             (
                 f"scale={plan.delivery.width}:{plan.delivery.height}:"
                 "force_original_aspect_ratio=increase",
                 f"crop={plan.delivery.width}:{plan.delivery.height}:"
-                f"x=(in_w-out_w)*{segment.visual.reframe_center_x:.6f}:"
-                f"y=(in_h-out_h)*{segment.visual.reframe_center_y:.6f}",
+                f"x='(in_w-out_w)*({reframe_x})':"
+                f"y='(in_h-out_h)*({reframe_y})'",
                 color_filter,
             )
         )
@@ -275,6 +285,35 @@ def render_edit_plan(
         raise MediaToolError(completed.stderr.strip() or "creative render failed")
     probe_media(output_path)
     return output_path
+
+
+def _reframe_expression(
+    keyframes: tuple[ReframeKeyframe, ...],
+    coordinate: str,
+    fallback: float,
+) -> str:
+    if len(keyframes) < 2:
+        return f"{fallback:.6f}"
+    values = [float(getattr(keyframe, coordinate)) for keyframe in keyframes]
+    expression = f"{values[-1]:.6f}"
+    for index in range(len(keyframes) - 2, -1, -1):
+        current = keyframes[index]
+        following = keyframes[index + 1]
+        duration = following.timeline_offset_seconds - current.timeline_offset_seconds
+        if duration <= 0:
+            continue
+        start = current.timeline_offset_seconds
+        value = values[index]
+        next_value = values[index + 1]
+        interpolated = (
+            f"{value:.6f}+({next_value:.6f}-{value:.6f})*"
+            f"max(0,min(1,(t-{start:.6f})/{duration:.6f}))"
+        )
+        expression = (
+            f"if(lt(t,{following.timeline_offset_seconds:.6f}),"
+            f"{interpolated},{expression})"
+        )
+    return expression
 
 
 def write_srt(cues: tuple[CaptionCue, ...], output_path: Path) -> None:
