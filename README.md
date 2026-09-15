@@ -194,6 +194,17 @@ The optional crop uses FFmpeg's `crop=width:height:x:y` expression and should co
 
 NimbleDesk only selects tracks declared in a user-supplied catalog. Use absolute paths so DaVinci can resolve the media:
 
+Create a catalog from one track or a directory of AAC, FLAC, M4A, MP3, OGG, or WAV files:
+
+```bash
+uv run nimbledesk-music-index music/ music.json \
+  --license "user-owned; worldwide social usage" \
+  --mood exciting \
+  --mood tense
+```
+
+Use `--attribution` when the license requires a credit and `--contains-vocals` for songs with vocals. The indexer decodes audio locally, measures duration and energy, estimates tempo when the rhythmic signal is strong enough, infers broad energy/mood tags, and preserves every declared license field. It scans subdirectories and never modifies music sources. Catalog-relative paths and absolute paths are both supported.
+
 ```json
 [
   {

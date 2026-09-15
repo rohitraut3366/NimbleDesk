@@ -12,11 +12,16 @@ def load_music_catalog(path: Path | None) -> tuple[MusicAsset, ...]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, list):
         raise ValueError("music catalog must contain a JSON list")
-    assets = tuple(MusicAsset.model_validate(item) for item in payload)
-    missing = [str(asset.path) for asset in assets if not asset.path.expanduser().is_file()]
+    assets = tuple(_resolve_asset(MusicAsset.model_validate(item), path.parent) for item in payload)
+    missing = [str(asset.path) for asset in assets if not asset.path.is_file()]
     if missing:
         raise FileNotFoundError("music files do not exist: " + ", ".join(missing))
     return assets
+
+
+def _resolve_asset(asset: MusicAsset, catalog_directory: Path) -> MusicAsset:
+    asset_path = asset.path if asset.path.is_absolute() else catalog_directory / asset.path
+    return asset.model_copy(update={"path": asset_path.expanduser().resolve()})
 
 
 def recommend_music(
