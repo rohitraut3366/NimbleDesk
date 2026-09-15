@@ -67,7 +67,7 @@ class DaemonTransport:
 
     def _dispatch(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if method == "health":
-            return {"status": "ok"}
+            return self._runtime.health()
         if method == "session_start":
             session = self._runtime.start_session(
                 reason=str(params["reason"]),

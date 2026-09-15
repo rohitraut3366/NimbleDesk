@@ -13,6 +13,7 @@ from nimbledesk.creative.music_cli import main as music_main
 from nimbledesk.creative.revision_cli import main as revise_main
 from nimbledesk.daemon.approval_cli import main as approve_main
 from nimbledesk.daemon.server import main as daemon_main
+from nimbledesk.diagnostics import main as diagnostics_main
 from nimbledesk.gateway.server import main as gateway_main
 from nimbledesk.media.cli import main as highlights_main
 from nimbledesk.media.photo_cli import main as photos_main
@@ -32,6 +33,7 @@ COMMANDS: dict[str, Callable[[], None]] = {
     "approve": approve_main,
     "smoke": smoke_main,
     "service": service_main,
+    "diagnostics": diagnostics_main,
 }
 
 

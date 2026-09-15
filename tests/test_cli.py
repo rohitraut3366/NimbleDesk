@@ -16,3 +16,7 @@ def test_unified_cli_dispatches_component_arguments(monkeypatch: MonkeyPatch) ->
 
 def test_unified_cli_lists_service_management() -> None:
     assert "service" in cli.COMMANDS
+
+
+def test_unified_cli_lists_diagnostics() -> None:
+    assert "diagnostics" in cli.COMMANDS

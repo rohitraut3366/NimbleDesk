@@ -16,11 +16,17 @@ nimbledesk approve ...
 nimbledesk smoke ...
 nimbledesk service install
 nimbledesk service uninstall
+nimbledesk diagnostics --output nimbledesk-diagnostics.zip
 ```
 
 `nimbledesk start` launches the local authenticated daemon, waits for its fresh connection file, runs Studio on loopback, and terminates the daemon when Studio exits. Model clients should run `nimbledesk mcp` and use the same connection file.
 
 `nimbledesk service install` configures the daemon for the current user only: a LaunchAgent on macOS, a systemd user unit on Linux, or a limited-privilege logon task on Windows. It starts the service immediately and restarts it after failures or later logins. `nimbledesk service uninstall` stops and removes that registration without deleting projects, configuration, or audit data.
+
+`nimbledesk diagnostics` creates a privacy-safe ZIP containing platform and bundled-runtime versions,
+optional tool availability, loopback daemon health and backend capabilities, connection-file
+permission checks, hash-chain health and aggregate action statuses, and aggregate job states. It
+never includes connection secrets, paths, screenshots, media, transcripts, typed text, or raw logs.
 
 Build a platform archive on that platform:
 

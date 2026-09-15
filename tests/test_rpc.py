@@ -63,7 +63,9 @@ async def test_client_reaches_runtime_through_authenticated_transport() -> None:
             },
         )
 
-    assert health == {"status": "ok"}
+    assert health["status"] == "ok"
+    assert health["backend"] == "simulator"
+    assert "screen_capture" in health["capabilities"]
     assert observation["platform"] == "simulator"
     assert capture["mime_type"] == "image/jpeg"
 

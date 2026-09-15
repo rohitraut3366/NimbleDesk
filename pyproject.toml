@@ -46,6 +46,7 @@ nimbledesk-ui = "nimbledesk.ui.server:main"
 nimbledesk-music-index = "nimbledesk.creative.music_cli:main"
 nimbledesk-revise = "nimbledesk.creative.revision_cli:main"
 nimbledesk-approve = "nimbledesk.daemon.approval_cli:main"
+nimbledesk-diagnostics = "nimbledesk.diagnostics:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nimbledesk"]

@@ -52,6 +52,17 @@ class DesktopRuntime:
         self._observations: dict[str, DesktopObservation] = {}
         self._observation_history: dict[str, dict[str, DesktopObservation]] = {}
 
+    def health(self) -> dict[str, object]:
+        capabilities = set(self._backend.capabilities)
+        if self._ocr_provider is not None and self._ocr_provider.available:
+            capabilities.add(Capability.OCR)
+        return {
+            "status": "ok",
+            "backend": self._backend.backend_id,
+            "capabilities": sorted(capability.value for capability in capabilities),
+            "ocr_available": Capability.OCR in capabilities,
+        }
+
     def start_session(self, reason: str, config: SessionConfig) -> Session:
         return self._sessions.start(reason, config)
 
