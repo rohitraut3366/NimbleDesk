@@ -89,6 +89,8 @@ def test_render_compiles_speed_interpolation_punch_in_and_dip(
     assert "zoompan=" in filter_graph
     assert "fade=t=in:st=0:d=0.25" in filter_graph
     assert "atempo=0.500000,atempo=0.500000" in filter_graph
+    assert "loudnorm=I=-14.0:LRA=11:TP=-1.5" in filter_graph
+    assert "alimiter=limit=0.95" in filter_graph
     assert filter_graph.count("overlay=0:0") == 2
     assert (tmp_path / "graphics" / "segment-001-title.png").is_file()
     assert (tmp_path / "graphics" / "segment-001-lower-third.png").is_file()

@@ -105,6 +105,8 @@ Every creation fingerprints the source and builds time-aligned motion, spatial m
 
 The index adapts its coarse sampling rate for recordings over 30 minutes and over two hours. Tracks are written atomically under `analysis/index`. Re-running the same output reuses unchanged tracks. Changing a transcript or event file rebuilds the semantic track while retaining valid motion, audio, color, and shot analysis. Changing the source fingerprint invalidates dependent tracks. Source media is always read-only.
 
+The final dialogue, licensed music, and sound-effect mix is mastered to the delivery plan's integrated loudness target (−14 LUFS by default), constrained to −1.5 dB true peak, and limited before AAC encoding. Music is still ducked from the measured dialogue signal before mastering.
+
 ### Validate and revise a plan
 
 Every newly generated plan is validated before NimbleDesk exports a timeline or starts a render. Execution stops when a source range exceeds the indexed asset, timeline segments overlap or leave gaps, the target duration is exceeded, captions or music exceed their bounds, a music file/license is unavailable, or a blocking review item remains. Warnings and measured duration are retained in `validation.json`.

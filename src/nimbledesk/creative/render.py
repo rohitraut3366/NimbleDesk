@@ -206,6 +206,11 @@ def render_edit_plan(
             + f"amix=inputs={len(sound_labels) + 1}:duration=first:normalize=0[afinal]"
         )
         audio_output = "[afinal]"
+    filters.append(
+        f"{audio_output}loudnorm=I={plan.delivery.audio_loudness_lufs:.1f}:"
+        "LRA=11:TP=-1.5,alimiter=limit=0.95:attack=5:release=50[amaster]"
+    )
+    audio_output = "[amaster]"
     command.extend(
         [
             "-filter_complex",
