@@ -35,6 +35,11 @@ def parse_args() -> argparse.Namespace:
         "--game-ocr", action="store_true", help="Detect game events with Tesseract OCR"
     )
     parser.add_argument("--game-pack", type=Path, help="Custom game OCR pack JSON")
+    parser.add_argument(
+        "--vision-provider",
+        type=Path,
+        help="Semantic vision provider configuration JSON",
+    )
     parser.add_argument("--transcript", type=Path, help="Supplied transcript segment JSON")
     parser.add_argument(
         "--transcribe", action="store_true", help="Transcribe with the local Whisper CLI"
@@ -82,6 +87,7 @@ def main() -> None:
         supplied_events=arguments.events,
         automatic_game_ocr=arguments.game_ocr,
         game_pack=arguments.game_pack,
+        vision_provider=arguments.vision_provider,
         supplied_transcript=arguments.transcript,
         automatic_transcription=arguments.transcribe,
         whisper_model=arguments.whisper_model,
@@ -102,6 +108,9 @@ def main() -> None:
                 "render": str(result.render_path) if result.render_path else None,
                 "transcript": str(result.transcript_path) if result.transcript_path else None,
                 "events": str(result.events_path) if result.events_path else None,
+                "vision_analysis": (
+                    str(result.vision_analysis_path) if result.vision_analysis_path else None
+                ),
                 "duration_seconds": result.plan.duration_seconds,
                 "review_items": [item.model_dump() for item in result.plan.review_items],
                 "davinci": result.davinci.model_dump(mode="json") if result.davinci else None,

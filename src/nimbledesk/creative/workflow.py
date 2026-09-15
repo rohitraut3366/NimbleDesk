@@ -25,6 +25,7 @@ from nimbledesk.creative.validation import (
     validate_edit_plan,
     write_validation_report,
 )
+from nimbledesk.creative.vision import analyze_with_vision_provider
 from nimbledesk.media.models import AnalysisConfig, TimelineEvent
 from nimbledesk.media.pipeline import HighlightPipeline, load_events
 
@@ -40,6 +41,7 @@ class CreationResult(BaseModel):
     render_path: Path | None
     transcript_path: Path | None
     events_path: Path | None
+    vision_analysis_path: Path | None
     davinci: DaVinciResult | None = None
     plan: EditPlan
 
@@ -54,6 +56,7 @@ class CreationWorkflow:
         supplied_events: Path | None = None,
         automatic_game_ocr: bool = False,
         game_pack: Path | None = None,
+        vision_provider: Path | None = None,
         supplied_transcript: Path | None = None,
         automatic_transcription: bool = False,
         whisper_model: str = "small",
@@ -78,6 +81,19 @@ class CreationWorkflow:
                     source, load_game_pack(game_pack), cancelled=token.is_cancelled
                 )
             )
+        vision_analysis_path = None
+        if vision_provider:
+            report("analyzing semantic vision", 0.1)
+            vision_directory = output_directory / "analysis" / "vision"
+            vision = analyze_with_vision_provider(
+                source,
+                vision_directory,
+                vision_provider,
+                brief.content_kind.value,
+                cancelled=token.is_cancelled,
+            )
+            events.extend(vision.timeline_events())
+            vision_analysis_path = vision_directory / "analysis.json"
         merged_events = _merge_events(tuple(events))
 
         report("transcribing dialogue", 0.15)
@@ -163,6 +179,7 @@ class CreationWorkflow:
             render_path=render_path,
             transcript_path=transcript_path,
             events_path=events_path,
+            vision_analysis_path=vision_analysis_path,
             davinci=davinci,
             plan=plan,
         )

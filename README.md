@@ -80,6 +80,7 @@ uv run nimbledesk-create gameplay.mp4 output/my-video \
   --pace fast \
   --mood exciting \
   --game-ocr \
+  --vision-provider vision-provider.json \
   --transcribe \
   --music-catalog music.json
 ```
@@ -94,10 +95,29 @@ The command never changes the source. Its output directory contains:
 - `graphics/`: transparent title and speaker lower-third cards used by the review render and imported timeline.
 - `transcript.json`: normalized transcript when speech is available.
 - `detected_events.json`: merged automatic and supplied events.
+- `analysis/vision/analysis.json`: accepted multimodal semantic events with provider, model, confidence, and configuration provenance when a vision provider is configured.
 - `analysis/index/content_index.json`: persistent rational-time analysis tracks, semantic moments, provenance, analyzer versions, and cache-hit metadata.
 - `analysis/`: ranked intermediate clips and `highlights.json`.
 
 With `content_kind=auto`, detected gameplay events select gameplay treatment, an available transcript selects talking-head treatment, and other footage uses the general vlog treatment. Mandatory event types are hard constraints: creation stops if they are absent. Excluded event types are removed before ranking.
+
+### Model-pluggable semantic vision
+
+OCR remains useful for kill-feed text, but it cannot reliably understand a grenade throw, a near-death escape, an emotional reaction, or the narrative meaning of a visual sequence. Configure a multimodal provider command to add those events:
+
+```json
+{
+  "provider_id": "my-vision-worker",
+  "model": "configured-multimodal-model",
+  "command": ["/absolute/path/to/worker", "{request}", "{response}"],
+  "sample_interval_seconds": 4,
+  "maximum_frames": 48,
+  "timeout_seconds": 300,
+  "minimum_confidence": 0.65
+}
+```
+
+NimbleDesk extracts at most the configured number of 640-pixel samples and packs twelve timestamped frames into each contact sheet. The worker receives the request JSON path and response JSON path as separate arguments without a shell. It must write `{"events":[{"time_seconds":12,"event_type":"grenade_kill","label":"Grenade double kill","confidence":0.91,"evidence":"throw, explosion, and two elimination markers"}]}`. Responses are schema-validated, limited to one megabyte, filtered by confidence, merged with OCR and supplied events, and retained with provenance. This bounded contact-sheet protocol keeps image-token use predictable and lets local models, hosted APIs, or future providers implement the same contract.
 
 ### Persistent long-form analysis
 
