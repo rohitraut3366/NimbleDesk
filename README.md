@@ -50,7 +50,7 @@ Configure an MCP client in a second process:
 }
 ```
 
-Implemented MCP tools are `health`, `session_start`, `desktop_observe`, `take_screenshot`, `click`, `session_pause`, and `session_stop`.
+Implemented MCP tools cover health, session start/pause/resume/stop, observation, screenshots, mouse movement, clicks, dragging, scrolling, text entry, key presses, hotkeys, and bounded waits.
 
 ## Enable the portable desktop backend
 
