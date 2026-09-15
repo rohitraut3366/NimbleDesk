@@ -23,6 +23,7 @@ from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Respon
 from starlette.routing import Route
 
 from nimbledesk.client import DaemonClient
+from nimbledesk.creative.automatic import AutomaticIntelligenceReport
 from nimbledesk.creative.cancellation import CancellationToken
 from nimbledesk.creative.davinci import execute_davinci_isolated
 from nimbledesk.creative.fcpxml import export_fcpxml
@@ -162,6 +163,7 @@ class JobRecord:
             response = self.state.model_dump(mode="json")
             response["artifacts"] = _artifact_catalog(self.state)
             response["variant_options"] = _variant_options(self.state)
+            response["automatic_capabilities"] = _automatic_capabilities(self.state)
             return response
 
 
@@ -704,6 +706,7 @@ def _artifact_paths(state: PersistedJob) -> dict[str, Path]:
             "transcript": result.transcript_path,
             "events": result.events_path,
             "vision-analysis": result.vision_analysis_path,
+            "automatic-intelligence": result.automatic_intelligence_path,
             "cue-sheet": result.cue_sheet_path,
             "cue-sheet-csv": result.cue_sheet_csv_path,
             "variant-comparison": result.variant_comparison_path,
@@ -789,6 +792,21 @@ def _variant_options(state: PersistedJob) -> list[dict[str, object]]:
         }
         for variant in comparison.variants
     ]
+
+
+def _automatic_capabilities(state: PersistedJob) -> list[dict[str, object]]:
+    if not isinstance(state.result, CreationResult):
+        return []
+    path = state.result.automatic_intelligence_path
+    if path is None or not path.is_file():
+        return []
+    try:
+        report = AutomaticIntelligenceReport.model_validate_json(
+            path.read_text(encoding="utf-8")
+        )
+    except Exception:
+        return []
+    return [capability.model_dump(mode="json") for capability in report.capabilities]
 
 
 app = Starlette(
@@ -1080,7 +1098,11 @@ function jobOutputs(job){if(!job.result)return '';
   const variantPanel=variants?`<details><summary>Compare and select edit variants</summary>
     <div class="variants">${variants}</div></details>`:'';
   const selected=job.kind==='photo'?`<p>Selected <strong>${job.result.selected.length}</strong> photos</p>`:'';
-  return `${preview}${selected}<div class="artifact-links">${links}</div>${variantPanel}${revisionPanel(job)}`;}
+  const capabilities=(job.automatic_capabilities||[]).map(item=>`<li><strong>${h(item.capability)}</strong>
+    · ${h(item.status)} — ${h(item.detail)}</li>`).join('');
+  const intelligence=capabilities?`<details><summary>Automatic intelligence decisions</summary>
+    <ul>${capabilities}</ul></details>`:'';
+  return `${preview}${selected}<div class="artifact-links">${links}</div>${intelligence}${variantPanel}${revisionPanel(job)}`;}
 async function refresh(){const response=await fetch('/api/jobs');const data=await response.json();
   jobs.innerHTML=data.jobs.map(job=>`<article><strong>${h(job.kind)}</strong> · <strong>${h(job.status)}</strong> · ${h(job.stage)}
     <progress value="${job.progress}" max="1"></progress>

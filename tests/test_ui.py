@@ -9,6 +9,7 @@ from pytest import MonkeyPatch
 from starlette.testclient import TestClient
 
 import nimbledesk.ui.server as ui
+from nimbledesk.creative.automatic import AutomaticCapability, AutomaticIntelligenceReport
 from nimbledesk.creative.cancellation import CancellationToken
 from nimbledesk.creative.models import (
     CreativeBrief,
@@ -46,6 +47,69 @@ def test_studio_enables_automatic_intelligence_by_default(tmp_path: Path) -> Non
     )
 
     assert request.automatic_intelligence
+
+
+def test_completed_job_exposes_automatic_decisions_and_artifact(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"fixture")
+    output = tmp_path / "output"
+    output.mkdir()
+    generated = {
+        name: output / name
+        for name in ("content-index.json", "plan.json", "validation.json", "timeline.fcpxml")
+    }
+    for path in generated.values():
+        path.write_text("{}", encoding="utf-8")
+    automatic_path = output / "automatic_intelligence.json"
+    automatic_path.write_text(
+        AutomaticIntelligenceReport(
+            enabled=True,
+            capabilities=(
+                AutomaticCapability(
+                    capability="transcription",
+                    status="enabled",
+                    detail="local Whisper is available",
+                ),
+            ),
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    plan = _fixture_plan(source)
+    state = PersistedJob(
+        job_id="automatic-job",
+        request=CreateJobRequest(source=source, output_directory=output, brief=plan.brief),
+        status="completed",
+        stage="completed",
+        progress=1,
+        result=CreationResult(
+            output_directory=output,
+            content_index_path=generated["content-index.json"],
+            plan_path=generated["plan.json"],
+            validation_path=generated["validation.json"],
+            timeline_path=generated["timeline.fcpxml"],
+            render_path=None,
+            transcript_path=None,
+            events_path=None,
+            vision_analysis_path=None,
+            automatic_intelligence_path=automatic_path,
+            plan=plan,
+        ),
+        created_at=1,
+        updated_at=2,
+    )
+
+    response = JobRecord(state=state).response()
+
+    assert response["automatic_capabilities"] == [
+        {
+            "capability": "transcription",
+            "status": "enabled",
+            "detail": "local Whisper is available",
+        }
+    ]
+    assert any(
+        artifact["name"] == "automatic-intelligence" for artifact in response["artifacts"]
+    )
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
