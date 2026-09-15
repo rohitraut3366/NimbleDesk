@@ -52,6 +52,11 @@ artifacts exist:
 5. Signed public installers plus install/update/rollback/uninstall reports.
 6. Windows third-party adapter isolation.
 
+Run `nimbledesk qualify release-example` to create the evidence manifest and `nimbledesk qualify
+release` to validate the physical target, eight-hour endurance, DaVinci 20.x, and representative
+corpus reports as one machine-readable gate. Signing and Windows AppContainer evidence remain
+separate external/security gates until their platform contracts are implemented.
+
 Use the exact qualification commands in `docs/TESTING.md`. Store generated reports outside the
 repository when they contain private machine or media details; publish sanitized summaries with the
 release.

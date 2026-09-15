@@ -118,6 +118,21 @@ Use the target IDs and minimum corpus mix declared in [SUPPORT.md](SUPPORT.md). 
 `--corpus-id` and `--source-duration-seconds` to both `nimbledesk qualify events` and
 `nimbledesk qualify ranking`; the identifiers must match for reports derived from the same source.
 
+Generate the complete evidence manifest, replace its paths with reports collected from each target,
+and run the release gate:
+
+```bash
+nimbledesk qualify release-example --output release-evidence/manifest.json
+nimbledesk qualify release \
+  --manifest release-evidence/manifest.json \
+  --output release-evidence/report.json
+```
+
+The command exits nonzero for missing targets, mismatched OS/desktop/session identity, a Resolve
+version outside 20.x, an endurance run shorter than eight hours or without capture and input,
+unpaired corpus reports, less than eight hours of source material, a missing required corpus kind,
+or metrics below the thresholds stored in the manifest.
+
 ## 5. Media intelligence and creative quality
 
 Generated and licensed evaluation corpora contain labeled shots, speech, silence, music, kills, clutches, reactions, duplicate moments, photo bursts, technical defects, and known story structure. Automated metrics cover event precision/recall, boundary error, ranking quality, diversity, context retention, caption accuracy, loudness, color, pacing constraints, and render correctness.

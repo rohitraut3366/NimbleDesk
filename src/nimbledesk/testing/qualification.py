@@ -440,11 +440,33 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     endurance.add_argument("--capture-every", type=int, default=12)
     endurance.add_argument("--input-every", type=int)
     endurance.add_argument("--output", type=Path)
+    release = commands.add_parser("release", help="verify the complete physical release evidence")
+    release.add_argument("--manifest", required=True, type=Path)
+    release.add_argument("--output", required=True, type=Path)
+    example = commands.add_parser("release-example", help="write a release evidence manifest")
+    example.add_argument("--output", required=True, type=Path)
     return parser.parse_args(arguments)
 
 
 def main(arguments: list[str] | None = None) -> None:
     parsed = parse_args(arguments)
+    if parsed.command in {"release", "release-example"}:
+        from nimbledesk.testing.release_evidence import (
+            evaluate_release_manifest,
+            write_example_manifest,
+            write_release_evidence_report,
+        )
+
+        if parsed.command == "release-example":
+            write_example_manifest(parsed.output)
+            print(parsed.output)
+            return
+        release_report = evaluate_release_manifest(parsed.manifest)
+        write_release_evidence_report(release_report, parsed.output)
+        print(json.dumps({"report": str(parsed.output), "passed": release_report.passed}))
+        if not release_report.passed:
+            raise SystemExit(1)
+        return
     report: QualificationModel
     if parsed.command == "events":
         report = benchmark_events(
