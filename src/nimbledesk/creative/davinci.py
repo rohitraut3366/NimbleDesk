@@ -178,7 +178,9 @@ def execute_in_davinci(
     )
     if timeline is None:
         raise DaVinciError("DaVinci Resolve could not import the generated FCPXML timeline")
-    project.SetCurrentTimeline(timeline)
+    if not project.SetCurrentTimeline(timeline):
+        raise DaVinciError("DaVinci Resolve could not activate the imported timeline")
+    _validate_and_apply_timeline(timeline, plan)
     timeline_name = str(timeline.GetName())
     if not render:
         return DaVinciResult(project_name=str(project.GetName()), timeline_name=timeline_name)
@@ -197,6 +199,8 @@ def execute_in_davinci(
         "AudioSampleRate": 48_000,
         "AudioBitDepth": 24,
     }
+    if plan.captions:
+        settings.update({"ExportSubtitle": True, "SubtitleFormat": "BurnIn"})
     if not project.SetRenderSettings(settings):
         raise DaVinciError("DaVinci Resolve rejected the render settings")
     job_id = project.AddRenderJob()
@@ -225,6 +229,45 @@ def execute_in_davinci(
         render_job_id=str(job_id),
         render_path=render_path,
     )
+
+
+def _validate_and_apply_timeline(timeline: Any, plan: EditPlan) -> None:
+    try:
+        video_tracks = int(timeline.GetTrackCount("video"))
+        primary_items = list(timeline.GetItemListInTrack("video", 1))
+    except (AttributeError, TypeError, ValueError) as error:
+        raise DaVinciError("DaVinci Resolve did not expose the imported video timeline") from error
+    if video_tracks < 1 or len(primary_items) < len(plan.segments):
+        raise DaVinciError(
+            "DaVinci Resolve imported fewer primary video clips than the approved edit plan"
+        )
+    for item, segment in zip(primary_items, plan.segments, strict=False):
+        exposure_scale = 2 ** segment.visual.exposure_adjustment_stops
+        cdl = {
+            "NodeIndex": "1",
+            "Slope": f"{exposure_scale:.6f} {exposure_scale:.6f} {exposure_scale:.6f}",
+            "Offset": "0 0 0",
+            "Power": "1 1 1",
+            "Saturation": f"{segment.visual.saturation_multiplier:.6f}",
+        }
+        try:
+            applied = item.SetCDL(cdl)
+        except AttributeError as error:
+            raise DaVinciError("DaVinci Resolve does not expose timeline color controls") from error
+        if not applied:
+            raise DaVinciError(f"DaVinci Resolve rejected color for {segment.segment_id}")
+    if plan.captions:
+        try:
+            subtitle_count = sum(
+                len(timeline.GetItemListInTrack("subtitle", track_index))
+                for track_index in range(1, int(timeline.GetTrackCount("subtitle")) + 1)
+            )
+        except (AttributeError, TypeError, ValueError) as error:
+            raise DaVinciError("DaVinci Resolve did not expose imported captions") from error
+        if subtitle_count < len(plan.captions):
+            raise DaVinciError(
+                "DaVinci Resolve imported fewer captions than the approved edit plan"
+            )
 
 
 def _default_module_paths() -> list[Path]:

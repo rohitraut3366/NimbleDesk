@@ -85,6 +85,18 @@ def test_planner_builds_treatments_captions_music_and_davinci_timeline(tmp_path:
     )
 
     plan = build_edit_plan(manifest, brief, (transcript,), (music,))
+    incoming = plan.segments[1].model_copy(
+        update={
+            "timeline_start_seconds": (
+                plan.segments[1].timeline_start_seconds
+                - plan.segments[1].visual.transition_duration_seconds
+            ),
+            "visual": plan.segments[1].visual.model_copy(
+                update={"transition_in": "cross_dissolve"}
+            ),
+        }
+    )
+    plan = plan.model_copy(update={"segments": (plan.segments[0], incoming)})
     timeline = export_fcpxml(plan, tmp_path / "timeline.fcpxml")
 
     assert len(plan.segments) == 2
@@ -99,6 +111,10 @@ def test_planner_builds_treatments_captions_music_and_davinci_timeline(tmp_path:
     parsed = ElementTree.parse(timeline)
     assert parsed.find(".//project").attrib["name"] == "Best round"
     assert len(parsed.findall(".//asset-clip")) == 7
+    assert parsed.find(".//transition/filter-video") is not None
+    assert [element.text for element in parsed.findall(".//caption/text/text-style")] == [
+        "That was close!"
+    ]
     assert (tmp_path / "graphics" / "segment-001-title.png").is_file()
     assert (tmp_path / "graphics" / "segment-001-lower-third.png").is_file()
     assert (tmp_path / "graphics" / "brand-logo.png").is_file()

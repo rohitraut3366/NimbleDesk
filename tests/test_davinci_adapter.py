@@ -6,6 +6,7 @@ import pytest
 
 from nimbledesk.creative.davinci import execute_davinci_isolated, execute_in_davinci
 from nimbledesk.creative.models import (
+    CaptionCue,
     CreativeBrief,
     DeliverySpec,
     EditPlan,
@@ -18,19 +19,43 @@ from nimbledesk.creative.models import (
 from nimbledesk.media.process import ProcessCancelled
 
 
+class FakeTimelineItem:
+    def __init__(self) -> None:
+        self.cdl: dict[str, str] | None = None
+
+    def SetCDL(self, cdl: dict[str, str]) -> bool:
+        self.cdl = cdl
+        return True
+
+
 class FakeTimeline:
+    def __init__(self) -> None:
+        self.primary_items = [FakeTimelineItem()]
+        self.subtitle_items = [FakeTimelineItem()]
+
     def GetName(self) -> str:
         return "Imported timeline"
+
+    def GetTrackCount(self, track_type: str) -> int:
+        return 1 if track_type in {"video", "subtitle"} else 0
+
+    def GetItemListInTrack(self, track_type: str, index: int) -> list[FakeTimelineItem]:
+        if track_type == "video" and index == 1:
+            return self.primary_items
+        if track_type == "subtitle" and index == 1:
+            return self.subtitle_items
+        return []
 
 
 class FakeMediaPool:
     def __init__(self) -> None:
         self.imported: Path | None = None
+        self.timeline = FakeTimeline()
 
     def ImportTimelineFromFile(self, path: str, options: dict[str, Any]) -> FakeTimeline:
         self.imported = Path(path)
         assert options["importSourceClips"] is True
-        return FakeTimeline()
+        return self.timeline
 
 
 class FakeProject:
@@ -106,7 +131,7 @@ def test_davinci_adapter_imports_timeline_and_validates_render(tmp_path: Path) -
     source_range = TimeRange(start_seconds=1, end_seconds=3)
     plan = EditPlan(
         source_path=tmp_path / "source.mp4",
-        brief=CreativeBrief(title="Fixture project", captions=False, music=False),
+        brief=CreativeBrief(title="Fixture project", captions=True, music=False),
         segments=(
             EditSegment(
                 segment_id="segment-001",
@@ -128,6 +153,14 @@ def test_davinci_adapter_imports_timeline_and_validates_render(tmp_path: Path) -
                 ),
             ),
         ),
+        captions=(
+            CaptionCue(
+                timeline_range=TimeRange(start_seconds=0, end_seconds=1),
+                text="Editable caption",
+                segment_id="segment-001",
+                source_range=TimeRange(start_seconds=1, end_seconds=2),
+            ),
+        ),
         delivery=DeliverySpec(width=1920, height=1080, frame_rate=30),
     )
     timeline_path = tmp_path / "timeline.fcpxml"
@@ -140,6 +173,15 @@ def test_davinci_adapter_imports_timeline_and_validates_render(tmp_path: Path) -
     assert result.timeline_name == "Imported timeline"
     assert result.render_job_id == "job-1"
     assert result.render_path == tmp_path / "davinci-final.mp4"
+    assert project.settings["ExportSubtitle"] is True
+    assert project.settings["SubtitleFormat"] == "BurnIn"
+    assert project.media_pool.timeline.primary_items[0].cdl == {
+        "NodeIndex": "1",
+        "Slope": "1.000000 1.000000 1.000000",
+        "Offset": "0 0 0",
+        "Power": "1 1 1",
+        "Saturation": "1.000000",
+    }
 
 
 def test_davinci_adapter_stops_active_render_when_cancelled(tmp_path: Path) -> None:

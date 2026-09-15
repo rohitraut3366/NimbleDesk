@@ -34,6 +34,19 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
         hasAudio="1",
         format="r1",
     )
+    dissolve_reference: str | None = None
+    if any(segment.visual.transition_in == "cross_dissolve" for segment in plan.segments):
+        dissolve_reference = "r-transition-dissolve"
+        ElementTree.SubElement(
+            resources,
+            "effect",
+            id=dissolve_reference,
+            name="Cross Dissolve",
+            uid=(
+                ".../Transitions.localized/Dissolves.localized/"
+                "Cross Dissolve.localized/Cross Dissolve.motr"
+            ),
+        )
     music_references: list[str] = []
     next_resource = 3
     for music_cue in plan.all_music_cues:
@@ -153,6 +166,15 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
     )
     spine = ElementTree.SubElement(sequence, "spine")
     for segment in plan.segments:
+        if segment.visual.transition_in == "cross_dissolve" and dissolve_reference:
+            transition = ElementTree.SubElement(
+                spine,
+                "transition",
+                name="Cross Dissolve",
+                offset=_seconds(segment.timeline_start_seconds),
+                duration=_seconds(segment.visual.transition_duration_seconds),
+            )
+            ElementTree.SubElement(transition, "filter-video", ref=dissolve_reference)
         clip = ElementTree.SubElement(
             spine,
             "asset-clip",
@@ -212,6 +234,32 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
                 start="0s",
                 duration=_seconds(segment.timeline_duration_seconds),
             )
+    for index, caption in enumerate(plan.captions, start=1):
+        caption_element = ElementTree.SubElement(
+            spine,
+            "caption",
+            name=f"Caption {index}",
+            lane="3",
+            offset=_seconds(caption.timeline_range.start_seconds),
+            start="0s",
+            duration=_seconds(caption.timeline_range.duration_seconds),
+            role="captions",
+        )
+        caption_text_element = ElementTree.SubElement(caption_element, "text")
+        style_id = f"caption-style-{index}"
+        styled_text = ElementTree.SubElement(caption_text_element, "text-style", ref=style_id)
+        styled_text.text = caption.text
+        style_definition = ElementTree.SubElement(
+            caption_element, "text-style-def", id=style_id
+        )
+        ElementTree.SubElement(
+            style_definition,
+            "text-style",
+            font="Arial",
+            fontSize="48",
+            fontColor="1 1 1 1",
+            alignment="center",
+        )
     for music_reference, music_cue in zip(
         music_references, plan.all_music_cues, strict=True
     ):
