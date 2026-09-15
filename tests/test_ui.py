@@ -48,6 +48,8 @@ def test_console_serves_creation_form_and_rejects_missing_source(tmp_path: Path)
     assert "NimbleDesk Studio" in page.text
     assert "Review and revise" in page.text
     assert "Actions awaiting your approval" in page.text
+    assert "Semantic vision provider JSON" in page.text
+    assert "Required event types" in page.text
     assert response.status_code == 400
     assert "does not exist" in response.json()["error"]
 

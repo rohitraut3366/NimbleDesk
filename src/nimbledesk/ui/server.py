@@ -46,6 +46,7 @@ class CreateJobRequest(BaseModel):
     events: Path | None = None
     game_ocr: bool = False
     game_pack: Path | None = None
+    vision_provider: Path | None = None
     transcript: Path | None = None
     transcribe: bool = False
     whisper_model: str = "small"
@@ -280,6 +281,7 @@ class JobService:
                     supplied_events=request.events,
                     automatic_game_ocr=request.game_ocr,
                     game_pack=request.game_pack,
+                    vision_provider=request.vision_provider,
                     supplied_transcript=request.transcript,
                     automatic_transcription=request.transcribe,
                     whisper_model=request.whisper_model,
@@ -585,23 +587,34 @@ _HTML = """<!doctype html>
         <input name="output" required placeholder="/absolute/path/output">
       </label>
       <label>Title<input name="title" value="My creation"></label>
+      <label>Audience<input name="audience" value="general"></label>
       <label>Content type<select name="kind"><option>auto</option><option>gameplay</option>
         <option>talking_head</option><option>tutorial</option><option>vlog</option></select></label>
+      <label>Publishing platform<input name="platform" value="youtube"></label>
       <label>Target seconds<input name="duration" type="number" min="5" value="60"></label>
+      <label>Clip count<input name="clipCount" type="number" min="1" max="100" value="10"></label>
       <label>Aspect ratio<select name="ratio"><option>16:9</option><option>9:16</option>
         <option>1:1</option></select></label>
       <label>Pace<select name="pace"><option>balanced</option><option>fast</option>
         <option>calm</option></select></label>
       <label>Mood<input name="mood" value="engaging"></label>
+      <label>Color look<input name="colorLook" value="natural_contrast"></label>
+      <label>Required event types<input name="mandatoryEvents" placeholder="clutch, victory"></label>
+      <label>Excluded event types<input name="excludedEvents" placeholder="death, loading"></label>
       <label>Transcript JSON<input name="transcript" placeholder="Optional"></label>
+      <label>Whisper model<input name="whisperModel" value="small"></label>
+      <label>Transcript language<input name="language" placeholder="Auto detect"></label>
       <label>Licensed music catalog JSON<input name="music" placeholder="Optional"></label>
       <label>Licensed sound catalog JSON<input name="sounds" placeholder="Optional"></label>
       <label>Timeline events JSON<input name="events" placeholder="Optional"></label>
       <label>Game domain pack JSON<input name="gamePack" placeholder="Optional"></label>
+      <label>Semantic vision provider JSON<input name="visionProvider" placeholder="Optional"></label>
     </div>
     <div class="checks">
       <label><input name="gameOcr" type="checkbox"> Detect game events</label>
       <label><input name="transcribe" type="checkbox"> Run Whisper</label>
+      <label><input name="captions" type="checkbox" checked> Burn captions</label>
+      <label><input name="musicEnabled" type="checkbox" checked> Select music</label>
       <label><input name="ffmpegRender" type="checkbox" checked> Render review MP4</label>
       <label><input name="davinci" type="checkbox"> Import into DaVinci</label>
       <label><input name="davinciRender" type="checkbox"> Render in DaVinci</label>
@@ -631,15 +644,20 @@ const approvals = document.querySelector('#approvals');
 form.addEventListener('submit', async event => {
   event.preventDefault(); const data = new FormData(form);
   const optional = name => data.get(name) || null;
+  const list = name => String(data.get(name)||'').split(',').map(value=>value.trim()).filter(Boolean);
   const payload = {source:data.get('source'), output_directory:data.get('output'),
-    brief:{title:data.get('title'),content_kind:data.get('kind'),platform:'youtube',
+    brief:{title:data.get('title'),content_kind:data.get('kind'),audience:data.get('audience'),
+      platform:data.get('platform'),
       target_duration_seconds:Number(data.get('duration')),aspect_ratio:data.get('ratio'),
-      pace:data.get('pace'),mood:data.get('mood'),clip_count:10,captions:true,music:true,
-      color_look:'natural_contrast',mandatory_event_types:[],excluded_event_types:[]},
+      pace:data.get('pace'),mood:data.get('mood'),clip_count:Number(data.get('clipCount')),
+      captions:data.has('captions'),music:data.has('musicEnabled'),color_look:data.get('colorLook'),
+      mandatory_event_types:list('mandatoryEvents'),excluded_event_types:list('excludedEvents')},
     transcript:optional('transcript'),music_catalog:optional('music'),sound_catalog:optional('sounds'),
     events:optional('events'),
     game_pack:optional('gamePack'),
-    game_ocr:data.has('gameOcr'),transcribe:data.has('transcribe'),whisper_model:'small',
+    vision_provider:optional('visionProvider'),
+    game_ocr:data.has('gameOcr'),transcribe:data.has('transcribe'),
+    whisper_model:data.get('whisperModel'),language:optional('language'),
     ffmpeg_render:data.has('ffmpegRender'),davinci:data.has('davinci'),
     davinci_render:data.has('davinciRender')};
   const response = await fetch('/api/jobs',{
