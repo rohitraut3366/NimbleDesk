@@ -99,6 +99,29 @@ class DaemonTransport:
             return result.model_dump(mode="json")
         if method == "approval_approve":
             return {"approval_token": self._runtime.approve(str(params["approval_id"]))}
+        if method == "approval_reject":
+            self._runtime.reject_approval(str(params["approval_id"]))
+            return {"status": "rejected"}
+        if method == "approval_list":
+            return {
+                "approvals": [
+                    {
+                        "approval_id": pending.approval_id,
+                        "created_at": pending.created_at,
+                        "expires_at": pending.expires_at,
+                        "action": pending.action.model_dump(mode="json"),
+                    }
+                    for pending in self._runtime.list_approvals()
+                ]
+            }
+        if method == "approval_status":
+            decision = self._runtime.approval_status(str(params["approval_id"]))
+            return {
+                "approval_id": decision.approval_id,
+                "status": decision.status,
+                "expires_at": decision.expires_at,
+                "approval_token": decision.token,
+            }
         raise ValueError(f"unknown method: {method}")
 
 

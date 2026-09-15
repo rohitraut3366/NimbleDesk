@@ -4,6 +4,7 @@ from pathlib import Path
 from pytest import MonkeyPatch
 from starlette.testclient import TestClient
 
+import nimbledesk.ui.server as ui
 from nimbledesk.creative.cancellation import CancellationToken
 from nimbledesk.creative.models import (
     CreativeBrief,
@@ -44,6 +45,7 @@ def test_console_serves_creation_form_and_rejects_missing_source(tmp_path: Path)
     assert page.status_code == 200
     assert "NimbleDesk Studio" in page.text
     assert "Review and revise" in page.text
+    assert "Actions awaiting your approval" in page.text
     assert response.status_code == 400
     assert "does not exist" in response.json()["error"]
 
@@ -53,6 +55,34 @@ def test_console_returns_unknown_job() -> None:
 
     assert response.status_code == 404
     assert response.json() == {"error": "unknown job"}
+
+
+def test_console_lists_and_approves_daemon_action(monkeypatch: MonkeyPatch) -> None:
+    class FakeDaemonClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def call(
+            self, method: str, params: dict[str, object] | None = None
+        ) -> dict[str, object]:
+            self.calls.append((method, params or {}))
+            if method == "approval_list":
+                return {"approvals": [{"approval_id": "approval-1"}]}
+            return {"approval_token": "secret-token"}
+
+    daemon = FakeDaemonClient()
+    monkeypatch.setattr(ui, "daemon_client", lambda: daemon)
+    client = TestClient(app)
+
+    listed = client.get("/api/approvals")
+    approved = client.post("/api/approvals/approval-1/approve")
+
+    assert listed.json() == {"approvals": [{"approval_id": "approval-1"}]}
+    assert approved.json() == {"status": "approve"}
+    assert daemon.calls == [
+        ("approval_list", {}),
+        ("approval_approve", {"approval_id": "approval-1"}),
+    ]
 
 
 def test_job_service_cancels_and_persists_long_running_job(

@@ -88,3 +88,16 @@ async def test_gateway_builds_approved_application_command(
         "arguments": {"timeline": "main"},
     }
     assert action["approval_token"] == "approved-token"
+
+
+@pytest.mark.asyncio
+async def test_gateway_only_exposes_read_side_of_approval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recording_client = RecordingClient()
+    monkeypatch.setattr(gateway, "client", lambda: recording_client)
+
+    await gateway.approval_status("approval-1")
+
+    assert recording_client.method == "approval_status"
+    assert recording_client.params == {"approval_id": "approval-1"}

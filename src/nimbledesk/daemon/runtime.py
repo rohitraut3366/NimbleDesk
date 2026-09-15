@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from time import time
 
-from nimbledesk.daemon.approvals import ApprovalManager
+from nimbledesk.daemon.approvals import ApprovalDecision, ApprovalManager, PendingApproval
 from nimbledesk.daemon.audit import AuditLog
 from nimbledesk.daemon.policy import ActionPolicy
 from nimbledesk.daemon.sessions import SessionError, SessionManager
@@ -58,6 +58,15 @@ class DesktopRuntime:
 
     def approve(self, approval_id: str) -> str:
         return self._approvals.approve(approval_id)
+
+    def reject_approval(self, approval_id: str) -> None:
+        self._approvals.reject(approval_id)
+
+    def list_approvals(self) -> tuple[PendingApproval, ...]:
+        return self._approvals.list_pending()
+
+    def approval_status(self, approval_id: str) -> ApprovalDecision:
+        return self._approvals.status(approval_id)
 
     def capture(
         self,

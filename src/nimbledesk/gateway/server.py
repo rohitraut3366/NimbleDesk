@@ -317,6 +317,12 @@ async def application_command(
 
 
 @mcp.tool()
+async def approval_status(approval_id: str) -> dict[str, Any]:
+    """Check whether a human approved or rejected a pending application command."""
+    return await client().call("approval_status", {"approval_id": approval_id})
+
+
+@mcp.tool()
 async def session_pause(session_id: str) -> dict[str, Any]:
     """Pause a session and release any held desktop input."""
     return await client().call(

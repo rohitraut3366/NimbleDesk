@@ -18,6 +18,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
 
+from nimbledesk.client import DaemonClient
 from nimbledesk.creative.cancellation import CancellationToken
 from nimbledesk.creative.davinci import connect_to_resolve, execute_in_davinci
 from nimbledesk.creative.fcpxml import export_fcpxml
@@ -359,6 +360,16 @@ class JobService:
 JOB_SERVICE = JobService()
 
 
+def daemon_client() -> DaemonClient:
+    configured = os.getenv("NIMBLEDESK_CONNECTION_FILE")
+    connection_file = (
+        Path(configured)
+        if configured
+        else Path.home() / ".nimbledesk" / "runtime" / "connection.json"
+    )
+    return DaemonClient.from_file(connection_file)
+
+
 async def home(request: Request) -> HTMLResponse:
     return HTMLResponse(_HTML)
 
@@ -420,6 +431,26 @@ async def revise_job(request: Request) -> JSONResponse:
     return JSONResponse(revision.response(), status_code=202)
 
 
+async def list_approvals(request: Request) -> JSONResponse:
+    try:
+        return JSONResponse(await daemon_client().call("approval_list"))
+    except Exception as error:
+        return JSONResponse({"approvals": [], "daemon_error": str(error)})
+
+
+async def decide_approval(request: Request) -> JSONResponse:
+    decision = request.path_params["decision"]
+    if decision not in {"approve", "reject"}:
+        return JSONResponse({"error": "unknown approval decision"}, status_code=404)
+    try:
+        result = await daemon_client().call(
+            f"approval_{decision}", {"approval_id": request.path_params["approval_id"]}
+        )
+    except Exception as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return JSONResponse({"status": decision} if decision == "approve" else result)
+
+
 app = Starlette(
     debug=False,
     routes=[
@@ -429,6 +460,10 @@ app = Starlette(
         Route("/api/jobs/{job_id}", get_job, methods=["GET"]),
         Route("/api/jobs/{job_id}/cancel", cancel_job, methods=["POST"]),
         Route("/api/jobs/{job_id}/revisions", revise_job, methods=["POST"]),
+        Route("/api/approvals", list_approvals, methods=["GET"]),
+        Route(
+            "/api/approvals/{approval_id}/{decision}", decide_approval, methods=["POST"]
+        ),
     ],
 )
 
@@ -485,6 +520,7 @@ _HTML = """<!doctype html>
 <body><main>
   <h1>NimbleDesk Studio</h1>
   <p>Turn long footage into a planned, rendered, and editable DaVinci Resolve timeline.</p>
+  <section id="approvals"></section>
   <form id="create">
     <div class="grid">
       <label>Source video
@@ -519,6 +555,7 @@ _HTML = """<!doctype html>
   <section id="jobs"></section>
 </main><script>
 const form = document.querySelector('#create'); const jobs = document.querySelector('#jobs');
+const approvals = document.querySelector('#approvals');
 form.addEventListener('submit', async event => {
   event.preventDefault(); const data = new FormData(form);
   const optional = name => data.get(name) || null;
@@ -564,6 +601,17 @@ async function refresh(){const response=await fetch('/api/jobs');const data=awai
       `<button class="cancel" onclick="cancelJob('${h(job.job_id)}')">Cancel</button>`:''}
     ${job.result?`<p>Render: <code>${h(job.result.render_path||'plan only')}</code><br>
       DaVinci timeline: <code>${h(job.result.timeline_path)}</code></p>${revisionPanel(job)}`:''}</article>`).join('');}
+async function refreshApprovals(){const response=await fetch('/api/approvals');const data=await response.json();
+  approvals.innerHTML=data.approvals?.length?`<h2>Actions awaiting your approval</h2>`+
+    data.approvals.map(item=>{const action=item.action;const adapter=action.arguments?.adapter_id||'application';
+      const command=action.arguments?.command||action.kind;return `<article><strong>${h(adapter)}</strong> · ${h(command)}
+      <p>Expires ${h(new Date(item.expires_at*1000).toLocaleTimeString())}</p>
+      <pre><code>${h(JSON.stringify(action.arguments?.arguments||{},null,2))}</code></pre>
+      <button onclick="decideApproval('${h(item.approval_id)}','approve')">Approve exact action</button>
+      <button onclick="decideApproval('${h(item.approval_id)}','reject')">Reject</button></article>`;}).join('):'';}
+async function decideApproval(approvalId,decision){const response=await fetch(
+  `/api/approvals/${approvalId}/${decision}`,{method:'POST',headers:{'content-type':'application/json'}});
+  const result=await response.json();if(!response.ok){alert(result.error);return;}refreshApprovals();}
 async function cancelJob(jobId){await fetch(`/api/jobs/${jobId}/cancel`,{method:'POST'});refresh();}
 jobs.addEventListener('submit',async event=>{if(!event.target.matches('.revision-form'))return;
   event.preventDefault();const revisionForm=event.target;const data=new FormData(revisionForm);
@@ -576,5 +624,6 @@ jobs.addEventListener('submit',async event=>{if(!event.target.matches('.revision
   const response=await fetch(`/api/jobs/${revisionForm.dataset.jobId}/revisions`,{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
   const result=await response.json();if(!response.ok){alert(result.error);return;}refresh();});
-refresh(); setInterval(()=>{if(!document.querySelector('.revision-form:focus-within'))refresh();},2000);
+refresh();refreshApprovals();setInterval(()=>{refreshApprovals();
+  if(!document.querySelector('.revision-form:focus-within'))refresh();},2000);
 </script></body></html>"""

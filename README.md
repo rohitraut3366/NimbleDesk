@@ -273,7 +273,7 @@ Start the loopback-only web console:
 uv run nimbledesk-ui
 ```
 
-Open `http://127.0.0.1:8765`, enter absolute source/output paths, choose the creative brief, and start a background job. The page reports the analysis, transcription, planning, render, and DaVinci stages, shows generated output paths, and can cancel queued or running work. Clear **Render review MP4** when you want to inspect and approve the plan before spending time on a render.
+Open `http://127.0.0.1:8765`, enter absolute source/output paths, choose the creative brief, and start a background job. The page reports the analysis, transcription, planning, render, and DaVinci stages, shows generated output paths, and can cancel queued or running work. Clear **Render review MP4** when you want to inspect and approve the plan before spending time on a render. When the desktop daemon is running, exact application actions awaiting a human decision appear at the top with their adapter, command, complete arguments, expiry, and Approve/Reject controls.
 
 When a plan completes, expand **Review and revise decisions**. Each segment shows its role, source range, speed, color treatment, strongest confidence, and the evidence used to select it. Check the segments you approve; checked segments are locked so later duration, pace, and color changes cannot alter their source selection or treatment. Choose the new target, pace, and color look, then select optional MP4 rendering or Resolve import and click **Build revision**. NimbleDesk writes each version under `<original-output>/revisions/` with its own `edit_plan.json`, `plan_diff.json`, `validation.json`, FCPXML timeline, and optional render. Revisions are normal durable jobs, so they are cancellable and remain visible after restarting the console.
 
@@ -366,13 +366,14 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `hotkey` | `session_id`, `observation_id`, `keys` | Example: `["command", "s"]` on macOS or `["ctrl", "s"]` elsewhere. |
 | `wait` | `session_id`, `seconds` | Waits for an interface or animation to settle; maximum 10 seconds per call. |
 | `application_command` | `session_id`, `observation_id`, `adapter_id`, `command`, `arguments` | Executes an installed subprocess adapter after exact-action approval; pass the returned token as `approval_token` on the repeated call. |
+| `approval_status` | `approval_id` | Polls a human decision. An approved response contains the short-lived token; consumed, rejected, invalidated, and expired approvals cannot authorize work. |
 | `session_pause` | `session_id` | Pauses input and releases common modifier keys and mouse buttons. |
 | `session_resume` | `session_id` | Restores the original session limits; a stopped session cannot resume. |
 | `session_stop` | `session_id` | Permanently stops the session and releases input. |
 
 Coordinates are logical desktop coordinates from `desktop_observe`. Element IDs are valid only for the observation that returned them. The daemon verifies the observation is fresh and, when supplied, that the active application and focused window still match. PyAutoGUI's corner fail-safe remains enabled: move the pointer to a screen corner to interrupt portable automation.
 
-Application adapters are disabled until a manifest and its Python package are installed. See [docs/ADAPTERS.md](docs/ADAPTERS.md) for the manifest, worker contract, path grants, approval flow, and isolation limits.
+Application adapters are disabled until a manifest and its Python package are installed. Pending actions appear in NimbleDesk Studio when it uses the same `NIMBLEDESK_CONNECTION_FILE` as the daemon. See [docs/ADAPTERS.md](docs/ADAPTERS.md) for the manifest, worker contract, path grants, approval flow, and isolation limits.
 
 ## Use the real desktop
 

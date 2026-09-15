@@ -24,13 +24,13 @@ NimbleDesk adapters expose documented application APIs without adding editor-spe
 
 The entrypoint receives `command: str` and `arguments: dict` and returns a JSON-compatible dictionary. It runs in a separate worker process with a minimal environment, no user-site packages, a temporary working directory, a deadline, cancellation, and bounded stdout/stderr. A crash or malformed result fails the action without crashing the daemon. Declare every file argument in `path_arguments`; the runtime rejects paths outside the session's `granted_paths` before starting the worker.
 
-An MCP client calls `application_command`. The first call returns `confirmation_required` and an `approval_id`. The approval operation is deliberately absent from the model-facing MCP tools. Review the pending action, then approve it from a local terminal:
+An MCP client calls `application_command`. The first call returns `confirmation_required` and an `approval_id`. The approval operation is deliberately absent from the model-facing MCP tools. Review the adapter, command, complete arguments, and expiry in NimbleDesk Studio, then select **Approve exact action** or **Reject**. A terminal fallback is available:
 
 ```bash
 uv run nimbledesk-approve APPROVAL_ID
 ```
 
-Give the returned token to the client and repeat the byte-equivalent command with `approval_token`. Changed arguments, expired approvals, and token reuse are rejected.
+The client polls `approval_status`. An approved response contains the token; it then repeats the byte-equivalent command with `approval_token`. Changed arguments, expired approvals, and token reuse are rejected. Identical requests reuse one pending queue item, and a successfully used token changes to `consumed` so clients stop retrying it.
 
 Use this handler shape:
 

@@ -122,10 +122,49 @@ def test_application_command_approval_is_exact_and_single_use() -> None:
     assert pending.approval_id is not None
 
     token = runtime.approve(pending.approval_id)
+    assert runtime.approval_status(pending.approval_id).status == "approved"
     approved_action = action.model_copy(update={"approval_token": token})
     assert runtime.execute(approved_action).status is ActionStatus.COMPLETED
+    assert runtime.approval_status(pending.approval_id).status == "consumed"
     assert runtime.execute(approved_action).status is ActionStatus.CONFIRMATION_REQUIRED
     assert len(backend.executed_actions) == 1
+
+
+def test_duplicate_pending_application_command_reuses_queue_item() -> None:
+    runtime, _backend = make_runtime()
+    session = runtime.start_session("adapter test", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = ActionRequest(
+        session_id=session.session_id,
+        source_observation_id=observation.observation_id,
+        kind=ActionKind.APP_COMMAND,
+        arguments={"adapter_id": "video", "command": "render"},
+    )
+
+    first = runtime.execute(action)
+    second = runtime.execute(action)
+
+    assert first.approval_id == second.approval_id
+    assert len(runtime.list_approvals()) == 1
+
+
+def test_application_command_can_be_rejected_and_polled() -> None:
+    runtime, _backend = make_runtime()
+    session = runtime.start_session("adapter test", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = ActionRequest(
+        session_id=session.session_id,
+        source_observation_id=observation.observation_id,
+        kind=ActionKind.APP_COMMAND,
+        arguments={"adapter_id": "video", "command": "render"},
+    )
+
+    pending = runtime.execute(action)
+    assert pending.approval_id is not None
+    assert runtime.approval_status(pending.approval_id).status == "pending"
+    runtime.reject_approval(pending.approval_id)
+
+    assert runtime.approval_status(pending.approval_id).status == "rejected"
 
 
 def test_pause_releases_input_and_blocks_actions() -> None:
