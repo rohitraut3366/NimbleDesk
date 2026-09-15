@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 import math
 import shutil
@@ -8,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from nimbledesk.creative.models import TimeRange, TranscriptSegment
-from nimbledesk.media.process import CancellationCheck, run_cancellable
+from nimbledesk.media.process import CancellationCheck, ProcessCancelled, run_cancellable
 
 
 class TranscriptionError(RuntimeError):
@@ -30,10 +31,23 @@ def transcribe_with_whisper(
     language: str | None = None,
     cancelled: CancellationCheck | None = None,
 ) -> tuple[TranscriptSegment, ...]:
+    try:
+        faster_whisper = importlib.import_module("faster_whisper")
+    except ImportError:
+        faster_whisper = None
+    if faster_whisper is not None:
+        return _transcribe_with_faster_whisper(
+            faster_whisper.WhisperModel,
+            source,
+            model,
+            language,
+            cancelled,
+        )
     executable = shutil.which("whisper")
     if executable is None:
         raise TranscriptionError(
-            "the whisper CLI is not installed; install openai-whisper or provide --transcript"
+            "automatic transcription requires the speech extra or whisper CLI; install "
+            "NimbleDesk with --extra speech, install openai-whisper, or provide --transcript"
         )
     with tempfile.TemporaryDirectory(prefix="nimbledesk-transcript-") as temporary:
         output_directory = Path(temporary)
@@ -57,6 +71,44 @@ def transcribe_with_whisper(
         result_path = output_directory / f"{source.stem}.json"
         payload: dict[str, Any] = json.loads(result_path.read_text(encoding="utf-8"))
     return tuple(_segment_from_whisper(segment) for segment in payload.get("segments", []))
+
+
+def _transcribe_with_faster_whisper(
+    model_class: Any,
+    source: Path,
+    model: str,
+    language: str | None,
+    cancelled: CancellationCheck | None,
+) -> tuple[TranscriptSegment, ...]:
+    check_cancelled = cancelled or (lambda: False)
+    try:
+        whisper_model = model_class(model, device="auto", compute_type="int8")
+        generated_segments, _information = whisper_model.transcribe(
+            str(source),
+            language=language,
+            beam_size=5,
+            vad_filter=True,
+            word_timestamps=True,
+        )
+        segments: list[TranscriptSegment] = []
+        for generated in generated_segments:
+            if check_cancelled():
+                raise ProcessCancelled("creation was cancelled")
+            segments.append(
+                _segment_from_whisper(
+                    {
+                        "start": generated.start,
+                        "end": generated.end,
+                        "text": generated.text,
+                        "avg_logprob": getattr(generated, "avg_logprob", 0),
+                    }
+                )
+            )
+        return tuple(segments)
+    except ProcessCancelled:
+        raise
+    except Exception as error:
+        raise TranscriptionError(f"faster-whisper transcription failed: {error}") from error
 
 
 def write_transcript(segments: tuple[TranscriptSegment, ...], path: Path) -> None:

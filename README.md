@@ -27,7 +27,11 @@ The current release combines portable PyAutoGUI capture/input with native semant
 - Recursive photo discovery, perceptual duplicate removal, technical ranking, light correction, a contact sheet, and an optional MP4 slideshow.
 - Token-budgeted observations and size-bounded screenshots.
 
-Automatic game recognition currently uses configurable OCR phrases and patterns, temporal event inference, and audiovisual evidence; accuracy depends on the game, HUD, language, crop, and capture quality. Model-based vision packs, subject-tracked vertical reframing, external release signing, and automated tests on physical Windows/Linux/macOS machines remain release-hardening work described in [PLAN.md](PLAN.md).
+Automatic game recognition uses configurable OCR phrases and patterns, temporal event inference,
+audiovisual evidence, and an optional bounded semantic-vision provider. Accuracy depends on the
+game, HUD, language, crop, capture quality, and configured model. External release signing and
+qualification on physical Windows, Linux, macOS, and DaVinci machines still require their actual
+credentials and hardware as described in [PLAN.md](PLAN.md).
 
 ## Requirements
 
@@ -36,7 +40,7 @@ Automatic game recognition currently uses configurable OCR phrases and patterns,
 - [uv](https://docs.astral.sh/uv/getting-started/installation/).
 - [FFmpeg](https://ffmpeg.org/download.html), including `ffprobe`, for video highlights and photo slideshows.
 - Optional [Tesseract](https://tesseract-ocr.github.io/) for automatic game HUD/event OCR.
-- Optional `openai-whisper` command-line package and its model weights for transcription.
+- Optional `speech` install extra for faster-whisper, or an `openai-whisper` command on `PATH`, for transcription.
 - Optional DaVinci Resolve with local external scripting enabled for direct editor execution.
 - Git if installing from source.
 
@@ -58,13 +62,13 @@ Clone the repository and create its managed virtual environment:
 ```bash
 git clone https://github.com/rohitraut3366/NimbleDesk.git
 cd NimbleDesk
-uv sync --extra native
+uv sync --extra native --extra speech
 ```
 
 All examples below run from the repository root. `uv run` automatically uses the project environment. To install the development tools as well:
 
 ```bash
-uv sync --extra dev --extra native
+uv sync --extra dev --extra native --extra speech
 ```
 
 Three-platform CI also builds a standalone `nimbledesk` executable. Run `nimbledesk start` to launch the daemon and Studio together, or use its `daemon`, `mcp`, `studio`, `create`, `revise`, `highlights`, `photos`, `music-index`, `approve`, and `smoke` subcommands separately. See [distribution and bundle verification](docs/DISTRIBUTION.md).
@@ -171,7 +175,7 @@ Use `--lock` or `--unlock` more than once. Locked segments retain their source s
 | `--game-ocr` | Off | Sample frames and run the selected Tesseract game pack. |
 | `--game-pack` | Built-in shooter | Custom game-pack JSON. |
 | `--transcript` | None | Existing normalized transcript JSON. |
-| `--transcribe` | Off | Run the local `whisper` CLI. |
+| `--transcribe` | Off | Run local faster-whisper when the `speech` extra is installed, otherwise use the local `whisper` CLI. |
 | `--whisper-model` | `small` | Whisper model name. Models download through Whisper on first use. |
 | `--language` | Auto | Optional Whisper language code. |
 | `--music-catalog` | None | JSON catalog of local music with explicit license metadata. |
@@ -252,7 +256,10 @@ variant records explicit feedback in the selected profile; no implicit viewing b
 
 ### Transcription
 
-Install Whisper in a separate Python environment appropriate for your hardware and make its `whisper` command available on `PATH`. Then pass `--transcribe`. NimbleDesk invokes Whisper locally and records normalized segments; media is not uploaded by this provider.
+Install the local faster-whisper integration with `uv sync --extra speech`, then pass `--transcribe`.
+It uses voice-activity filtering, word timestamps, and the selected model. If faster-whisper is not
+installed, NimbleDesk uses an `openai-whisper` command found on `PATH`. Both providers process media
+locally and record normalized, time-aligned segments; model weights may download on first use.
 
 To use another transcription engine, provide normalized JSON:
 

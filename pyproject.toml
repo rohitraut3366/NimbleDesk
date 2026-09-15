@@ -34,6 +34,9 @@ dev = [
 bundle = [
   "pyinstaller>=6.11,<7",
 ]
+speech = [
+  "faster-whisper>=1.2,<2",
+]
 
 [project.scripts]
 nimbledesk = "nimbledesk.cli:main"
