@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import random
 
 import pytest
 
@@ -11,8 +13,13 @@ from nimbledesk.daemon.audit import AuditLog
 from nimbledesk.daemon.policy import ActionPolicy
 from nimbledesk.daemon.runtime import DesktopRuntime
 from nimbledesk.daemon.sessions import SessionManager
-from nimbledesk.daemon.transport import DaemonTransport
-from nimbledesk.protocol.rpc import ConnectionInfo, RequestAuthenticator, create_request
+from nimbledesk.daemon.transport import DaemonTransport, _strict_json_object
+from nimbledesk.protocol.rpc import (
+    ConnectionInfo,
+    RequestAuthenticator,
+    RpcResponse,
+    create_request,
+)
 
 
 def test_authentication_rejects_replay() -> None:
@@ -30,6 +37,44 @@ def test_authentication_rejects_wrong_secret() -> None:
         False,
         "invalid request signature",
     )
+
+
+def test_rpc_parser_rejects_duplicate_keys_and_non_finite_numbers() -> None:
+    with pytest.raises(ValueError, match="duplicate key: method"):
+        _strict_json_object(b'{"method":"health","method":"session_start"}')
+    with pytest.raises(ValueError, match="non-finite number"):
+        _strict_json_object(b'{"value":NaN}')
+
+
+def test_request_signature_rejects_non_canonical_numeric_values() -> None:
+    with pytest.raises(ValueError, match="Out of range float values"):
+        create_request("health", {"value": float("inf")}, "correct-secret")
+
+
+def test_rpc_parser_fuzz_corpus_returns_bounded_errors() -> None:
+    runtime = DesktopRuntime(
+        SimulatorBackend(), SessionManager(), ActionPolicy(), ApprovalManager(), AuditLog()
+    )
+    transport = DaemonTransport(runtime, "test-secret-with-at-least-forty-three-characters")
+    generator = random.Random(20260916)
+    corpus = [
+        b"",
+        b"null",
+        b"[]",
+        b"{}",
+        b"\xff\xfe",
+        json.dumps({"params": [None] * 10_000}).encode(),
+        ("[" * 2_000 + "]" * 2_000).encode(),
+    ]
+    corpus.extend(generator.randbytes(generator.randrange(0, 512)) for _ in range(500))
+
+    for payload in corpus:
+        response = transport._process(payload)
+        assert isinstance(response, RpcResponse)
+        assert not response.ok
+        assert response.error_code in {"invalid_request", "authentication_failed"}
+        assert response.error_message is not None
+        assert len(response.error_message) < 10_000
 
 
 @pytest.mark.asyncio

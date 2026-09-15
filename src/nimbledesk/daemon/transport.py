@@ -55,8 +55,14 @@ class DaemonTransport:
 
     def _process(self, data: bytes) -> RpcResponse:
         try:
-            request = RpcRequest.model_validate(json.loads(data))
-        except (json.JSONDecodeError, ValidationError) as error:
+            request = RpcRequest.model_validate(_strict_json_object(data))
+        except (
+            json.JSONDecodeError,
+            UnicodeDecodeError,
+            ValidationError,
+            ValueError,
+            RecursionError,
+        ) as error:
             return _error("unknown", "invalid_request", str(error))
         authenticated, reason = self._authenticator.verify(request)
         if not authenticated:
@@ -163,3 +169,25 @@ def _error(request_id: str, code: str, message: str) -> RpcResponse:
         error_code=code,
         error_message=message,
     )
+
+
+def _strict_json_object(data: bytes) -> dict[str, Any]:
+    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"request contains duplicate key: {key}")
+            result[key] = value
+        return result
+
+    def reject_non_finite(value: str) -> None:
+        raise ValueError(f"request contains non-finite number: {value}")
+
+    decoded = json.loads(
+        data.decode("utf-8"),
+        object_pairs_hook=reject_duplicate_keys,
+        parse_constant=reject_non_finite,
+    )
+    if not isinstance(decoded, dict):
+        raise ValueError("request root must be a JSON object")
+    return decoded

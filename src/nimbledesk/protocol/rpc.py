@@ -15,12 +15,12 @@ from nimbledesk.protocol.models import ProtocolModel
 
 
 class RpcRequest(ProtocolModel):
-    request_id: str = Field(default_factory=lambda: str(uuid4()))
+    request_id: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=128)
     timestamp_ms: int
-    nonce: str
-    method: str
+    nonce: str = Field(min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    method: str = Field(min_length=1, max_length=128, pattern=r"^[a-z][a-z0-9_]*$")
     params: dict[str, Any] = Field(default_factory=dict)
-    signature: str
+    signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
 class RpcResponse(ProtocolModel):
@@ -99,6 +99,11 @@ def _signature(
     method: str,
     params: dict[str, Any],
 ) -> str:
-    canonical_params = json.dumps(params, sort_keys=True, separators=(",", ":"))
+    canonical_params = json.dumps(
+        params,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
     message = "\n".join((request_id, str(timestamp_ms), nonce, method, canonical_params))
     return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
