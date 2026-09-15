@@ -30,6 +30,7 @@ nimbledesk-daemon = "nimbledesk.daemon.server:main"
 nimbledesk-smoke = "nimbledesk.testing.smoke:main"
 nimbledesk-highlights = "nimbledesk.media.cli:main"
 nimbledesk-photos = "nimbledesk.media.photo_cli:main"
+nimbledesk-create = "nimbledesk.creative.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nimbledesk"]
