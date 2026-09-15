@@ -183,7 +183,8 @@ def _evaluate(
         VariantMetric(
             name="audio_intelligibility",
             score=1
-            if plan.music_cue is None or plan.music_cue.duck_under_dialogue_db <= -6
+            if not plan.all_music_cues
+            or all(cue.duck_under_dialogue_db <= -6 for cue in plan.all_music_cues)
             else 0.5,
             evidence="music ducking and delivery loudness plan",
         ),

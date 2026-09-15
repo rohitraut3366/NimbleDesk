@@ -259,6 +259,12 @@ The optional crop uses FFmpeg's `crop=width:height:x:y` expression and should co
 
 ### Licensed music selection
 
+For edits with enough setup and payoff duration, NimbleDesk supervises scene-level music rather
+than stretching one song across the entire timeline. It chooses a lower-energy tension/setup cue
+and a distinct higher-energy payoff cue, aligns the transition to the first payoff, adds short
+fades, ducks the combined music bus under dialogue, and exports every cue as a separate editable
+FCPXML clip and cue-sheet row. Short edits or one-track catalogs retain a single continuous bed.
+
 NimbleDesk only selects tracks declared in a user-supplied catalog. Use absolute paths so DaVinci can resolve the media:
 
 Create a catalog from one track or a directory of AAC, FLAC, M4A, MP3, OGG, or WAV files:

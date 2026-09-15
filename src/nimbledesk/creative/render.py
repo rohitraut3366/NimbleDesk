@@ -165,16 +165,28 @@ def render_edit_plan(
             video_output = f"[{previous_label}]"
 
     audio_output = "[abase]"
-    if plan.music_cue:
-        music = plan.music_cue
+    music_labels: list[str] = []
+    for music_index, music in enumerate(plan.all_music_cues):
         command.extend(["-stream_loop", "-1", "-i", str(music.asset.path)])
         gain = 10 ** (music.gain_db / 20)
+        delay = round(music.timeline_range.start_seconds * 1000)
+        label = f"music{music_index}"
         filters.append(
             f"[{next_input}:a]atrim=start={music.source_range.start_seconds:.3f}:"
-            f"duration={plan.duration_seconds:.3f},asetpts=PTS-STARTPTS,"
-            f"volume={gain:.6f}[music]"
+            f"duration={music.timeline_range.duration_seconds:.3f},asetpts=PTS-STARTPTS,"
+            f"afade=t=in:d=0.25,afade=t=out:st="
+            f"{max(0, music.timeline_range.duration_seconds - 0.35):.3f}:d=0.35,"
+            f"volume={gain:.6f},adelay={delay}|{delay}[{label}]"
         )
-        ducking_ratio = max(2, min(20, abs(music.duck_under_dialogue_db) / 2))
+        music_labels.append(f"[{label}]")
+        next_input += 1
+    if music_labels:
+        filters.append(
+            "".join(music_labels)
+            + f"amix=inputs={len(music_labels)}:duration=longest:normalize=0[music]"
+        )
+        ducking_db = min(cue.duck_under_dialogue_db for cue in plan.all_music_cues)
+        ducking_ratio = max(2, min(20, abs(ducking_db) / 2))
         filters.append("[abase]asplit=2[base_mix][dialogue_sidechain]")
         filters.append(
             "[music][dialogue_sidechain]sidechaincompress="
@@ -185,7 +197,6 @@ def render_edit_plan(
             "dropout_transition=2[aout]"
         )
         audio_output = "[aout]"
-        next_input += 1
     sound_labels: list[str] = []
     for index, cue in enumerate(plan.sound_cues):
         command.extend(["-i", str(cue.asset.path)])

@@ -110,19 +110,15 @@ def build_edit_plan(
         timeline_cursor += source_range.duration_seconds / rate
 
     captions = _map_captions(tuple(segments), transcripts) if brief.captions else ()
-    music_asset = recommend_music(brief, music_assets, timeline_cursor)
-    music_cue = (
-        plan_music_cue(music_asset, timeline_cursor, brief, tuple(segments))
-        if music_asset
-        else None
-    )
+    music_cues = plan_scene_music(brief, music_assets, tuple(segments), timeline_cursor)
     sound_cues = plan_sound_cues(tuple(segments), sound_assets, brief.platform)
     review_items = _review_items(brief, transcripts, music_assets, tuple(segments))
     return EditPlan(
         source_path=manifest.source.path,
         brief=brief,
         segments=tuple(segments),
-        music_cue=music_cue,
+        music_cue=music_cues[0] if music_cues else None,
+        music_cues=music_cues,
         sound_cues=sound_cues,
         captions=captions,
         delivery=DeliverySpec(
@@ -368,9 +364,11 @@ def plan_music_cue(
     duration: float,
     brief: CreativeBrief,
     segments: tuple[EditSegment, ...],
+    *,
+    timeline_start: float = 0,
 ) -> MusicCue:
     payoff = next((segment for segment in segments if segment.role == "payoff"), None)
-    anchor = payoff.timeline_start_seconds if payoff else 0
+    anchor = payoff.timeline_start_seconds if payoff else timeline_start
     beat_interval = 60 / asset.bpm if asset.bpm else None
     source_start = (-anchor) % beat_interval if beat_interval else 0
     if asset.duration_seconds - source_start < min(1, duration):
@@ -385,7 +383,10 @@ def plan_music_cue(
             start_seconds=round(source_start, 4),
             end_seconds=round(source_start + cue_duration, 4),
         ),
-        timeline_range=TimeRange(start_seconds=0, end_seconds=cue_duration),
+        timeline_range=TimeRange(
+            start_seconds=timeline_start,
+            end_seconds=timeline_start + cue_duration,
+        ),
         gain_db=-22 if brief.captions else -16,
         beat_interval_seconds=round(beat_interval, 4) if beat_interval else None,
         beat_aligned_timeline_seconds=anchor if beat_interval else None,
@@ -394,6 +395,46 @@ def plan_music_cue(
             + alignment_reason
         ),
     )
+
+
+def plan_scene_music(
+    brief: CreativeBrief,
+    assets: tuple[MusicAsset, ...],
+    segments: tuple[EditSegment, ...],
+    duration: float,
+) -> tuple[MusicCue, ...]:
+    if not brief.music or not assets or duration <= 0:
+        return ()
+    payoff = next((segment for segment in segments if segment.role == "payoff"), None)
+    split = payoff.timeline_start_seconds if payoff else duration
+    if len(assets) < 2 or split < 3 or duration - split < 3:
+        asset = recommend_music(brief, assets, duration)
+        return (plan_music_cue(asset, duration, brief, segments),) if asset else ()
+    opening = recommend_music(brief, assets, split, desired_energy=0.45)
+    used = frozenset({opening.path}) if opening else frozenset()
+    payoff_asset = recommend_music(
+        brief,
+        assets,
+        duration - split,
+        desired_energy=0.9,
+        excluded_paths=used,
+    )
+    cues: list[MusicCue] = []
+    if opening:
+        cues.append(
+            plan_music_cue(opening, split, brief, segments, timeline_start=0)
+        )
+    if payoff_asset:
+        cues.append(
+            plan_music_cue(
+                payoff_asset,
+                duration - split,
+                brief,
+                tuple(segment for segment in segments if segment.timeline_start_seconds >= split),
+                timeline_start=split,
+            )
+        )
+    return tuple(cues)
 
 
 def _review_items(

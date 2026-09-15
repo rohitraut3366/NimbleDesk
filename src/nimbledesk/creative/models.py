@@ -232,6 +232,7 @@ class EditPlan(CreativeModel):
     brief: CreativeBrief
     segments: tuple[EditSegment, ...]
     music_cue: MusicCue | None = None
+    music_cues: tuple[MusicCue, ...] = ()
     sound_cues: tuple[SoundCue, ...] = ()
     captions: tuple[CaptionCue, ...] = ()
     delivery: DeliverySpec
@@ -243,6 +244,12 @@ class EditPlan(CreativeModel):
             return 0
         last = self.segments[-1]
         return last.timeline_start_seconds + last.timeline_duration_seconds
+
+    @property
+    def all_music_cues(self) -> tuple[MusicCue, ...]:
+        if self.music_cues:
+            return self.music_cues
+        return (self.music_cue,) if self.music_cue else ()
 
 
 class ValidationIssue(CreativeModel):

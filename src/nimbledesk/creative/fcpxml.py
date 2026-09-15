@@ -34,19 +34,20 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
         hasAudio="1",
         format="r1",
     )
-    music_reference: str | None = None
+    music_references: list[str] = []
     next_resource = 3
-    if plan.music_cue:
+    for music_cue in plan.all_music_cues:
         music_reference = f"r{next_resource}"
         next_resource += 1
+        music_references.append(music_reference)
         ElementTree.SubElement(
             resources,
             "asset",
             id=music_reference,
-            name=plan.music_cue.asset.title,
-            src=plan.music_cue.asset.path.resolve().as_uri(),
+            name=music_cue.asset.title,
+            src=music_cue.asset.path.resolve().as_uri(),
             start="0s",
-            duration=_seconds(plan.music_cue.asset.duration_seconds),
+            duration=_seconds(music_cue.asset.duration_seconds),
             hasAudio="1",
         )
     sound_references: list[str] = []
@@ -167,8 +168,9 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
                 start="0s",
                 duration=_seconds(end - start),
             )
-    if music_reference and plan.music_cue:
-        music_cue = plan.music_cue
+    for music_reference, music_cue in zip(
+        music_references, plan.all_music_cues, strict=True
+    ):
         music_clip = ElementTree.SubElement(
             spine,
             "asset-clip",

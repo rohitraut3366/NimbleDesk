@@ -14,7 +14,7 @@ from nimbledesk.creative.models import (
     SpeedTreatment,
     TimeRange,
 )
-from nimbledesk.creative.planner import plan_music_cue
+from nimbledesk.creative.planner import plan_scene_music
 
 
 def revise_edit_plan(plan: EditPlan, request: PlanRevisionRequest) -> PlanRevisionResult:
@@ -44,10 +44,9 @@ def revise_edit_plan(plan: EditPlan, request: PlanRevisionRequest) -> PlanRevisi
     reflowed = _reflow(selected)
     captions = _remap_captions(plan.captions, reflowed)
     sound_cues = _remap_sound_cues(plan, reflowed)
-    music_cue = (
-        plan_music_cue(plan.music_cue.asset, _duration(reflowed), brief, reflowed)
-        if plan.music_cue and reflowed
-        else None
+    music_assets = tuple(dict.fromkeys(cue.asset for cue in plan.all_music_cues))
+    music_cues = plan_scene_music(
+        brief, music_assets, reflowed, _duration(reflowed)
     )
     revised = plan.model_copy(
         update={
@@ -55,7 +54,8 @@ def revise_edit_plan(plan: EditPlan, request: PlanRevisionRequest) -> PlanRevisi
             "segments": reflowed,
             "captions": captions,
             "sound_cues": sound_cues,
-            "music_cue": music_cue,
+            "music_cue": music_cues[0] if music_cues else None,
+            "music_cues": music_cues,
         }
     )
     return PlanRevisionResult(plan=revised, changes=_diff(plan, revised))

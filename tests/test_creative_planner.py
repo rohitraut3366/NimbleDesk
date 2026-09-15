@@ -274,3 +274,70 @@ def test_validation_blocks_omitted_required_story_beat(tmp_path: Path) -> None:
 
     assert not report.valid
     assert "mandatory_moment_missing" in {issue.code for issue in report.issues}
+
+
+def test_planner_selects_distinct_music_for_setup_and_payoff(tmp_path: Path) -> None:
+    source = tmp_path / "game.mp4"
+    music_paths = (tmp_path / "tension.wav", tmp_path / "payoff.wav")
+    for path in music_paths:
+        path.write_bytes(b"fixture")
+    metadata = MediaMetadata(
+        path=source,
+        duration_seconds=40,
+        width=1920,
+        height=1080,
+        frame_rate=60,
+        has_audio=True,
+        video_codec="h264",
+    )
+    candidates = tuple(
+        HighlightCandidate(
+            rank=index + 1,
+            start_seconds=index * 10,
+            end_seconds=index * 10 + 5,
+            peak_seconds=index * 10 + 2,
+            score=1 - index * 0.1,
+            reasons=(f"story beat {index + 1}",),
+        )
+        for index in range(4)
+    )
+    assets = (
+        MusicAsset(
+            path=music_paths[0],
+            duration_seconds=60,
+            title="Tension bed",
+            energy=0.35,
+            license="user-owned",
+        ),
+        MusicAsset(
+            path=music_paths[1],
+            duration_seconds=60,
+            title="Payoff track",
+            energy=0.95,
+            license="user-owned",
+        ),
+    )
+    plan = build_edit_plan(
+        HighlightManifest(
+            source=metadata,
+            config=AnalysisConfig(),
+            candidates=candidates,
+            clips=(),
+        ),
+        CreativeBrief(
+            target_duration_seconds=30,
+            clip_count=4,
+            captions=False,
+            music=True,
+        ),
+        music_assets=assets,
+    )
+
+    assert len(plan.all_music_cues) == 2
+    assert plan.all_music_cues[0].asset.title == "Tension bed"
+    assert plan.all_music_cues[1].asset.title == "Payoff track"
+    assert plan.all_music_cues[0].timeline_range.end_seconds == (
+        plan.all_music_cues[1].timeline_range.start_seconds
+    )
+    timeline = export_fcpxml(plan, tmp_path / "scene-music.fcpxml")
+    assert timeline.read_text(encoding="utf-8").count('audioRole="music"') == 2

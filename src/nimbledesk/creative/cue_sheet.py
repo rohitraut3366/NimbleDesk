@@ -44,8 +44,7 @@ class CueSheet(BaseModel):
 
 def build_cue_sheet(plan: EditPlan) -> CueSheet:
     entries: list[CueSheetEntry] = []
-    if plan.music_cue:
-        cue = plan.music_cue
+    for cue in plan.all_music_cues:
         asset = cue.asset
         entries.append(
             CueSheetEntry(

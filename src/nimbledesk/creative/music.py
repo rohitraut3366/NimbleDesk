@@ -29,13 +29,17 @@ def recommend_music(
     brief: CreativeBrief,
     assets: tuple[MusicAsset, ...],
     required_duration_seconds: float,
+    *,
+    desired_energy: float | None = None,
+    excluded_paths: frozenset[Path] = frozenset(),
 ) -> MusicAsset | None:
     if not brief.music or not assets:
         return None
     eligible = tuple(
         asset
         for asset in assets
-        if asset.license.strip()
+        if asset.path not in excluded_paths
+        and asset.license.strip()
         and (not asset.allowed_platforms or brief.platform.casefold() in {
             platform.casefold() for platform in asset.allowed_platforms
         })
@@ -43,13 +47,15 @@ def recommend_music(
     )
     if not eligible:
         return None
-    desired_energy = {"calm": 0.3, "balanced": 0.6, "fast": 0.85}[brief.pace.value]
+    target_energy = desired_energy
+    if target_energy is None:
+        target_energy = {"calm": 0.3, "balanced": 0.6, "fast": 0.85}[brief.pace.value]
     mood_terms = {term.casefold() for term in brief.mood.replace(",", " ").split()}
 
     def score(asset: MusicAsset) -> float:
         asset_moods = {mood.casefold() for mood in asset.mood}
         mood_score = len(mood_terms & asset_moods) / max(1, len(mood_terms))
-        energy_score = 1 - abs(asset.energy - desired_energy)
+        energy_score = 1 - abs(asset.energy - target_energy)
         duration_score = min(1.0, asset.duration_seconds / max(1, required_duration_seconds))
         instrumental_score = 1.0 if asset.instrumental else 0.5
         return (

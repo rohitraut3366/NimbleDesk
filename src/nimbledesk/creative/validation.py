@@ -111,8 +111,7 @@ def validate_edit_plan(plan: EditPlan, source: MediaMetadata) -> PlanValidationR
     for caption in plan.captions:
         if caption.timeline_range.end_seconds > timeline_cursor + 0.001:
             issues.append(_issue("caption_bounds", "Caption extends past the timeline"))
-    if plan.music_cue:
-        music_cue = plan.music_cue
+    for music_cue in plan.all_music_cues:
         if not music_cue.asset.path.expanduser().is_file():
             issues.append(_issue("music_offline", "Selected music file is unavailable"))
         if not music_cue.asset.license.strip():
