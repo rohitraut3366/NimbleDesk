@@ -32,6 +32,7 @@ def build_edit_plan(
     content_index: ContentIndex | None = None,
 ) -> EditPlan:
     ordered = _story_order(manifest.candidates[: brief.clip_count])
+    width, height = _delivery_size(brief.aspect_ratio)
     segments: list[EditSegment] = []
     timeline_cursor = 0.0
     for index, candidate in enumerate(ordered):
@@ -53,6 +54,14 @@ def build_edit_plan(
         )
         evidence.extend(_semantic_evidence(candidate, content_index))
         exposure, saturation, color_reason = _color_treatment(candidate, content_index)
+        reframe_x, reframe_y, reframe_confidence, reframe_mode, reframe_reason = (
+            _reframe_treatment(
+                candidate,
+                content_index,
+                manifest.source.width / manifest.source.height,
+                width / height,
+            )
+        )
         role = _role(index, len(ordered))
         segments.append(
             EditSegment(
@@ -72,8 +81,12 @@ def build_edit_plan(
                     color_look=brief.color_look,
                     exposure_adjustment_stops=exposure,
                     saturation_multiplier=saturation,
+                    reframe_center_x=reframe_x,
+                    reframe_center_y=reframe_y,
+                    reframe_confidence=reframe_confidence,
+                    reframe_mode=reframe_mode,
                     title=brief.title if role == "hook" else None,
-                    rationale=f"{_visual_reason(role)}; {color_reason}",
+                    rationale=f"{_visual_reason(role)}; {color_reason}; {reframe_reason}",
                 ),
                 score=candidate.score,
                 evidence=tuple(evidence),
@@ -89,7 +102,6 @@ def build_edit_plan(
         else None
     )
     review_items = _review_items(brief, transcripts, music_assets, tuple(segments))
-    width, height = _delivery_size(brief.aspect_ratio)
     return EditPlan(
         source_path=manifest.source.path,
         brief=brief,
@@ -317,3 +329,38 @@ def _color_treatment(
         f"saturation {source_saturation:.2f}"
     )
     return exposure, saturation, reason
+
+
+def _reframe_treatment(
+    candidate: HighlightCandidate,
+    content_index: ContentIndex | None,
+    source_ratio: float,
+    output_ratio: float,
+) -> tuple[float, float, float, Literal["center", "spatial_motion"], str]:
+    if abs(source_ratio - output_ratio) < 0.05:
+        return 0.5, 0.5, 1, "center", "source already matches the delivery aspect ratio"
+    if content_index is None:
+        return 0.5, 0.5, 0, "center", "spatial evidence unavailable; use center framing"
+    points = [
+        point
+        for point in content_index.track("color").points
+        if candidate.start_seconds <= point.source_range.start.seconds <= candidate.end_seconds
+        and point.metrics.get("spatial_motion", 0) > 0
+    ]
+    total_motion = sum(point.metrics["spatial_motion"] for point in points)
+    if total_motion < 0.05:
+        return 0.5, 0.5, 0.2, "center", "motion is too weak for a reliable crop anchor"
+    center_x = sum(
+        point.metrics["motion_center_x"] * point.metrics["spatial_motion"] for point in points
+    ) / total_motion
+    center_y = sum(
+        point.metrics["motion_center_y"] * point.metrics["spatial_motion"] for point in points
+    ) / total_motion
+    confidence = min(0.95, 0.45 + total_motion / max(1, len(points)))
+    return (
+        round(center_x, 4),
+        round(center_y, 4),
+        round(confidence, 4),
+        "spatial_motion",
+        f"anchor reframing to measured motion center ({center_x:.2f}, {center_y:.2f})",
+    )

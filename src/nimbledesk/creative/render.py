@@ -33,7 +33,9 @@ def render_edit_plan(
             f"setpts=(PTS-STARTPTS)/{rate:.6f},"
             f"scale={plan.delivery.width}:{plan.delivery.height}:"
             "force_original_aspect_ratio=increase,"
-            f"crop={plan.delivery.width}:{plan.delivery.height},"
+            f"crop={plan.delivery.width}:{plan.delivery.height}:"
+            f"x=(in_w-out_w)*{segment.visual.reframe_center_x:.6f}:"
+            f"y=(in_h-out_h)*{segment.visual.reframe_center_y:.6f},"
             f"{color_filter},format=yuv420p[v{index}]"
         )
         filters.append(video_filter)

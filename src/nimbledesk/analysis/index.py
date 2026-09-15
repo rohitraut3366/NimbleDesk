@@ -27,7 +27,7 @@ from nimbledesk.media.process import (
 )
 from nimbledesk.media.signals import extract_audio_signal, extract_motion_signal, normalize_signal
 
-ANALYZER_VERSION = "1.0.0"
+ANALYZER_VERSION = "1.1.0"
 
 
 class ContentIndexer:
@@ -230,6 +230,7 @@ def _color_track(
     points: list[TrackPoint] = []
     step = 1 / sample_rate
     index = 0
+    previous_luminance: np.ndarray | None = None
     while frame_bytes := process.stdout.read(frame_size):
         check_process_cancelled(process, cancelled)
         if len(frame_bytes) != frame_size:
@@ -244,6 +245,7 @@ def _color_track(
             where=maximum > 0,
         )
         luminance = 0.2126 * frame[:, :, 0] + 0.7152 * frame[:, :, 1] + 0.0722 * frame[:, :, 2]
+        center_x, center_y, spatial_motion = _spatial_motion(luminance, previous_luminance)
         points.append(
             TrackPoint(
                 source_range=RationalRange.from_seconds(index * step, step),
@@ -256,15 +258,36 @@ def _color_track(
                     "saturation": round(float(np.mean(saturation)), 5),
                     "shadow_clip": round(float(np.mean(luminance < 0.02)), 5),
                     "highlight_clip": round(float(np.mean(luminance > 0.98)), 5),
+                    "motion_center_x": round(center_x, 5),
+                    "motion_center_y": round(center_y, 5),
+                    "spatial_motion": round(spatial_motion, 5),
                 },
                 evidence=("decoded RGB frame statistics",),
             )
         )
         index += 1
+        previous_luminance = luminance
     _, stderr = process.communicate()
     if process.returncode != 0:
         raise MediaToolError(stderr.decode(errors="replace").strip() or "color analysis failed")
     return _track("color", "color", configuration_hash, tuple(points))
+
+
+def _spatial_motion(
+    luminance: np.ndarray, previous: np.ndarray | None
+) -> tuple[float, float, float]:
+    if previous is None:
+        return 0.5, 0.5, 0.0
+    difference = np.abs(luminance - previous)
+    total = float(np.sum(difference))
+    if total <= 0.001:
+        return 0.5, 0.5, 0.0
+    height, width = difference.shape
+    x_coordinates = (np.arange(width, dtype=np.float64) + 0.5) / width
+    y_coordinates = (np.arange(height, dtype=np.float64) + 0.5) / height
+    center_x = float(np.sum(difference * x_coordinates[None, :]) / total)
+    center_y = float(np.sum(difference * y_coordinates[:, None]) / total)
+    return center_x, center_y, min(1.0, float(np.mean(difference)) * 8)
 
 
 def _shot_track(color: AnalysisTrack, configuration_hash: str) -> AnalysisTrack:

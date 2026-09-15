@@ -582,7 +582,7 @@ function revisionPanel(job){const plan=job.result?.plan;if(!plan||job.status!=='
     const evidence=segment.evidence.map(e=>e.description).join(' · ');
     return `<label class="segment"><input type="checkbox" name="locked" value="${h(segment.segment_id)}"
       ${segment.locked?'checked':''}><span><strong>${h(segment.role)}</strong> · ${h(segment.segment_id)}
-      <small>Source ${segment.source_range.start_seconds.toFixed(1)}–${segment.source_range.end_seconds.toFixed(1)}s · ${segment.speed.rate}× · ${h(segment.visual.color_look)}</small>
+      <small>Source ${segment.source_range.start_seconds.toFixed(1)}–${segment.source_range.end_seconds.toFixed(1)}s · ${segment.speed.rate}× · ${h(segment.visual.color_look)} · crop ${segment.visual.reframe_center_x.toFixed(2)}, ${segment.visual.reframe_center_y.toFixed(2)} (${Math.round(segment.visual.reframe_confidence*100)}%)</small>
       <small>${h(evidence||'No evidence recorded')}</small></span><span>${Math.round(confidence*100)}%</span></label>`;}).join('');
   return `<details><summary>Review and revise ${plan.segments.length} decisions</summary>
     <form class="revision-form" data-job-id="${h(job.job_id)}"><p>Checked decisions are approved and locked in the next version.</p>

@@ -111,6 +111,10 @@ class VisualTreatment(CreativeModel):
     color_look: str = "natural_contrast"
     exposure_adjustment_stops: Annotated[float, Field(ge=-2, le=2)] = 0
     saturation_multiplier: Annotated[float, Field(ge=0.5, le=1.5)] = 1
+    reframe_center_x: Annotated[float, Field(ge=0, le=1)] = 0.5
+    reframe_center_y: Annotated[float, Field(ge=0, le=1)] = 0.5
+    reframe_confidence: Annotated[float, Field(ge=0, le=1)] = 0
+    reframe_mode: Literal["center", "spatial_motion"] = "center"
     title: str | None = None
     rationale: str
 

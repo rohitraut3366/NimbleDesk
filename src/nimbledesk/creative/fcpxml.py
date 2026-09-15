@@ -80,9 +80,20 @@ def export_fcpxml(plan: EditPlan, output_path: Path) -> Path:
                 value=_seconds(segment.source_range.duration_seconds),
                 interp="linear",
             )
-        if segment.visual.punch_in_scale != 1:
+        if (
+            segment.visual.punch_in_scale != 1
+            or segment.visual.reframe_center_x != 0.5
+            or segment.visual.reframe_center_y != 0.5
+        ):
             scale = segment.visual.punch_in_scale
-            ElementTree.SubElement(clip, "adjust-transform", scale=f"{scale} {scale}")
+            horizontal = (0.5 - segment.visual.reframe_center_x) * 100
+            vertical = (segment.visual.reframe_center_y - 0.5) * 100
+            ElementTree.SubElement(
+                clip,
+                "adjust-transform",
+                scale=f"{scale} {scale}",
+                position=f"{horizontal:.3f} {vertical:.3f}",
+            )
     if music_reference and plan.music_cue:
         cue = plan.music_cue
         ElementTree.SubElement(

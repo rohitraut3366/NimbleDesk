@@ -4,9 +4,10 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import numpy as np
 import pytest
 
-from nimbledesk.analysis.index import ContentIndexer
+from nimbledesk.analysis.index import ContentIndexer, _spatial_motion
 from nimbledesk.analysis.models import ContentIndex
 from nimbledesk.creative.models import TimeRange, TranscriptSegment
 from nimbledesk.media.models import TimelineEvent
@@ -66,6 +67,11 @@ def test_content_index_is_time_aligned_semantic_and_resumable(tmp_path: Path) ->
     assert first.track("motion").points
     assert first.track("audio").points
     assert first.track("color").points
+    assert {
+        "motion_center_x",
+        "motion_center_y",
+        "spatial_motion",
+    } <= set(first.track("color").points[-1].metrics)
     assert all(
         point.source_range.duration.value > 0
         for track in first.tracks
@@ -111,3 +117,15 @@ def test_transcript_change_only_invalidates_semantic_track(tmp_path: Path) -> No
 
     assert set(rebuilt.cache_hits) == {"motion", "audio", "color", "shots"}
     assert "question_or_hook" in {event.event_type for event in rebuilt.semantic_events}
+
+
+def test_spatial_motion_centroid_tracks_off_center_activity() -> None:
+    previous = np.zeros((4, 8), dtype=np.float64)
+    current = previous.copy()
+    current[:, 6:] = 1
+
+    center_x, center_y, strength = _spatial_motion(current, previous)
+
+    assert center_x > 0.8
+    assert center_y == 0.5
+    assert strength == 1

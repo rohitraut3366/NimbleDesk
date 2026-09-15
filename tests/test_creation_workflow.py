@@ -79,6 +79,7 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
         target_duration_seconds=5,
         clip_count=1,
         captions=False,
+        aspect_ratio="9:16",
     )
 
     result = CreationWorkflow().create(source, output, brief, music_catalog=catalog)
@@ -90,10 +91,12 @@ def test_creation_workflow_produces_plan_timeline_and_validated_render(tmp_path:
     assert result.render_path is not None
     assert result.render_path.is_file()
     rendered = probe_media(result.render_path)
-    assert rendered.width == 1920
-    assert rendered.height == 1080
+    assert rendered.width == 1080
+    assert rendered.height == 1920
     assert rendered.has_audio
     assert "sampled luminance" in result.plan.segments[0].visual.rationale
+    assert result.plan.segments[0].visual.reframe_mode == "spatial_motion"
+    assert "measured motion center" in result.plan.segments[0].visual.rationale
     assert result.plan.music_cue is not None
     assert result.plan.music_cue.beat_interval_seconds == 0.5
 

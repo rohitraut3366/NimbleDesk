@@ -16,6 +16,7 @@ The current release combines portable PyAutoGUI capture/input with native semant
 - Automatic game-event recognition with phrase, regex, and temporal inference rules in built-in or custom domain packs.
 - Local Whisper transcription or supplied time-aligned transcripts.
 - Explainable edit plans covering story order, pacing, speed, punch-ins, color, captions, and music.
+- Motion-guided per-segment reframing for vertical and square deliveries instead of blind center crops.
 - Licensed local music-catalog ranking and timeline mixing.
 - Finished FFmpeg review renders and DaVinci Resolve-importable FCPXML timelines.
 - Direct project, timeline, and render execution through the DaVinci Resolve scripting API.
@@ -97,7 +98,7 @@ With `content_kind=auto`, detected gameplay events select gameplay treatment, an
 
 ### Persistent long-form analysis
 
-Every creation fingerprints the source and builds time-aligned motion, audio energy/silence, color/exposure, shot-boundary, transcript-semantic, and combined semantic tracks. Each point has a rational source range, confidence, evidence, analyzer/version, and configuration hash. Transcript questions, reactions, instructions, and payoffs become semantic moments; domain-pack events and coincident audiovisual action remain separate evidence.
+Every creation fingerprints the source and builds time-aligned motion, spatial motion centroids, audio energy/silence, color/exposure, shot-boundary, transcript-semantic, and combined semantic tracks. Each point has a rational source range, confidence, evidence, analyzer/version, and configuration hash. Transcript questions, reactions, instructions, and payoffs become semantic moments; domain-pack events and coincident audiovisual action remain separate evidence. When source and delivery aspect ratios differ, the planner weights spatial motion across each selected segment, stores a normalized crop anchor and confidence, uses it in FFmpeg, and exports the corresponding transform in FCPXML. Weak motion retains a documented center crop rather than inventing a subject location.
 
 The index adapts its coarse sampling rate for recordings over 30 minutes and over two hours. Tracks are written atomically under `analysis/index`. Re-running the same output reuses unchanged tracks. Changing a transcript or event file rebuilds the semantic track while retaining valid motion, audio, color, and shot analysis. Changing the source fingerprint invalidates dependent tracks. Source media is always read-only.
 
