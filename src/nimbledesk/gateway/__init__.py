@@ -1,0 +1,1 @@
+"""Unprivileged MCP gateway."""
