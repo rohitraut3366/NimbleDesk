@@ -696,7 +696,8 @@ function jobOutputs(job){if(!job.result)return '';
     Slideshow: <code>${h(job.result.slideshow||'not requested')}</code></p>`;
   return `<p>Render: <code>${h(job.result.render_path||'plan only')}</code><br>
     DaVinci timeline: <code>${h(job.result.timeline_path)}</code><br>
-    Cue sheet: <code>${h(job.result.cue_sheet_path||'not applicable')}</code></p>${revisionPanel(job)}`;}
+    Cue sheet: <code>${h(job.result.cue_sheet_path||'not applicable')}</code><br>
+    Variant comparison: <code>${h(job.result.variant_comparison_path||'not applicable')}</code></p>${revisionPanel(job)}`;}
 async function refresh(){const response=await fetch('/api/jobs');const data=await response.json();
   jobs.innerHTML=data.jobs.map(job=>`<article><strong>${h(job.kind)}</strong> · <strong>${h(job.status)}</strong> · ${h(job.stage)}
     <progress value="${job.progress}" max="1"></progress>

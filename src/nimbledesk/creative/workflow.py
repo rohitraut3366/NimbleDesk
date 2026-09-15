@@ -26,6 +26,7 @@ from nimbledesk.creative.validation import (
     validate_edit_plan,
     write_validation_report,
 )
+from nimbledesk.creative.variants import generate_variant_comparison
 from nimbledesk.creative.vision import analyze_with_vision_provider
 from nimbledesk.media.models import AnalysisConfig, TimelineEvent
 from nimbledesk.media.pipeline import HighlightPipeline, load_events
@@ -47,6 +48,7 @@ class CreationResult(BaseModel):
     plan: EditPlan
     cue_sheet_path: Path | None = None
     cue_sheet_csv_path: Path | None = None
+    variant_comparison_path: Path | None = None
 
 
 class CreationWorkflow:
@@ -139,12 +141,14 @@ class CreationWorkflow:
             cancelled=token.is_cancelled,
         )
         report("building creative edit plan", 0.65)
+        music_assets = load_music_catalog(music_catalog)
+        sound_assets = load_sound_catalog(sound_catalog)
         plan = build_edit_plan(
             manifest,
             brief,
             transcripts=transcripts,
-            music_assets=load_music_catalog(music_catalog),
-            sound_assets=load_sound_catalog(sound_catalog),
+            music_assets=music_assets,
+            sound_assets=sound_assets,
             content_index=content_index,
         )
         plan_path = output_directory / "edit_plan.json"
@@ -157,6 +161,18 @@ class CreationWorkflow:
             raise PlanValidationError(validation)
         export_fcpxml(plan, timeline_path)
         cue_sheet_path, cue_sheet_csv_path = write_cue_sheet(plan, output_directory)
+        report("comparing watchability variants", 0.72)
+        variants_directory = output_directory / "variants"
+        generate_variant_comparison(
+            manifest,
+            brief,
+            variants_directory,
+            transcripts,
+            music_assets,
+            sound_assets,
+            content_index,
+        )
+        variant_comparison_path = variants_directory / "variant_comparison.json"
         token.check()
         report("rendering review video", 0.75)
         render_path = output_directory / "final.mp4" if render else None
@@ -188,6 +204,7 @@ class CreationWorkflow:
             plan=plan,
             cue_sheet_path=cue_sheet_path,
             cue_sheet_csv_path=cue_sheet_csv_path,
+            variant_comparison_path=variant_comparison_path,
         )
 
 

@@ -34,8 +34,10 @@ def build_edit_plan(
     music_assets: tuple[MusicAsset, ...] = (),
     sound_assets: tuple[SoundAsset, ...] = (),
     content_index: ContentIndex | None = None,
+    *,
+    story_strategy: Literal["strongest_hook", "chronological"] = "strongest_hook",
 ) -> EditPlan:
-    ordered = _story_order(manifest.candidates[: brief.clip_count])
+    ordered = _story_order(manifest.candidates[: brief.clip_count], story_strategy)
     width, height = _delivery_size(brief.aspect_ratio)
     segments: list[EditSegment] = []
     introduced_speakers: set[str] = set()
@@ -134,9 +136,14 @@ def write_edit_plan(plan: EditPlan, output_path: Path) -> None:
     output_path.write_text(plan.model_dump_json(indent=2), encoding="utf-8")
 
 
-def _story_order(candidates: tuple[HighlightCandidate, ...]) -> tuple[HighlightCandidate, ...]:
+def _story_order(
+    candidates: tuple[HighlightCandidate, ...],
+    strategy: Literal["strongest_hook", "chronological"] = "strongest_hook",
+) -> tuple[HighlightCandidate, ...]:
     if not candidates:
         return ()
+    if strategy == "chronological":
+        return tuple(sorted(candidates, key=lambda candidate: candidate.peak_seconds))
     hook = max(candidates, key=lambda candidate: candidate.score)
     remainder = sorted(
         (candidate for candidate in candidates if candidate is not hook),

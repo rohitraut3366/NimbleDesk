@@ -115,6 +115,11 @@ def main() -> None:
                 "cue_sheet_csv": (
                     str(result.cue_sheet_csv_path) if result.cue_sheet_csv_path else None
                 ),
+                "variant_comparison": (
+                    str(result.variant_comparison_path)
+                    if result.variant_comparison_path
+                    else None
+                ),
                 "duration_seconds": result.plan.duration_seconds,
                 "review_items": [item.model_dump() for item in result.plan.review_items],
                 "davinci": result.davinci.model_dump(mode="json") if result.davinci else None,
