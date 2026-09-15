@@ -6,6 +6,7 @@ from nimbledesk.protocol.models import (
     ActionRequest,
     ActionResult,
     Capability,
+    CaptureOptions,
     DesktopObservation,
     Rectangle,
     ScreenCapture,
@@ -21,7 +22,12 @@ class DesktopBackend(Protocol):
 
     def observe(self) -> DesktopObservation: ...
 
-    def capture(self, observation_id: str, region: Rectangle | None = None) -> ScreenCapture: ...
+    def capture(
+        self,
+        observation_id: str,
+        region: Rectangle | None = None,
+        options: CaptureOptions | None = None,
+    ) -> ScreenCapture: ...
 
     def execute(self, request: ActionRequest) -> ActionResult: ...
 

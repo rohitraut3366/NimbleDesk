@@ -65,7 +65,7 @@ async def test_client_reaches_runtime_through_authenticated_transport() -> None:
 
     assert health == {"status": "ok"}
     assert observation["platform"] == "simulator"
-    assert capture["mime_type"] == "image/png"
+    assert capture["mime_type"] == "image/jpeg"
 
 
 @pytest.mark.asyncio

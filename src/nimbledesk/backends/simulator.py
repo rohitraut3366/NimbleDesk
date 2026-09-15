@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-import base64
-import hashlib
-import io
 from time import time
 
 from PIL import Image
 
+from nimbledesk.backends.images import encode_capture
 from nimbledesk.protocol.models import (
     ActionKind,
     ActionRequest,
     ActionResult,
     ActionStatus,
     Capability,
+    CaptureOptions,
     CoordinateTarget,
     DesktopObservation,
     Display,
@@ -103,19 +102,15 @@ class SimulatorBackend:
             started_at,
         )
 
-    def capture(self, observation_id: str, region: Rectangle | None = None) -> ScreenCapture:
+    def capture(
+        self,
+        observation_id: str,
+        region: Rectangle | None = None,
+        options: CaptureOptions | None = None,
+    ) -> ScreenCapture:
         bounds = region or Rectangle(left=0, top=0, width=1920, height=1080)
         image = Image.new("RGB", (bounds.width, bounds.height), color=(32, 36, 43))
-        output = io.BytesIO()
-        image.save(output, format="PNG")
-        image_bytes = output.getvalue()
-        return ScreenCapture(
-            observation_id=observation_id,
-            width=bounds.width,
-            height=bounds.height,
-            sha256=hashlib.sha256(image_bytes).hexdigest(),
-            data_base64=base64.b64encode(image_bytes).decode("ascii"),
-        )
+        return encode_capture(image, observation_id, options)
 
     def cancel_input(self) -> None:
         self.input_cancelled = True

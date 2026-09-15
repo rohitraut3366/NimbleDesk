@@ -590,6 +590,51 @@ The gateway descriptions instruct models to observe before actions, avoid stale 
 - Accessibility nodes use compact stable field names internally but return documented names over MCP.
 - Hard limits prevent a full tree or raw video stream from exhausting model context.
 
+### 8.4 Token-budget architecture
+
+Token use is a correctness and cost constraint, not a later optimization. Every model-facing read tool accepts a `ResponseBudget` containing maximum text tokens, image dimensions/detail, result count, tree depth, and whether unchanged fields may be omitted. The gateway reports estimated usage and truncation with continuation or detail handles. It never silently drops fields required to execute a safe action.
+
+The model receives information through progressive disclosure:
+
+1. **Overview:** active application, focused window, cursor, display geometry, capability changes, a small screenshot, and a short change summary.
+2. **Relevant detail:** bounded UI matches, OCR blocks, screenshot crops, transcript snippets, or content moments selected by a server-side query.
+3. **Exact evidence:** high-resolution crop, complete element properties, media frames, waveform region, or analysis evidence for one selected stable ID.
+
+Stable IDs keep state in the daemon rather than repeating it in model context. Observations, UI nodes, OCR blocks, media assets, moments, decisions, and adapter jobs are retrieved by ID. IDs are session-scoped, expire, and include version/content hashes to prevent stale use.
+
+Desktop observation optimization:
+
+- Hash screenshots, UI trees, windows, and regions; return `unchanged` when appropriate.
+- Return changed regions and changed UI nodes relative to a caller-provided observation ID.
+- Put the focused window and actionable elements first.
+- Prune invisible, decorative, duplicate, empty, and off-screen accessibility nodes by default.
+- Cap node count/depth and expose continuation handles.
+- Keep native backend properties inside the daemon; return normalized properties only.
+- Resolve selectors and rank targets server-side instead of sending a full UI tree to the model.
+- Run OCR only on requested or changed regions and deduplicate OCR against accessibility text.
+- Default screenshots to bounded dimensions and adaptive JPEG quality; use lossless PNG for text-heavy crops when requested.
+- Reuse screenshot crops by content hash across repeated tool calls.
+
+Interaction optimization:
+
+- Use condition/event waits instead of repeated screenshot polling.
+- Permit server-side verified high-level adapter commands to replace dozens of primitive UI turns.
+- Allow bounded action sequences only with deterministic preconditions and stop behavior.
+- Return concise structured failures with a recovery code and the smallest required observation.
+- Maintain a session checkpoint summary so a model need not replay the full action history.
+
+Media optimization:
+
+- Analyze full duration first with inexpensive audio, transcript, scene, motion, and thumbnail signals.
+- Apply expensive multimodal analysis only to candidate windows.
+- Store transcripts and analysis tracks in the content index; queries return top-K moment summaries and evidence handles.
+- Retrieve transcript context, frames, or waveform detail only for selected moments.
+- Cluster near-duplicates before model ranking.
+- Ask the planner to operate on summaries and constraints, then validate source ranges deterministically.
+- Cache results by content hash, provider/model version, prompt/schema version, and configuration.
+
+Budget enforcement occurs at daemon payload generation, gateway response shaping, and provider request construction. Tests use provider-specific token estimators where available and conservative byte/dimension estimates otherwise. Telemetry records estimates and actual provider usage separately without storing media or prompt content.
+
 ## 9. Safety, privacy, and control
 
 ### 9.1 Policy inputs
@@ -641,6 +686,9 @@ Default policy:
 - No stuck keys or buttons after handled failure.
 - Deterministic rejection of actions using expired observations.
 - Daemon survives gateway or adapter crashes.
+- Default desktop overviews stay within configured text and image budgets.
+- Unchanged desktop responses omit screenshot payloads unless explicitly requested.
+- Long-form media queries return bounded top-K summaries rather than complete transcripts or frame sets.
 
 ### 10.2 Long-running work
 
@@ -793,12 +841,14 @@ Deliverables:
 - Session state machine and capability negotiation.
 - Policy engine, exact-action approval records, audit store, deadlines, and cancellation.
 - Console screens for session, policy, and pending approval.
+- Response-budget schema, stable handle lifecycle, usage estimates, and truncation metadata.
 
 Exit gate:
 
 - Full action lifecycle works against the simulator through MCP.
 - Stale, denied, confirmed, timed-out, and cancelled scenarios have deterministic tests.
 - Gateway has no direct backend imports or OS privileges.
+- Contract tests prove model-facing payloads respect configured budgets.
 
 ### Phase 2: Portable observation and input vertical slice
 
@@ -969,6 +1019,8 @@ Version 1 is complete only when:
 19. Adapter and analysis-provider failures are isolated.
 20. Signed packages install, update, roll back, and uninstall cleanly.
 21. Documentation covers setup, permissions, model connection, policy, creative briefs, style profiles, domain packs, adapter development, troubleshooting, and privacy.
+22. Desktop and media tools enforce response budgets, report truncation, and retrieve detail by stable ID.
+23. Token and image usage are measurable per operation without retaining private content.
 
 ## 15. Decisions required before implementation
 

@@ -9,7 +9,15 @@ from typing import Any, Literal
 from mcp.server.fastmcp import FastMCP, Image
 
 from nimbledesk.client import DaemonClient
-from nimbledesk.protocol.models import ActionKind, ActionRequest, CoordinateTarget, Point
+from nimbledesk.gateway.budget import compact_observation
+from nimbledesk.protocol.models import (
+    ActionKind,
+    ActionRequest,
+    CaptureOptions,
+    CoordinateTarget,
+    Point,
+    ResponseBudget,
+)
 
 mcp = FastMCP("NimbleDesk")
 
@@ -48,9 +56,18 @@ async def session_start(
 
 
 @mcp.tool()
-async def desktop_observe(session_id: str) -> dict[str, Any]:
+async def desktop_observe(
+    session_id: str,
+    max_estimated_text_tokens: int = 2_000,
+    max_windows: int = 10,
+) -> dict[str, Any]:
     """Observe displays, cursor, focused application, windows, and capabilities."""
-    return await client().call("desktop_observe", {"session_id": session_id})
+    observation = await client().call("desktop_observe", {"session_id": session_id})
+    budget = ResponseBudget(
+        max_estimated_text_tokens=max_estimated_text_tokens,
+        max_windows=max_windows,
+    )
+    return compact_observation(observation, budget)
 
 
 @mcp.tool()
@@ -61,6 +78,10 @@ async def take_screenshot(
     top: int | None = None,
     width: int | None = None,
     height: int | None = None,
+    image_format: Literal["png", "jpeg"] = "jpeg",
+    max_width: int = 1280,
+    max_height: int = 800,
+    jpeg_quality: int = 75,
 ) -> Image:
     """Capture the screen for the latest observation, optionally cropped to a region."""
     region_values = (left, top, width, height)
@@ -71,11 +92,25 @@ async def take_screenshot(
     region = None
     if all(value is not None for value in region_values):
         region = {"left": left, "top": top, "width": width, "height": height}
+    options = CaptureOptions(
+        image_format=image_format,
+        max_width=max_width,
+        max_height=max_height,
+        jpeg_quality=jpeg_quality,
+    )
     capture = await client().call(
         "screen_capture",
-        {"session_id": session_id, "observation_id": observation_id, "region": region},
+        {
+            "session_id": session_id,
+            "observation_id": observation_id,
+            "region": region,
+            "options": options.model_dump(mode="json"),
+        },
     )
-    return Image(data=base64.b64decode(capture["data_base64"]), format="png")
+    return Image(
+        data=base64.b64decode(capture["data_base64"]),
+        format="jpeg" if capture["mime_type"] == "image/jpeg" else "png",
+    )
 
 
 @mcp.tool()

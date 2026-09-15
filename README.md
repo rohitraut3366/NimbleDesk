@@ -52,6 +52,8 @@ Configure an MCP client in a second process:
 
 Implemented MCP tools cover health, session start/pause/resume/stop, observation, screenshots, mouse movement, clicks, dragging, scrolling, text entry, key presses, hotkeys, and bounded waits.
 
+Observations are progressively disclosed: window results are capped, long labels are shortened, required safety fields are preserved, and every response reports its estimated text-token usage and truncation. Screenshots default to a bounded 1280×800 JPEG; callers can request a smaller image, a crop, different JPEG quality, or lossless PNG for text-heavy regions.
+
 ## Enable the portable desktop backend
 
 Real desktop input is disabled unless the human starts the daemon with both the portable backend and host input authority:

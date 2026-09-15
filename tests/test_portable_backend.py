@@ -10,6 +10,7 @@ from nimbledesk.protocol.models import (
     ActionKind,
     ActionRequest,
     ActionStatus,
+    CaptureOptions,
     CoordinateTarget,
     Point,
     Rectangle,
@@ -24,6 +25,19 @@ def test_capture_can_crop_the_latest_screen() -> None:
 
     with Image.open(BytesIO(base64.b64decode(capture.data_base64))) as image:
         assert image.size == (300, 250)
+
+
+def test_capture_respects_image_budget() -> None:
+    backend = PortableDesktopBackend(FakeAutomation())
+
+    capture = backend.capture(
+        "observation",
+        options=CaptureOptions(max_width=360, max_height=225, jpeg_quality=60),
+    )
+
+    assert capture.mime_type == "image/jpeg"
+    assert capture.width == 360
+    assert capture.height == 225
 
 
 def test_click_validates_coordinates_before_input() -> None:

@@ -175,11 +175,23 @@ class DesktopObservation(ProtocolModel):
 class ScreenCapture(ProtocolModel):
     protocol_version: Literal["1.0.0"] = PROTOCOL_VERSION
     observation_id: str
-    mime_type: Literal["image/png"] = "image/png"
+    mime_type: Literal["image/png", "image/jpeg"]
     width: Annotated[int, Field(gt=0)]
     height: Annotated[int, Field(gt=0)]
     sha256: str = Field(min_length=64, max_length=64)
     data_base64: str
+
+
+class CaptureOptions(ProtocolModel):
+    image_format: Literal["png", "jpeg"] = "jpeg"
+    max_width: Annotated[int, Field(ge=64, le=4096)] = 1280
+    max_height: Annotated[int, Field(ge=64, le=4096)] = 800
+    jpeg_quality: Annotated[int, Field(ge=20, le=95)] = 75
+
+
+class ResponseBudget(ProtocolModel):
+    max_estimated_text_tokens: Annotated[int, Field(ge=128, le=100_000)] = 2_000
+    max_windows: Annotated[int, Field(ge=0, le=200)] = 10
 
 
 class ActionRequest(ProtocolModel):

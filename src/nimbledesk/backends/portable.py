@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-import base64
-import hashlib
-import io
 import platform
 from time import sleep, time
 from typing import Any
 
 from PIL import Image
 
+from nimbledesk.backends.images import encode_capture
 from nimbledesk.protocol.models import (
     ActionKind,
     ActionRequest,
     ActionResult,
     ActionStatus,
     Capability,
+    CaptureOptions,
     CoordinateTarget,
     DesktopObservation,
     Display,
@@ -72,7 +71,12 @@ class PortableDesktopBackend:
             ),
         )
 
-    def capture(self, observation_id: str, region: Rectangle | None = None) -> ScreenCapture:
+    def capture(
+        self,
+        observation_id: str,
+        region: Rectangle | None = None,
+        options: CaptureOptions | None = None,
+    ) -> ScreenCapture:
         screenshot: Image.Image = self._automation.screenshot()
         if region is not None:
             self._validate_rectangle(region)
@@ -84,16 +88,7 @@ class PortableDesktopBackend:
                     region.top + region.height,
                 )
             )
-        output = io.BytesIO()
-        screenshot.save(output, format="PNG")
-        image_bytes = output.getvalue()
-        return ScreenCapture(
-            observation_id=observation_id,
-            width=screenshot.width,
-            height=screenshot.height,
-            sha256=hashlib.sha256(image_bytes).hexdigest(),
-            data_base64=base64.b64encode(image_bytes).decode("ascii"),
-        )
+        return encode_capture(screenshot, observation_id, options)
 
     def execute(self, request: ActionRequest) -> ActionResult:
         started_at = time()
