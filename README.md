@@ -91,8 +91,9 @@ uv run nimbledesk console --hotkey '<ctrl>+<alt>+p'
 ```
 
 Set `NIMBLEDESK_SAFETY_CONSOLE=0` only when another supervised safety console is already running.
-The keyboard shortcut currently requires macOS, Windows, or an X11 session; the Wayland portal
-global-shortcut path is tracked as a release requirement.
+On GNOME and KDE Wayland, the shortcut is compositor-owned through the XDG GlobalShortcuts portal;
+the desktop may show a one-time registration dialog. Install the current desktop-specific
+`xdg-desktop-portal` backend. X11, macOS, and Windows use the native global keyboard listener.
 
 ## Create a finished video
 

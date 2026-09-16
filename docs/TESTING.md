@@ -37,7 +37,8 @@ calls, atomic status output, daemon child-process startup, the parent-liveness p
 disablement. Physical qualification must activate the configured shortcut from outside NimbleDesk,
 confirm every active session becomes paused, invoke the tray emergency stop, and verify input stays
 blocked until a new session is explicitly enabled. Repeat on macOS, Windows, X11, and each supported
-Wayland desktop after its global-shortcut portal implementation is available.
+Wayland desktop. A Wayland run must show that the XDG GlobalShortcuts portal registered the exact
+configured trigger and that activation still works after closing and restarting the daemon service.
 Gateway tests verify bounded server-side UI search, internal condition waits, adapter discovery,
 session discovery, and redacted audit summaries. Audit tests reopen the log across a simulated
 daemon restart and detect content or chain tampering.

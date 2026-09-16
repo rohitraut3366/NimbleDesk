@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import platform
 import re
 import sys
 import threading
@@ -17,6 +18,7 @@ from PIL import Image, ImageDraw
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from nimbledesk.client import DaemonClient
+from nimbledesk.console.wayland_shortcuts import WaylandGlobalShortcut
 
 DEFAULT_PAUSE_HOTKEY = "<ctrl>+<alt>+<shift>+p"
 HOTKEY_TOKEN = re.compile(r"^(?:<[a-z0-9_]+>|[a-z0-9])$")
@@ -93,13 +95,13 @@ class SafetyController:
             try:
                 result = asyncio.run(operation())
             except Exception as error:
-                self._write_status({"status": "error", "error": str(error)})
+                self.write_status({"status": "error", "error": str(error)})
             else:
-                self._write_status({"status": "ready", "last_action": result})
+                self.write_status({"status": "ready", "last_action": result})
         finally:
             self._action_lock.release()
 
-    def _write_status(self, update: dict[str, object]) -> None:
+    def write_status(self, update: dict[str, object]) -> None:
         payload = {
             "pause_hotkey": self._pause_hotkey,
             "updated_at": time.time(),
@@ -154,6 +156,16 @@ def _tray_image() -> Image.Image:
     return image
 
 
+def _hotkey_listener(hotkey: str, action: Callable[[], None]) -> HotkeyListener:
+    if (
+        platform.system() == "Linux"
+        and os.getenv("XDG_SESSION_TYPE", "").casefold() == "wayland"
+    ):
+        return WaylandGlobalShortcut(hotkey, action)
+    keyboard = import_module("pynput.keyboard")
+    return cast(HotkeyListener, keyboard.GlobalHotKeys({hotkey: action}))
+
+
 def run_console(
     settings: SafetySettings,
     client_factory: Callable[[], DaemonClient],
@@ -161,14 +173,11 @@ def run_console(
     *,
     monitor_parent_pipe: bool = False,
 ) -> None:
-    keyboard = import_module("pynput.keyboard")
     pystray = import_module("pystray")
     controller = SafetyController(client_factory, status_path, settings.pause_hotkey)
-    listener = cast(
-        HotkeyListener,
-        keyboard.GlobalHotKeys(
-            {settings.pause_hotkey: lambda: _run_in_background(controller.pause_all)}
-        ),
+    listener = _hotkey_listener(
+        settings.pause_hotkey,
+        lambda: _run_in_background(controller.pause_all),
     )
     icon: TrayIcon
 
@@ -197,12 +206,18 @@ def run_console(
             daemon=True,
             name="nimbledesk-console-parent",
         ).start()
-    controller._write_status({"status": "ready"})
-    listener.start()
+    controller.write_status({"status": "ready"})
+    listener_started = False
     try:
+        try:
+            listener.start()
+            listener_started = True
+        except Exception as error:
+            controller.write_status({"status": "degraded", "hotkey_error": str(error)})
         icon.run()
     finally:
-        listener.stop()
+        if listener_started:
+            listener.stop()
 
 
 def main() -> None:
