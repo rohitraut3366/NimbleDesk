@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,20 @@ from nimbledesk.media.process import CancellationCheck, ProcessCancelled
 
 MAXIMUM_STDERR_BYTES = 65_536
 MAXIMUM_STDOUT_BYTES = 1_000_000
+ENVIRONMENT_VARIABLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+RESERVED_ENVIRONMENT_VARIABLES = {
+    "HOME",
+    "PATH",
+    "PYTHONHOME",
+    "PYTHONNOUSERSITE",
+    "PYTHONDONTWRITEBYTECODE",
+    "PYTHONPATH",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "WINDIR",
+}
 
 
 def run_isolated_command(
@@ -87,7 +102,7 @@ def run_isolated_command(
     }
     environment["PYTHONNOUSERSITE"] = "1"
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
-    for name in environment_variables:
+    for name in _validated_environment_variables(environment_variables):
         if name in os.environ:
             environment[name] = os.environ[name]
     with (
@@ -203,3 +218,12 @@ def _canonical_command_argument(argument: str, granted_paths: tuple[Path, ...]) 
     ):
         return str(resolved)
     return argument
+
+
+def _validated_environment_variables(names: tuple[str, ...]) -> tuple[str, ...]:
+    for name in names:
+        if not ENVIRONMENT_VARIABLE_PATTERN.fullmatch(name):
+            raise AdapterError(f"invalid provider environment variable name: {name}")
+        if name in RESERVED_ENVIRONMENT_VARIABLES or name.startswith(("DYLD_", "LD_")):
+            raise AdapterError(f"provider cannot override process environment variable: {name}")
+    return names

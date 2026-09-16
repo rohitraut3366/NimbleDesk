@@ -166,7 +166,8 @@ to make `--automatic` and Studio discover it for future jobs. Provider environme
 basic runtime variables plus names explicitly listed in `environment_variables`; secret values stay
 outside the configuration file. Remote execution enables network access, while local providers can
 request it explicitly for a loopback model endpoint. `code_paths` must declare the provider program,
-libraries, and interpreter runtime it needs; these paths are read-only inside the sandbox.
+libraries, and interpreter runtime it needs; these paths are read-only inside the sandbox. Process
+control variables such as `PYTHONPATH`, `PYTHONHOME`, `LD_*`, and `DYLD_*` cannot be delegated.
 
 ### Model-pluggable semantic vision
 

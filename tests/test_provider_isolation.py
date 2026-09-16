@@ -10,9 +10,30 @@ from pathlib import Path
 
 import pytest
 
+from nimbledesk.adapters import command_runner, windows_appcontainer
 from nimbledesk.adapters.command_runner import run_isolated_command
 from nimbledesk.adapters.runner import AdapterError
 from nimbledesk.media.process import ProcessCancelled
+
+
+class CompletedFakeProcess:
+    stdin = None
+    returncode: int | None = 0
+
+    def poll(self) -> int:
+        return 0
+
+    def wait(self, timeout: float | None = None) -> int:
+        return 0
+
+    def terminate(self) -> None:
+        self.returncode = 1
+
+    def kill(self) -> None:
+        self.returncode = 1
+
+    def close(self) -> None:
+        pass
 
 
 @pytest.mark.skipif(
@@ -147,3 +168,59 @@ def test_provider_network_requires_an_explicit_grant(tmp_path: Path) -> None:
 
     assert denied.returncode != 0
     assert allowed.returncode == 0
+
+
+def test_frozen_windows_provider_uses_appcontainer_with_exact_grants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "provider.exe"
+    executable.write_bytes(b"fixture")
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"media")
+    output = tmp_path / "output"
+    output.mkdir()
+    captured: dict[str, object] = {}
+
+    def start_fake(command: list[str], **arguments: object) -> CompletedFakeProcess:
+        captured["command"] = command
+        captured.update(arguments)
+        return CompletedFakeProcess()
+
+    monkeypatch.setattr(command_runner.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(command_runner.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        windows_appcontainer, "start_windows_appcontainer_process", start_fake
+    )
+
+    completed = run_isolated_command(
+        [str(executable), "{request}", "{response}"],
+        readable_paths=(source,),
+        writable_paths=(output,),
+        network_access=True,
+        timeout_seconds=10,
+        code_paths=(executable,),
+    )
+
+    readable_paths = tuple(captured["readable_paths"])
+    writable_paths = tuple(captured["writable_paths"])
+    assert completed.returncode == 0
+    assert captured["network_access"] is True
+    assert executable.resolve() in readable_paths
+    assert source.resolve() in readable_paths
+    assert output.resolve() in readable_paths
+    assert output.resolve() in writable_paths
+
+
+def test_provider_cannot_override_process_control_environment(tmp_path: Path) -> None:
+    executable = tmp_path / "provider"
+    executable.write_bytes(b"fixture")
+
+    with pytest.raises(AdapterError, match="cannot override.*PYTHONPATH"):
+        run_isolated_command(
+            [str(executable)],
+            readable_paths=(),
+            writable_paths=(),
+            network_access=False,
+            timeout_seconds=10,
+            environment_variables=("PYTHONPATH",),
+        )

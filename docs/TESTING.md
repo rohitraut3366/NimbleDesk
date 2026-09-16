@@ -202,6 +202,9 @@ provider request and returns time-aligned dialogue plus measured usage; the buil
 captions and provider provenance in the final edit. It also attempts to read an undeclared sentinel
 and connect to an undeclared loopback listener; the build fails if the packaged provider sandbox
 permits either file or network access.
+Unit contracts also require frozen Windows provider commands to route through AppContainer with the
+exact declared paths and network capability, and reject provider attempts to override process-control
+environment variables.
 Finally, it launches the frozen daemon and Studio with a simulator backend, verifies authenticated
 health and browser security headers, creates and pauses a desktop session, exercises the global
 emergency stop, checks creative-intelligence readiness, and confirms clean connection-file removal.
