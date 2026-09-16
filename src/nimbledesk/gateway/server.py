@@ -25,6 +25,13 @@ from nimbledesk.creative.validation import validate_edit_plan
 from nimbledesk.creative.verify import verify_render
 from nimbledesk.creative.workflow import CreationResult
 from nimbledesk.gateway.budget import compact_observation, estimate_text_tokens
+from nimbledesk.jobs.service import (
+    JOB_SERVICE,
+    CreateJobRequest,
+    PhotoJobRequest,
+    ReviseJobRequest,
+    RevisionResult,
+)
 from nimbledesk.media.ffmpeg import probe_media
 from nimbledesk.protocol.models import (
     ActionKind,
@@ -39,13 +46,6 @@ from nimbledesk.protocol.models import (
     Target,
     TextTarget,
     VisualTarget,
-)
-from nimbledesk.ui.server import (
-    JOB_SERVICE,
-    CreateJobRequest,
-    PhotoJobRequest,
-    ReviseJobRequest,
-    RevisionResult,
 )
 
 mcp = FastMCP("NimbleDesk")

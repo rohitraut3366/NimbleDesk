@@ -25,18 +25,18 @@ from nimbledesk.creative.models import (
 from nimbledesk.creative.style import StyleProfileStore
 from nimbledesk.creative.variants import VariantComparison, VariantEvaluation, VariantMetric
 from nimbledesk.creative.workflow import CreationResult, CreationWorkflow
-from nimbledesk.media.models import MediaMetadata
-from nimbledesk.media.photos import PhotoManifest
-from nimbledesk.ui.server import (
-    _HTML,
+from nimbledesk.jobs.service import (
     CreateJobRequest,
     JobRecord,
     JobService,
     PersistedJob,
     PhotoJobRequest,
     ReviseJobRequest,
-    app,
+    VariantSelectionRequest,
 )
+from nimbledesk.media.models import MediaMetadata
+from nimbledesk.media.photos import PhotoManifest
+from nimbledesk.ui.server import _HTML, app
 
 
 def test_studio_enables_automatic_intelligence_by_default(tmp_path: Path) -> None:
@@ -392,7 +392,7 @@ def test_variant_selection_is_persisted_and_creates_renderable_revision(
     revision = service.select_variant(
         service._jobs[state.job_id],
         "context-first",
-        ui.VariantSelectionRequest(ffmpeg_render=True),
+        VariantSelectionRequest(ffmpeg_render=True),
     )
     persisted = PersistedJob.model_validate_json(
         (tmp_path / "jobs" / "create-1.json").read_text(encoding="utf-8")
@@ -593,7 +593,7 @@ def test_job_service_builds_and_persists_validated_revision(
         video_codec="h264",
         audio_codec="aac",
     )
-    monkeypatch.setattr("nimbledesk.ui.server.probe_media", lambda _path: metadata)
+    monkeypatch.setattr("nimbledesk.jobs.service.probe_media", lambda _path: metadata)
     storage = tmp_path / "jobs"
     service = JobService(storage)
 
