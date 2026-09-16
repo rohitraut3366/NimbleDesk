@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 import nimbledesk.ui.server as ui
 from nimbledesk.creative.automatic import AutomaticCapability, AutomaticIntelligenceReport
 from nimbledesk.creative.cancellation import CancellationToken
+from nimbledesk.creative.davinci import DaVinciResult
 from nimbledesk.creative.models import (
     CreativeBrief,
     DeliverySpec,
@@ -32,6 +33,7 @@ from nimbledesk.jobs.service import (
     PersistedJob,
     PhotoJobRequest,
     ReviseJobRequest,
+    RevisionResult,
     VariantSelectionRequest,
 )
 from nimbledesk.media.models import MediaMetadata
@@ -689,6 +691,58 @@ def test_job_service_builds_and_persists_validated_revision(
         (storage / f"{job.state.job_id}.json").read_text(encoding="utf-8")
     )
     assert persisted.status == "completed"
+
+
+def test_revision_persists_davinci_execution_result(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"fixture")
+    plan = _fixture_plan(source)
+    plan_path = tmp_path / "edit_plan.json"
+    plan_path.write_text(plan.model_dump_json(), encoding="utf-8")
+    metadata = MediaMetadata(
+        path=source,
+        duration_seconds=30,
+        width=1920,
+        height=1080,
+        frame_rate=30,
+        has_audio=True,
+        video_codec="h264",
+        audio_codec="aac",
+    )
+    monkeypatch.setattr("nimbledesk.jobs.service.probe_media", lambda _path: metadata)
+    davinci_result = DaVinciResult(
+        project_name=plan.brief.title,
+        timeline_name="approved-revision",
+        project_saved=True,
+        resolve_version="20.2.1",
+    )
+    monkeypatch.setattr(
+        "nimbledesk.jobs.service.execute_davinci_isolated",
+        lambda *_args, **_kwargs: davinci_result,
+    )
+    service = JobService(tmp_path / "jobs")
+
+    job = service.submit_revision(
+        "parent-1",
+        ReviseJobRequest(
+            plan=plan_path,
+            output_directory=tmp_path / "revision",
+            changes=PlanRevisionRequest(),
+            davinci=True,
+        ),
+    )
+    _wait_for_status(job, "completed")
+    service.close()
+
+    assert isinstance(job.state.result, RevisionResult)
+    assert job.state.result.davinci == davinci_result
+    persisted = PersistedJob.model_validate_json(
+        (tmp_path / "jobs" / f"{job.state.job_id}.json").read_text(encoding="utf-8")
+    )
+    assert isinstance(persisted.result, RevisionResult)
+    assert persisted.result.davinci == davinci_result
 
 
 def test_job_service_creates_and_persists_photo_story(tmp_path: Path) -> None:

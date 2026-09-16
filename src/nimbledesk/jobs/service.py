@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 from nimbledesk.creative.automatic import AutomaticIntelligenceReport
 from nimbledesk.creative.cancellation import CancellationToken
-from nimbledesk.creative.davinci import execute_davinci_isolated
+from nimbledesk.creative.davinci import DaVinciResult, execute_davinci_isolated
 from nimbledesk.creative.fcpxml import export_fcpxml
 from nimbledesk.creative.models import (
     CreativeBrief,
@@ -93,6 +93,7 @@ class RevisionResult(BaseModel):
     validation: PlanValidationReport
     plan: EditPlan
     verification_path: Path | None = None
+    davinci: DaVinciResult | None = None
 
 
 class RevisionSubmission(BaseModel):
@@ -438,9 +439,10 @@ class JobService:
             )
             if not verification.valid:
                 raise RenderVerificationError(verification)
+        davinci = None
         if request.davinci or request.davinci_render:
             self._update_progress(job, "executing revision in DaVinci Resolve", 0.85)
-            execute_davinci_isolated(
+            davinci = execute_davinci_isolated(
                 plan_path,
                 timeline_path,
                 output,
@@ -457,6 +459,7 @@ class JobService:
             validation=validation,
             plan=revision.plan,
             verification_path=verification_path,
+            davinci=davinci,
         )
 
     def _update_progress(self, job: JobRecord, stage: str, value: float) -> None:

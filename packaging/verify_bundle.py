@@ -621,11 +621,147 @@ def _verify_studio_runtime(executable: Path, root: Path) -> None:
             raise RuntimeError("bundled Studio did not serve its completed creative plan")
         if not studio_resolve_state.is_file():
             raise RuntimeError("bundled Studio DaVinci fixture did not persist its timeline")
+        _verify_studio_revision_and_variant_selection(base_url, job, process)
         _verify_studio_job_cancellation(base_url, root, process)
     finally:
         _stop_process_tree(process)
     if (runtime_directory / "connection.json").exists():
         raise RuntimeError("bundled Studio left stale daemon connection metadata")
+
+
+def _wait_for_studio_job(
+    base_url: str,
+    job_id: str,
+    studio_process: subprocess.Popen[bytes],
+    *,
+    description: str,
+    timeout_seconds: float = 180,
+) -> dict[str, object]:
+    job: dict[str, object] | None = None
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if studio_process.poll() is not None:
+            _raise_studio_failure(studio_process, f"stopped during {description}")
+        status, _headers, body = _studio_request(base_url + f"/api/jobs/{job_id}")
+        if status != 200:
+            raise RuntimeError(f"bundled Studio lost its {description} job")
+        job = json.loads(body)
+        if job.get("status") in {"completed", "failed", "cancelled", "interrupted"}:
+            break
+        time.sleep(0.1)
+    if job is None or job.get("status") != "completed":
+        raise RuntimeError(
+            f"bundled Studio {description} failed: " + str((job or {}).get("error"))
+        )
+    return job
+
+
+def _verify_studio_revision_and_variant_selection(
+    base_url: str,
+    creation: dict[str, object],
+    studio_process: subprocess.Popen[bytes],
+) -> None:
+    job_id = creation.get("job_id")
+    result = creation.get("result")
+    plan = result.get("plan") if isinstance(result, dict) else None
+    segments = plan.get("segments") if isinstance(plan, dict) else None
+    if not isinstance(job_id, str) or not isinstance(segments, list) or not segments:
+        raise RuntimeError("bundled Studio creation did not expose revisable segments")
+    first_segment = segments[0]
+    segment_id = first_segment.get("segment_id") if isinstance(first_segment, dict) else None
+    if not isinstance(segment_id, str):
+        raise RuntimeError("bundled Studio creation exposed an invalid segment ID")
+
+    status, _headers, body = _studio_request(
+        base_url + f"/api/jobs/{job_id}/revisions",
+        method="POST",
+        payload={
+            "changes": {
+                "pace": "fast",
+                "color_look": "vivid",
+                "lock_segment_ids": [segment_id],
+            },
+            "ffmpeg_render": False,
+            "davinci": True,
+        },
+    )
+    submitted_revision = json.loads(body)
+    revision_id = submitted_revision.get("job_id")
+    if status != 202 or not isinstance(revision_id, str):
+        raise RuntimeError("bundled Studio could not submit a locked creative revision")
+    revision = _wait_for_studio_job(
+        base_url, revision_id, studio_process, description="creative revision"
+    )
+    revision_result = revision.get("result")
+    revision_plan = (
+        revision_result.get("plan") if isinstance(revision_result, dict) else None
+    )
+    revision_segments = (
+        revision_plan.get("segments") if isinstance(revision_plan, dict) else None
+    )
+    revised_segment = revision_segments[0] if isinstance(revision_segments, list) else None
+    davinci = (
+        revision_result.get("davinci") if isinstance(revision_result, dict) else None
+    )
+    if (
+        revision.get("kind") != "revision"
+        or revision.get("parent_job_id") != job_id
+        or not isinstance(revised_segment, dict)
+        or revised_segment.get("segment_id") != segment_id
+        or revised_segment.get("locked") is not True
+        or revised_segment.get("source_range") != first_segment.get("source_range")
+        or revised_segment.get("speed") != first_segment.get("speed")
+        or revised_segment.get("visual") != first_segment.get("visual")
+        or not isinstance(davinci, dict)
+        or davinci.get("project_saved") is not True
+    ):
+        raise RuntimeError(
+            "bundled Studio revision did not preserve its locked decision through DaVinci"
+        )
+    revision_artifacts = revision.get("artifacts")
+    revision_artifact_names = {
+        item.get("name") for item in revision_artifacts if isinstance(item, dict)
+    } if isinstance(revision_artifacts, list) else set()
+    if not {"plan", "plan-diff", "validation", "timeline"}.issubset(
+        revision_artifact_names
+    ):
+        raise RuntimeError("bundled Studio revision omitted durable production artifacts")
+
+    variant_options = creation.get("variant_options")
+    if not isinstance(variant_options, list) or not variant_options:
+        raise RuntimeError("bundled Studio creation did not expose generated variants")
+    recommended = next(
+        (
+            item
+            for item in variant_options
+            if isinstance(item, dict) and item.get("recommended") is True
+        ),
+        variant_options[0],
+    )
+    variant_id = recommended.get("variant_id") if isinstance(recommended, dict) else None
+    if not isinstance(variant_id, str):
+        raise RuntimeError("bundled Studio exposed an invalid generated variant")
+    status, _headers, body = _studio_request(
+        base_url + f"/api/jobs/{job_id}/variants/{variant_id}/select",
+        method="POST",
+        payload={"ffmpeg_render": False, "davinci": False},
+    )
+    submitted_selection = json.loads(body)
+    selection_id = submitted_selection.get("job_id")
+    if status != 202 or not isinstance(selection_id, str):
+        raise RuntimeError("bundled Studio could not select its generated variant")
+    selection = _wait_for_studio_job(
+        base_url, selection_id, studio_process, description="variant selection"
+    )
+    status, _headers, body = _studio_request(base_url + f"/api/jobs/{job_id}")
+    refreshed_creation = json.loads(body)
+    if (
+        status != 200
+        or refreshed_creation.get("selected_variant_id") != variant_id
+        or selection.get("kind") != "revision"
+        or selection.get("parent_job_id") != job_id
+    ):
+        raise RuntimeError("bundled Studio did not persist its selected generated variant")
 
 
 def _verify_studio_job_cancellation(

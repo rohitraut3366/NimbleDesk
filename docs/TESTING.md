@@ -211,7 +211,11 @@ emergency stop, checks creative-intelligence readiness, and confirms clean conne
 Studio also submits a real semantic-vision, transcription, licensed-music, sound-design, caption,
 and FFmpeg render job through its HTTP API, waits for durable completion, verifies the production
 artifact catalog, downloads and inspects the generated edit plan, and executes the editor-enabled
-job through the isolated DaVinci worker to import and save its editable timeline.
+job through the isolated DaVinci worker to import and save its editable timeline. It then locks an
+approved segment, submits a revision through the production API, verifies that its source and
+treatment remain unchanged, and requires durable Resolve project-save evidence. Finally, it
+selects the generated recommended variant and requires its validated revision job and selection
+state to survive a fresh API read.
 It then submits a second job backed by a deliberately slow sandboxed transcription provider,
 cancels it through Studio, requires durable `cancelled` state, and rejects any downstream plan or
 render artifact after cancellation.
