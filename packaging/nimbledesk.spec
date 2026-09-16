@@ -32,6 +32,8 @@ hiddenimports = (
     + collect_submodules("faster_whisper")
     + collect_submodules("mcp")
     + collect_submodules("nimbledesk")
+    + collect_submodules("pynput")
+    + collect_submodules("pystray")
     + collect_submodules("starlette")
     + collect_submodules("uvicorn")
     + windows_hiddenimports

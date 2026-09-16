@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from nimbledesk.adapters.worker import main as adapter_worker_main
+from nimbledesk.console.safety import main as console_main
 from nimbledesk.creative.cli import main as create_main
 from nimbledesk.creative.davinci_worker import main as davinci_worker_main
 from nimbledesk.creative.music_cli import main as music_main
@@ -36,6 +37,7 @@ from nimbledesk.update import main as update_main
 COMMANDS: dict[str, Callable[[], None]] = {
     "daemon": daemon_main,
     "watchdog": watchdog_main,
+    "console": console_main,
     "mcp": gateway_main,
     "studio": studio_main,
     "create": create_main,

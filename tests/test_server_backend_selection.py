@@ -1,10 +1,17 @@
 from pathlib import Path
+from typing import Any
 
 from pytest import MonkeyPatch
 
 import nimbledesk.daemon.server as server
 from nimbledesk.backends.semantic import UnavailableSemanticProvider
 from nimbledesk.backends.simulator import SimulatorBackend
+
+
+class RecordingProcess:
+    def __init__(self, command: list[str], **options: Any) -> None:
+        self.command = command
+        self.options = options
 
 
 def test_native_backend_uses_portal_capture_in_wayland_session(
@@ -98,3 +105,43 @@ def test_native_backend_uses_windows_system_io(
 
     assert selected == ["windows"]
     assert runtime.health()["backend"] == "adapters+native:unavailable+simulator"
+
+
+def test_daemon_starts_safety_console_with_parent_liveness_pipe(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    processes: list[RecordingProcess] = []
+
+    def start_process(command: list[str], **options: Any) -> RecordingProcess:
+        process = RecordingProcess(command, **options)
+        processes.append(process)
+        return process
+
+    monkeypatch.delenv("NIMBLEDESK_SAFETY_CONSOLE", raising=False)
+    monkeypatch.setattr(server.subprocess, "Popen", start_process)
+
+    process = server._start_safety_console()
+
+    assert process is processes[0]
+    assert process.command == [
+        server.sys.executable,
+        "-m",
+        "nimbledesk.console.safety",
+        "--parent-pipe",
+    ]
+    assert process.options["stdin"] == server.subprocess.PIPE
+    assert process.options["stdout"] == server.subprocess.DEVNULL
+    assert process.options["stderr"] == server.subprocess.DEVNULL
+
+
+def test_daemon_can_disable_safety_console(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("NIMBLEDESK_SAFETY_CONSOLE", "0")
+    monkeypatch.setattr(
+        server.subprocess,
+        "Popen",
+        lambda *_args, **_options: (_ for _ in ()).throw(
+            AssertionError("disabled console must not start")
+        ),
+    )
+
+    assert server._start_safety_console() is None

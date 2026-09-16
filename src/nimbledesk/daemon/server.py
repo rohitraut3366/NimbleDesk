@@ -98,6 +98,7 @@ async def run() -> None:
         runtime_dir / "connection.json",
         ConnectionInfo(port=port, secret=secret),
     )
+    safety_console = _start_safety_console()
     try:
         async with server:
             await server.serve_forever()
@@ -109,6 +110,13 @@ async def run() -> None:
             watchdog.wait(timeout=2)
         except subprocess.TimeoutExpired:
             watchdog.terminate()
+        if safety_console is not None:
+            if safety_console.stdin is not None:
+                safety_console.stdin.close()
+            try:
+                safety_console.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                safety_console.terminate()
         (runtime_dir / "connection.json").unlink(missing_ok=True)
 
 
@@ -124,6 +132,25 @@ def _start_watchdog() -> subprocess.Popen[bytes]:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+
+def _start_safety_console() -> subprocess.Popen[bytes] | None:
+    if os.getenv("NIMBLEDESK_SAFETY_CONSOLE", "1") == "0":
+        return None
+    command = (
+        [sys.executable, "console", "--parent-pipe"]
+        if getattr(sys, "frozen", False)
+        else [sys.executable, "-m", "nimbledesk.console.safety", "--parent-pipe"]
+    )
+    try:
+        return subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return None
 
 
 def main() -> None:

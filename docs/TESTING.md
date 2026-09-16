@@ -32,6 +32,12 @@ Recovery tests verify that daemon startup invalidates stale runtime authority an
 and that failed, timed-out, or cancelled backend actions force key/button release.
 Watchdog tests close the daemon-liveness pipe and verify that an independent process attempts every
 modifier and mouse-button release even when one platform call fails.
+Safety-console tests validate persisted shortcut syntax, authenticated pause and emergency-stop
+calls, atomic status output, daemon child-process startup, the parent-liveness pipe, and explicit
+disablement. Physical qualification must activate the configured shortcut from outside NimbleDesk,
+confirm every active session becomes paused, invoke the tray emergency stop, and verify input stays
+blocked until a new session is explicitly enabled. Repeat on macOS, Windows, X11, and each supported
+Wayland desktop after its global-shortcut portal implementation is available.
 Gateway tests verify bounded server-side UI search, internal condition waits, adapter discovery,
 session discovery, and redacted audit summaries. Audit tests reopen the log across a simulated
 daemon restart and detect content or chain tampering.

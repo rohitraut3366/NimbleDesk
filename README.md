@@ -76,6 +76,24 @@ uv sync --extra dev --extra native --extra speech
 
 Three-platform CI also builds a standalone `nimbledesk` executable. Run `nimbledesk start` to launch the daemon and Studio together, or use its `daemon`, `mcp`, `studio`, `create`, `revise`, `highlights`, `photos`, `music-index`, `approve`, and `smoke` subcommands separately. See [distribution and bundle verification](docs/DISTRIBUTION.md).
 
+Register the packaged executable as a per-user service and choose the global pause shortcut:
+
+```bash
+nimbledesk service install --pause-hotkey '<ctrl>+<alt>+<shift>+p'
+```
+
+The daemon starts a tray safety console. The shortcut pauses every active desktop session. The tray
+menu can pause all sessions or perform a global emergency stop. Run the console separately during
+development, or to change its persisted shortcut:
+
+```bash
+uv run nimbledesk console --hotkey '<ctrl>+<alt>+p'
+```
+
+Set `NIMBLEDESK_SAFETY_CONSOLE=0` only when another supervised safety console is already running.
+The keyboard shortcut currently requires macOS, Windows, or an X11 session; the Wayland portal
+global-shortcut path is tracked as a release requirement.
+
 ## Create a finished video
 
 The creation workflow is the main end-to-end entry point. It analyzes the source, incorporates supplied or automatically detected semantic events, transcribes dialogue when requested, ranks moments, creates a reviewable edit plan, selects licensed music, renders a finished review MP4 with readable burned captions, retains an editable SRT sidecar, and exports a DaVinci Resolve timeline. Planned cross-dissolves compile as synchronized video and constant-power audio overlaps instead of being approximated as cuts.
@@ -585,6 +603,8 @@ emergency stop before deleting the connection file.
 The daemon also starts a minimal companion watchdog through an inherited pipe. If the daemon exits
 or crashes, pipe closure makes the independent process release Shift, Control, Alt, Command/Windows,
 and all common mouse buttons before the service manager restarts the daemon.
+It also starts the tray safety console described in **Install**. Closing the daemon's inherited pipe
+closes that console, so a service restart cannot leave duplicate hotkey listeners or tray icons.
 
 ## Use the real desktop
 

@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from nimbledesk.console.safety import SafetySettings, save_settings, settings_path
+
 
 def install_service(
     executable: Path,
@@ -133,8 +135,16 @@ def main() -> None:
         action="store_true",
         help="also permanently remove local projects, configuration, logs, and audit data",
     )
+    parser.add_argument(
+        "--pause-hotkey",
+        help="global pause shortcut, for example <ctrl>+<alt>+<shift>+p",
+    )
     arguments = parser.parse_args()
     if arguments.action == "install":
+        if arguments.pause_hotkey:
+            save_settings(
+                settings_path(), SafetySettings(pause_hotkey=arguments.pause_hotkey)
+            )
         path = install_service(_installed_executable())
         print(f"Installed per-user service: {path}")
     else:
