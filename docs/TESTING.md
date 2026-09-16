@@ -194,6 +194,9 @@ before producing its archive, so a source-only pass cannot hide a packaged-worke
 It also generates deterministic video, transcript, event, licensed-music, and licensed-sound
 fixtures and requires the frozen executable to produce a verified portrait render, captions,
 creative plan, cue sheets, semantic index, and editable DaVinci timeline.
+The deterministic semantic-vision fixture receives real bounded contact sheets and returns a
+high-confidence event with provider token usage; the build requires that event and provenance in
+the final merged analysis.
 Finally, it launches the frozen daemon and Studio with a simulator backend, verifies authenticated
 health and browser security headers, creates and pauses a desktop session, exercises the global
 emergency stop, checks creative-intelligence readiness, and confirms clean connection-file removal.

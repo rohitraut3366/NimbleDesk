@@ -6,6 +6,7 @@ import platform
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from contextlib import suppress
@@ -266,6 +267,42 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
         ),
         encoding="utf-8",
     )
+    vision_worker = root / "vision-provider.py"
+    vision_worker.write_text(
+        "import json\n"
+        "import sys\n"
+        "request = json.load(open(sys.argv[1], encoding='utf-8'))\n"
+        "assert request['content_kind'] == 'gameplay'\n"
+        "assert request['sheets'] and request['sheets'][0]['timestamps_seconds']\n"
+        "json.dump({'events': [{'time_seconds': 2.5, "
+        "'event_type': 'narrow_survival', 'label': 'One-health survival', "
+        "'confidence': 0.94, 'evidence': 'critical health followed by continued play'}], "
+        "'usage': {'image_bytes': 1234, 'estimated_512px_tiles': 6, "
+        "'estimated_image_tokens': 1105, 'provider_input_tokens': 321, "
+        "'provider_output_tokens': 45}}, open(sys.argv[2], 'w', encoding='utf-8'))\n",
+        encoding="utf-8",
+    )
+    vision_provider = root / "vision-provider.json"
+    vision_provider.write_text(
+        json.dumps(
+            {
+                "provider_id": "bundle-vision-fixture",
+                "model": "deterministic-multimodal-fixture",
+                "command": [
+                    sys.executable,
+                    str(vision_worker),
+                    "{request}",
+                    "{response}",
+                ],
+                "sample_interval_seconds": 1,
+                "maximum_frames": 4,
+                "timeout_seconds": 30,
+                "minimum_confidence": 0.65,
+                "execution_location": "local",
+            }
+        ),
+        encoding="utf-8",
+    )
     output = root / "creation"
     creation = subprocess.run(
         [
@@ -291,6 +328,8 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
             str(events),
             "--transcript",
             str(transcript),
+            "--vision-provider",
+            str(vision_provider),
             "--music-catalog",
             str(music_catalog),
             "--sound-catalog",
@@ -316,16 +355,27 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
         "cue_sheet.csv",
         "detected_events.json",
         "transcript.json",
+        "analysis/vision/analysis.json",
     )
     missing = [name for name in required_files if not (output / name).is_file()]
     if missing:
         raise RuntimeError("bundled creative workflow omitted: " + ", ".join(missing))
     verification = json.loads((output / "render_verification.json").read_text(encoding="utf-8"))
     plan = json.loads((output / "edit_plan.json").read_text(encoding="utf-8"))
+    vision = json.loads(
+        (output / "analysis" / "vision" / "analysis.json").read_text(encoding="utf-8")
+    )
+    detected_events = json.loads((output / "detected_events.json").read_text(encoding="utf-8"))
     if verification.get("valid") is not True:
         raise RuntimeError("bundled creative render did not pass verification")
     if not plan.get("captions") or not plan.get("music_cue") or not plan.get("sound_cues"):
         raise RuntimeError("bundled creative plan omitted captions, music, or sound design")
+    if (
+        vision.get("provider_id") != "bundle-vision-fixture"
+        or vision.get("usage", {}).get("provider_input_tokens") != 321
+        or not any(event.get("event_type") == "narrow_survival" for event in detected_events)
+    ):
+        raise RuntimeError("bundled semantic-vision provider contract did not reach the edit")
 
 
 def _verify_studio_runtime(executable: Path, root: Path) -> None:
