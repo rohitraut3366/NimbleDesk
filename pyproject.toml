@@ -23,6 +23,9 @@ dependencies = [
 [project.optional-dependencies]
 native = [
   "pyobjc-framework-ApplicationServices>=10,<13; sys_platform == 'darwin'",
+  "pyobjc-framework-Cocoa>=10,<13; sys_platform == 'darwin'",
+  "pyobjc-framework-Quartz>=10,<13; sys_platform == 'darwin'",
+  "pyobjc-framework-ScreenCaptureKit>=10,<13; sys_platform == 'darwin'",
   "pywinauto>=0.6.9,<1; sys_platform == 'win32'",
 ]
 dev = [

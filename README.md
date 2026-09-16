@@ -774,7 +774,7 @@ uv run nimbledesk-qualify endurance \
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `NIMBLEDESK_BACKEND` | `simulator` | Select `simulator`, `portable`, or `native`. Native composes the OS semantic/input providers and selects the XDG portal backend in a Wayland session. Unknown values fail at startup. |
+| `NIMBLEDESK_BACKEND` | `simulator` | Select `simulator`, `portable`, or `native`. On macOS, native mode uses ScreenCaptureKit with a Core Graphics fallback, CGEvent input, AX semantics, Retina geometry, and application activation. On Linux Wayland it uses the XDG ScreenCast/RemoteDesktop portals. Unknown values fail at startup. |
 | `NIMBLEDESK_ENABLE_INPUT` | Disabled | Host input gate. Truthy values are `1`, `true`, `yes`, or `on`, ignoring case. |
 | `NIMBLEDESK_RUNTIME_DIR` | `~/.nimbledesk/runtime` | Directory for `connection.json` and `audit.jsonl`. |
 | `NIMBLEDESK_CONNECTION_FILE` | `~/.nimbledesk/runtime/connection.json` | Connection file read by `nimbledesk-mcp`. |

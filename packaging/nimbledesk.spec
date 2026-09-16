@@ -20,6 +20,12 @@ windows_hiddenimports = (
     else []
 )
 
+macos_hiddenimports = (
+    ["AppKit", "ApplicationServices", "Quartz", "ScreenCaptureKit"]
+    if platform.system() == "Darwin"
+    else []
+)
+
 hiddenimports = (
     collect_submodules("dbus_next")
     + collect_submodules("faster_whisper")
@@ -28,6 +34,7 @@ hiddenimports = (
     + collect_submodules("starlette")
     + collect_submodules("uvicorn")
     + windows_hiddenimports
+    + macos_hiddenimports
 )
 
 analysis = Analysis(

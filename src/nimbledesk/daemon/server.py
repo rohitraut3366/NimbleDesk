@@ -10,6 +10,7 @@ from pathlib import Path
 
 from nimbledesk.backends import (
     AdapterDesktopBackend,
+    MacOSNativeBackend,
     NativeDesktopBackend,
     PortableDesktopBackend,
     SimulatorBackend,
@@ -39,12 +40,17 @@ def build_runtime(runtime_dir: Path) -> DesktopRuntime:
     if backend_name == "portable":
         backend = PortableDesktopBackend(import_module("pyautogui"))
     elif backend_name == "native":
-        portable_backend: DesktopBackend = (
-            WaylandPortalBackend()
-            if platform.system() == "Linux"
+        selected_system = platform.system()
+        portable_backend: DesktopBackend
+        if selected_system == "Darwin":
+            portable_backend = MacOSNativeBackend()
+        elif (
+            selected_system == "Linux"
             and os.getenv("XDG_SESSION_TYPE", "").casefold() == "wayland"
-            else PortableDesktopBackend(import_module("pyautogui"))
-        )
+        ):
+            portable_backend = WaylandPortalBackend()
+        else:
+            portable_backend = PortableDesktopBackend(import_module("pyautogui"))
         backend = NativeDesktopBackend(
             portable_backend,
             system_semantic_provider(),

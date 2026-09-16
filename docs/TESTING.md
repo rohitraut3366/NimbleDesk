@@ -88,6 +88,12 @@ expected state change. Run it in a dedicated desktop because it performs real in
 
 The matrix covers mixed display scaling, multiple monitors, negative virtual coordinates, rotation, different keyboard layouts, focus changes, permission denial/revocation, sleep/wake, app crashes, and emergency cancellation. Dedicated machines are required because virtual CI does not accurately reproduce every capture and accessibility API.
 
+macOS native runs must report a `macos-screencapturekit-coregraphics-cgevent` I/O provider. The
+contract records Screen Recording and Accessibility independently, enumerates each NSScreen/Core
+Graphics display with logical and backing-pixel bounds, and exercises capture and CGEvent input.
+ScreenCaptureKit is preferred; Core Graphics remains the explicit fallback when ScreenCaptureKit
+does not expose a display to a command-line or restricted process.
+
 For a Wayland fixture run, install the desktop's XDG portal backend and GStreamer PipeWire plugin, set `NIMBLEDESK_BACKEND=native`, and keep `XDG_SESSION_TYPE=wayland`. The first observation must show the compositor-owned monitor and remote-control consent dialog. Test capture on every selected stream, absolute motion on monitors with positive and negative origins, buttons, smooth drag, continuous scroll, Unicode text, hotkeys, consent denial, session revocation, and emergency release. The backend must report denied permissions without advertising capture or input when the user cancels sharing.
 
 ## 4. Real application workflows
