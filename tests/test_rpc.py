@@ -6,6 +6,7 @@ import random
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from nimbledesk.backends import SimulatorBackend
 from nimbledesk.client import DaemonClient, DaemonClientError
@@ -39,6 +40,44 @@ def test_authentication_rejects_wrong_secret() -> None:
         False,
         "invalid request signature",
     )
+
+
+def test_rpc_signature_binds_caller_identity() -> None:
+    request = create_request(
+        "health", {}, "correct-secret", caller_id="mcp-gateway"
+    ).model_copy(update={"caller_id": "studio-console"})
+
+    assert RequestAuthenticator("correct-secret").verify(request) == (
+        False,
+        "invalid request signature",
+    )
+
+
+def test_rpc_envelope_carries_matching_session_context() -> None:
+    request = create_request(
+        "session_status", {"session_id": "session-1"}, "correct-secret"
+    )
+
+    assert request.session_id == "session-1"
+    changed = request.model_dump(mode="json")
+    changed["session_id"] = "session-2"
+    with pytest.raises(ValidationError, match="envelope session"):
+        type(request).model_validate(changed)
+
+
+def test_authentication_rejects_expired_request_deadline() -> None:
+    request = create_request("health", {}, "correct-secret", deadline_ms=1)
+    after_deadline = (request.deadline_at_ms + 1) / 1_000
+
+    assert RequestAuthenticator("correct-secret", clock=lambda: after_deadline).verify(
+        request
+    ) == (False, "request deadline has expired")
+
+
+@pytest.mark.parametrize("deadline_ms", [0, 120_001])
+def test_rpc_request_deadline_is_bounded(deadline_ms: int) -> None:
+    with pytest.raises(ValueError, match="RPC deadline"):
+        create_request("health", {}, "correct-secret", deadline_ms=deadline_ms)
 
 
 def test_rpc_parser_rejects_duplicate_keys_and_non_finite_numbers() -> None:

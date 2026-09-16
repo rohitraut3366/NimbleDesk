@@ -12,7 +12,7 @@ uv run --extra dev mypy
 uv run --extra dev ruff check .
 ```
 
-The simulator verifies protocol validation, session state, action budgets, stale observations, approval binding, audit records, RPC authentication/replay prevention, response budgets, and gateway boundaries without touching the real desktop.
+The simulator verifies protocol validation, session state, action budgets, stale observations, approval binding, audit records, RPC authentication/replay prevention, response budgets, and gateway boundaries without touching the real desktop. RPC tests also prove that the HMAC binds the caller identity, protocol fields, request payload, and bounded absolute deadline, and that expired envelopes never dispatch.
 
 Action-lifecycle tests enforce relative deadlines before input, reject failed preconditions, capture
 and evaluate postconditions, expose resolved targets and structured error codes, replay completed

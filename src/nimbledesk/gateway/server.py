@@ -53,7 +53,7 @@ def client() -> DaemonClient:
     configured = os.getenv("NIMBLEDESK_CONNECTION_FILE")
     default_path = Path.home() / ".nimbledesk" / "runtime" / "connection.json"
     path = Path(configured) if configured else default_path
-    return DaemonClient.from_file(path)
+    return DaemonClient.from_file(path, caller_id="mcp-gateway")
 
 
 @mcp.tool()

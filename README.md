@@ -866,7 +866,7 @@ The daemon binds to `127.0.0.1` on an automatically selected port. `connection.j
 
 ## Architecture and security
 
-The unprivileged MCP gateway has no backend imports and no direct desktop authority. Every call crosses an HMAC-authenticated, replay-protected loopback RPC boundary. The daemon validates strict protocol models, session state, host and session input gates, action budgets, observation freshness, application/window preconditions, and coordinate bounds. Pausing or stopping releases common modifiers and all mouse buttons.
+The unprivileged MCP gateway has no backend imports and no direct desktop authority. Every call crosses an HMAC-authenticated, replay-protected loopback RPC boundary. The signed envelope includes protocol version, caller ID, session context, request ID, creation time, nonce, and an absolute deadline capped at 120 seconds; expired calls and mismatched session envelopes are rejected before dispatch. Studio and MCP use distinct caller IDs. The daemon validates strict protocol models, session state, host and session input gates, action budgets, observation freshness, application/window preconditions, and coordinate bounds. Pausing or stopping releases common modifiers and all mouse buttons.
 
 The audit file redacts typed text and links entries with hashes so tampering is detectable. The model never receives a shell through the desktop protocol. Review the [threat model](docs/THREAT_MODEL.md) and the process-boundary and protocol decisions in [docs/adr](docs/adr).
 

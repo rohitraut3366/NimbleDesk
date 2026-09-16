@@ -13,17 +13,31 @@ class DaemonClientError(RuntimeError):
 
 
 class DaemonClient:
-    def __init__(self, connection: ConnectionInfo, timeout_seconds: float = 10) -> None:
+    def __init__(
+        self,
+        connection: ConnectionInfo,
+        timeout_seconds: float = 10,
+        caller_id: str = "local-client",
+    ) -> None:
         self._connection = connection
         self._timeout_seconds = timeout_seconds
+        self._caller_id = caller_id
 
     @classmethod
-    def from_file(cls, path: Path) -> DaemonClient:
+    def from_file(
+        cls, path: Path, *, caller_id: str = "local-client"
+    ) -> DaemonClient:
         connection = ConnectionInfo.model_validate_json(path.read_text(encoding="utf-8"))
-        return cls(connection)
+        return cls(connection, caller_id=caller_id)
 
     async def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        request = create_request(method, params or {}, self._connection.secret)
+        request = create_request(
+            method,
+            params or {},
+            self._connection.secret,
+            caller_id=self._caller_id,
+            deadline_ms=max(1, min(120_000, int(self._timeout_seconds * 1_000))),
+        )
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(self._connection.host, self._connection.port),
             timeout=self._timeout_seconds,

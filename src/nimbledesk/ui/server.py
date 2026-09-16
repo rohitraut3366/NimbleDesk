@@ -67,7 +67,7 @@ def daemon_client() -> DaemonClient:
         if configured
         else Path.home() / ".nimbledesk" / "runtime" / "connection.json"
     )
-    return DaemonClient.from_file(connection_file)
+    return DaemonClient.from_file(connection_file, caller_id="studio-console")
 
 
 async def home(request: Request) -> HTMLResponse:
