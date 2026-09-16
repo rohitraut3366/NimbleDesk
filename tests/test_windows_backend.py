@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import numpy as np
 from PIL import Image
 
 from nimbledesk.backends.windows import (
+    WindowsCaptureProvider,
     WindowsController,
     _layout_displays,
     _windows_virtual_key,
@@ -133,3 +135,59 @@ def test_windows_virtual_keys_cover_shortcuts_navigation_and_functions() -> None
     assert _windows_virtual_key("s") == 0x53
     assert _windows_virtual_key("left") == 0x25
     assert _windows_virtual_key("F12") == 0x7B
+
+
+def test_windows_capture_prefers_winrt_and_uses_display_local_region() -> None:
+    class Camera:
+        region: tuple[int, int, int, int] | None = None
+
+        @classmethod
+        def grab(cls, *, region: tuple[int, int, int, int]) -> np.ndarray:
+            cls.region = region
+            return np.zeros((100, 200, 3), dtype=np.uint8)
+
+    class Dxcam:
+        selected_output: int | None = None
+        selected_backend: str | None = None
+
+        @classmethod
+        def create(cls, **arguments: object) -> Camera:
+            cls.selected_output = int(arguments["output_idx"])
+            cls.selected_backend = str(arguments["backend"])
+            return Camera()
+
+    displays = FakeWindowsAPI().displays()
+    capture = WindowsCaptureProvider(Dxcam()).capture(
+        Rectangle(left=100, top=50, width=200, height=100), displays
+    )
+
+    assert Dxcam.selected_output == 1
+    assert Dxcam.selected_backend == "winrt"
+    assert Camera.region == (100, 50, 300, 150)
+    assert capture.size == (200, 100)
+
+
+def test_windows_capture_falls_back_from_winrt_to_desktop_duplication() -> None:
+    class Camera:
+        @staticmethod
+        def grab(*, region: tuple[int, int, int, int]) -> np.ndarray:
+            return np.zeros((region[3] - region[1], region[2] - region[0], 3), dtype=np.uint8)
+
+    class Dxcam:
+        attempts: list[str] = []
+
+        @classmethod
+        def create(cls, **arguments: object) -> Camera:
+            backend = str(arguments["backend"])
+            cls.attempts.append(backend)
+            if backend == "winrt":
+                raise RuntimeError("Windows Graphics Capture unavailable")
+            return Camera()
+
+    image = WindowsCaptureProvider(Dxcam()).capture(
+        Rectangle(left=-100, top=20, width=50, height=40),
+        FakeWindowsAPI().displays(),
+    )
+
+    assert Dxcam.attempts == ["winrt", "dxgi"]
+    assert image.size == (50, 40)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import importlib
 import platform
 from ctypes import wintypes
 from pathlib import Path
@@ -78,7 +79,7 @@ class WindowsNativeBackend(SystemIOBackend):
 
 
 class WindowsController:
-    controller_id = "windows-win32-gdi-sendinput"
+    controller_id = "windows-wgc-dxgi-gdi-sendinput"
 
     def __init__(self, api: WindowsDesktopAPI | None = None) -> None:
         self._api = api
@@ -306,8 +307,108 @@ class INPUT(ctypes.Structure):
     _fields_ = [("type", wintypes.DWORD), ("value", INPUT_UNION)]
 
 
+class WindowsCaptureProvider:
+    """Windows Graphics Capture with Desktop Duplication fallback through DXcam."""
+
+    def __init__(self, module: Any) -> None:
+        self._module = module
+        self._cameras: dict[tuple[int, str], Any] = {}
+        self._preferred_backend: dict[int, str] = {}
+
+    @classmethod
+    def load(cls) -> WindowsCaptureProvider | None:
+        try:
+            return cls(importlib.import_module("dxcam"))
+        except (ImportError, OSError):
+            return None
+
+    def capture(
+        self,
+        bounds: Rectangle,
+        displays: tuple[tuple[int, Rectangle, float, bool], ...],
+    ) -> Image.Image:
+        display_index, display_bounds = self._display_for_bounds(bounds, displays)
+        region = (
+            bounds.left - display_bounds.left,
+            bounds.top - display_bounds.top,
+            bounds.left - display_bounds.left + bounds.width,
+            bounds.top - display_bounds.top + bounds.height,
+        )
+        preferred = self._preferred_backend.get(display_index)
+        backends: tuple[str, ...] = (preferred,) if preferred else ("winrt", "dxgi")
+        errors: list[str] = []
+        for backend in backends:
+            try:
+                image = self._capture_backend(display_index, backend, region)
+            except RuntimeError as error:
+                errors.append(str(error))
+                continue
+            self._preferred_backend[display_index] = backend
+            return image
+        if preferred == "winrt":
+            try:
+                image = self._capture_backend(display_index, "dxgi", region)
+            except RuntimeError as error:
+                errors.append(str(error))
+            else:
+                self._preferred_backend[display_index] = "dxgi"
+                return image
+        raise RuntimeError("; ".join(errors) or "native Windows capture failed")
+
+    def _capture_backend(
+        self, display_index: int, backend: str, region: tuple[int, int, int, int]
+    ) -> Image.Image:
+        camera_key = (display_index, backend)
+        camera = self._cameras.get(camera_key)
+        if camera is None:
+            try:
+                camera = self._module.create(
+                    device_idx=0,
+                    output_idx=display_index,
+                    output_color="RGB",
+                    backend=backend,
+                )
+            except Exception as error:
+                raise RuntimeError(f"{backend} capture initialization failed: {error}") from error
+            self._cameras[camera_key] = camera
+        frame = None
+        for _ in range(3):
+            try:
+                frame = camera.grab(region=region)
+            except Exception as error:
+                raise RuntimeError(f"{backend} capture failed: {error}") from error
+            if frame is not None:
+                break
+            sleep(0.01)
+        if frame is None:
+            raise RuntimeError(f"{backend} capture returned no frame")
+        try:
+            image = Image.fromarray(frame).convert("RGB")
+        except Exception as error:
+            raise RuntimeError(f"{backend} capture returned an invalid RGB frame") from error
+        expected_size = (region[2] - region[0], region[3] - region[1])
+        if image.size != expected_size:
+            raise RuntimeError(f"{backend} capture returned unexpected frame dimensions")
+        return image
+
+    @staticmethod
+    def _display_for_bounds(
+        bounds: Rectangle,
+        displays: tuple[tuple[int, Rectangle, float, bool], ...],
+    ) -> tuple[int, Rectangle]:
+        start = Point(x=bounds.left, y=bounds.top)
+        end = Point(
+            x=bounds.left + bounds.width - 1,
+            y=bounds.top + bounds.height - 1,
+        )
+        for index, (_, display, _, _) in enumerate(displays):
+            if display.contains(start) and display.contains(end):
+                return index, display
+        raise RuntimeError("Desktop Duplication capture must fit within one display")
+
+
 class Win32DesktopAPI:
-    def __init__(self) -> None:
+    def __init__(self, native_capture: WindowsCaptureProvider | None = None) -> None:
         windows_dll: Any = ctypes.__dict__["WinDLL"]
         self._user32 = windows_dll("user32", use_last_error=True)
         self._gdi32 = windows_dll("gdi32", use_last_error=True)
@@ -324,6 +425,7 @@ class Win32DesktopAPI:
         with _ignore_os_error():
             self._user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
         self._configure_signatures()
+        self._native_capture = native_capture or WindowsCaptureProvider.load()
 
     def displays(self) -> tuple[tuple[int, Rectangle, float, bool], ...]:
         result: list[tuple[int, Rectangle, float, bool]] = []
@@ -367,6 +469,14 @@ class Win32DesktopAPI:
         return Point(x=point.x, y=point.y)
 
     def capture(self, bounds: Rectangle) -> Image.Image:
+        if self._native_capture is not None:
+            try:
+                return self._native_capture.capture(bounds, self.displays())
+            except RuntimeError:
+                pass
+        return self._capture_gdi(bounds)
+
+    def _capture_gdi(self, bounds: Rectangle) -> Image.Image:
         screen_dc = self._user32.GetDC(None)
         if not screen_dc:
             raise RuntimeError("Windows GetDC failed")

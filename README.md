@@ -790,7 +790,7 @@ uv run nimbledesk-qualify endurance \
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `NIMBLEDESK_BACKEND` | `simulator` | Select `simulator`, `portable`, or `native`. macOS native mode uses ScreenCaptureKit/Core Graphics, CGEvent, AX, and Retina geometry. Windows native mode uses per-monitor DPI geometry, Win32 capture, SendInput, UIA, and explicit UIPI errors. Linux Wayland uses the XDG ScreenCast/RemoteDesktop portals; X11 adds explicit xdotool window control, xclip/xsel clipboard access, and gtk-launch activation to portable capture/input. Unknown values fail at startup. |
+| `NIMBLEDESK_BACKEND` | `simulator` | Select `simulator`, `portable`, or `native`. macOS native mode uses ScreenCaptureKit/Core Graphics, CGEvent, AX, and Retina geometry. Windows native mode uses Windows Graphics Capture, Desktop Duplication, then GDI fallback with per-monitor DPI geometry, SendInput, UIA, and explicit UIPI errors. Linux Wayland uses the XDG ScreenCast/RemoteDesktop portals; X11 adds explicit xdotool window control, xclip/xsel clipboard access, and gtk-launch activation to portable capture/input. Unknown values fail at startup. |
 | `NIMBLEDESK_ENABLE_INPUT` | Disabled | Host input gate. Truthy values are `1`, `true`, `yes`, or `on`, ignoring case. |
 | `NIMBLEDESK_ENABLE_CLIPBOARD` | Disabled | Additional host gate for native clipboard reads and writes. The session must also set `clipboard_enabled=true`. |
 | `NIMBLEDESK_RUNTIME_DIR` | `~/.nimbledesk/runtime` | Directory for `connection.json` and `audit.jsonl`. |

@@ -7,7 +7,8 @@ from PyInstaller.utils.hooks import collect_submodules
 root = Path(SPECPATH).parent
 
 windows_hiddenimports = (
-    [
+    collect_submodules("dxcam")
+    + [
         "pywintypes",
         "win32api",
         "win32con",

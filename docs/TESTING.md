@@ -100,7 +100,7 @@ Graphics display with logical and backing-pixel bounds, and exercises capture an
 ScreenCaptureKit is preferred; Core Graphics remains the explicit fallback when ScreenCaptureKit
 does not expose a display to a command-line or restricted process.
 
-Windows native runs must report a `windows-win32-gdi-sendinput` I/O provider. The shared contract
+Windows native runs must report a `windows-wgc-dxgi-gdi-sendinput` I/O provider. The shared contract
 checks negative virtual coordinates and 100%, 125%, 150%, and 200% monitor scaling, captures each
 monitor through a native device context, and verifies absolute SendInput normalization across the
 whole virtual desktop. Run one fixture normally and one elevated; an unelevated-to-elevated input

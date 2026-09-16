@@ -35,9 +35,9 @@ never includes connection secrets, paths, screenshots, media, transcripts, typed
 Build a platform archive on that platform:
 
 ```bash
-uv sync --extra bundle --extra speech --locked
-uv run --extra bundle --extra speech python packaging/build_bundle.py
-uv run --extra bundle --extra speech python packaging/build_installer.py --version 0.1.0
+uv sync --extra bundle --extra native --extra speech --locked
+uv run --extra bundle --extra native --extra speech python packaging/build_bundle.py
+uv run --extra bundle --extra native --extra speech python packaging/build_installer.py --version 0.1.0
 ```
 
 The builders write an archive and a native installer under `artifacts/`: a macOS application package, per-user Windows MSI, or Debian package. CI builds, installs, executes, and uninstalls each artifact on a clean hosted OS image. The executable includes NimbleDesk, its Python runtime, and the faster-whisper transcription runtime. Whisper model weights download on first use. FFmpeg/FFprobe, optional Tesseract, DaVinci Resolve, accessibility services, XDG Desktop Portal, and GStreamer PipeWire support remain host dependencies and are diagnosed at runtime.
