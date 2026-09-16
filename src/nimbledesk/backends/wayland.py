@@ -148,6 +148,11 @@ class WaylandPortalBackend:
         started_at = time()
         if request.kind in {
             ActionKind.FOCUS_WINDOW,
+            ActionKind.MOVE_WINDOW,
+            ActionKind.RESIZE_WINDOW,
+            ActionKind.MINIMIZE_WINDOW,
+            ActionKind.MAXIMIZE_WINDOW,
+            ActionKind.CLOSE_WINDOW,
             ActionKind.APP_COMMAND,
             ActionKind.READ_CLIPBOARD,
             ActionKind.WRITE_CLIPBOARD,

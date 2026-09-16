@@ -17,6 +17,8 @@ The simulator verifies protocol validation, session state, action budgets, stale
 Clipboard tests require independent host/session grants, cap returned text, redact both request and
 result text in the audit chain, and prove a changed write cannot reuse an approval. Application
 launch tests require an exact session allowlist match and an exact one-time approval token.
+Window-contract tests cover focus, move, resize, minimize, maximize, and approval-gated close on
+the shared controller plus native macOS, Win32, X11, and explicit Wayland capability behavior.
 
 Cancellation tests start a real child process, request cancellation, verify prompt termination, and confirm that no output directory is created when a job is cancelled before execution. Console tests verify atomic job persistence, terminal cancellation state, and conversion of jobs left running across restart into explicit interrupted/recoverable records.
 

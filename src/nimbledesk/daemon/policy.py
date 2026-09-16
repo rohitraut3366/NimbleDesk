@@ -73,6 +73,7 @@ class ActionPolicy:
             )
         if action.kind in {
             ActionKind.APP_COMMAND,
+            ActionKind.CLOSE_WINDOW,
             ActionKind.LAUNCH_APPLICATION,
             ActionKind.WRITE_CLIPBOARD,
         } and not approved:

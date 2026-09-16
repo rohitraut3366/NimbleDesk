@@ -45,6 +45,25 @@ async def test_gateway_builds_observation_bound_action(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
+async def test_gateway_builds_observation_bound_window_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recording_client = RecordingClient()
+    monkeypatch.setattr(gateway, "client", lambda: recording_client)
+
+    await gateway.close_window(
+        "session", "observation", "fixture-window", approval_token="approval-token"
+    )
+
+    action = recording_client.params["action"]
+    assert action["kind"] == "close_window"
+    assert action["source_observation_id"] == "observation"
+    assert action["expected_window_id"] == "fixture-window"
+    assert action["arguments"] == {"window_id": "fixture-window"}
+    assert action["approval_token"] == "approval-token"
+
+
+@pytest.mark.asyncio
 async def test_gateway_builds_semantic_element_action(monkeypatch: pytest.MonkeyPatch) -> None:
     recording_client = RecordingClient()
     monkeypatch.setattr(gateway, "client", lambda: recording_client)

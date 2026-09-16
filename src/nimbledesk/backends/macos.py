@@ -150,10 +150,7 @@ class MacOSController:
             quartz.CGEventPost(quartz.kCGHIDEventTap, release)
 
     def focus_window(self, window_id: str) -> None:
-        try:
-            process_id = int(window_id.split(":", 2)[1])
-        except (IndexError, ValueError) as error:
-            raise ValueError("macOS window ID does not contain a process ID") from error
+        process_id = self._window_process_id(window_id)
         app_kit = self._load_app_kit()
         if app_kit is None:
             raise RuntimeError("AppKit is unavailable for application activation")
@@ -162,6 +159,58 @@ class MacOSController:
         )
         if application is None or not application.activateWithOptions_(1 << 1):
             raise RuntimeError("macOS refused to activate the target application")
+
+    def move_window(self, window_id: str, point: Point) -> None:
+        api, window = self._window_element(window_id)
+        value = api.AXValueCreate(api.kAXValueCGPointType, (point.x, point.y))
+        self._set_window_attribute(api, window, api.kAXPositionAttribute, value)
+
+    def resize_window(self, window_id: str, width: int, height: int) -> None:
+        api, window = self._window_element(window_id)
+        value = api.AXValueCreate(api.kAXValueCGSizeType, (width, height))
+        self._set_window_attribute(api, window, api.kAXSizeAttribute, value)
+
+    def minimize_window(self, window_id: str) -> None:
+        api, window = self._window_element(window_id)
+        self._set_window_attribute(api, window, api.kAXMinimizedAttribute, True)
+
+    def maximize_window(self, window_id: str) -> None:
+        api, window = self._window_element(window_id)
+        attribute = getattr(api, "kAXFullScreenAttribute", "AXFullScreen")
+        self._set_window_attribute(api, window, attribute, True)
+
+    def close_window(self, window_id: str) -> None:
+        api, window = self._window_element(window_id)
+        result = api.AXUIElementPerformAction(window, api.kAXCloseAction)
+        if result not in (None, 0):
+            raise RuntimeError(f"macOS AX close failed with error {result}")
+
+    @staticmethod
+    def _window_process_id(window_id: str) -> int:
+        try:
+            process_id = int(window_id.split(":", 2)[1])
+        except (IndexError, ValueError) as error:
+            raise ValueError("macOS window ID does not contain a process ID") from error
+        return process_id
+
+    def _window_element(self, window_id: str) -> tuple[Any, Any]:
+        api = self._load_application_services()
+        if api is None or not api.AXIsProcessTrusted():
+            raise RuntimeError("macOS Accessibility permission is required for window control")
+        application = api.AXUIElementCreateApplication(self._window_process_id(window_id))
+        result = api.AXUIElementCopyAttributeValue(
+            application, api.kAXFocusedWindowAttribute, None
+        )
+        window = result[1] if isinstance(result, tuple) and result[0] == 0 else result
+        if window is None:
+            raise RuntimeError("macOS AX did not return the target application's focused window")
+        return api, window
+
+    @staticmethod
+    def _set_window_attribute(api: Any, window: Any, attribute: Any, value: Any) -> None:
+        result = api.AXUIElementSetAttributeValue(window, attribute, value)
+        if result not in (None, 0):
+            raise RuntimeError(f"macOS AX window action failed with error {result}")
 
     def read_clipboard(self) -> str:
         app_kit = self._require_app_kit()

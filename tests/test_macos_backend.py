@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from PIL import Image
 
 from nimbledesk.backends.macos import MacOSController, _cg_image_to_pil, _mac_key_code
-from nimbledesk.protocol.models import Capability, PermissionState
+from nimbledesk.protocol.models import Capability, PermissionState, Point
 
 
 class PermissionQuartz:
@@ -94,3 +94,60 @@ def test_macos_clipboard_uses_native_pasteboard() -> None:
     assert controller.read_clipboard() == "existing"
     controller.write_clipboard("updated")
     assert controller.read_clipboard() == "updated"
+
+
+def test_macos_window_lifecycle_uses_accessibility_api() -> None:
+    class Accessibility:
+        kAXFocusedWindowAttribute = "focused"
+        kAXValueCGPointType = "point"
+        kAXValueCGSizeType = "size"
+        kAXPositionAttribute = "position"
+        kAXSizeAttribute = "size-attribute"
+        kAXMinimizedAttribute = "minimized"
+        kAXCloseAction = "close"
+        calls: list[tuple[object, ...]] = []
+
+        @staticmethod
+        def AXIsProcessTrusted() -> bool:
+            return True
+
+        @classmethod
+        def AXUIElementCreateApplication(cls, process_id: int) -> object:
+            cls.calls.append(("application", process_id))
+            return "application"
+
+        @staticmethod
+        def AXUIElementCopyAttributeValue(
+            _application: object, _attribute: str, _error: object
+        ) -> tuple[int, str]:
+            return 0, "window"
+
+        @staticmethod
+        def AXValueCreate(value_type: str, value: tuple[int, int]) -> tuple[object, ...]:
+            return value_type, *value
+
+        @classmethod
+        def AXUIElementSetAttributeValue(
+            cls, window: object, attribute: object, value: object
+        ) -> int:
+            cls.calls.append(("set", window, attribute, value))
+            return 0
+
+        @classmethod
+        def AXUIElementPerformAction(cls, window: object, action: object) -> int:
+            cls.calls.append(("action", window, action))
+            return 0
+
+    controller = MacOSController(application_services=Accessibility())
+
+    controller.move_window("pid:42:window", Point(x=10, y=20))
+    controller.resize_window("pid:42:window", 800, 600)
+    controller.minimize_window("pid:42:window")
+    controller.maximize_window("pid:42:window")
+    controller.close_window("pid:42:window")
+
+    assert ("set", "window", "position", ("point", 10, 20)) in Accessibility.calls
+    assert ("set", "window", "size-attribute", ("size", 800, 600)) in Accessibility.calls
+    assert ("set", "window", "minimized", True) in Accessibility.calls
+    assert ("set", "window", "AXFullScreen", True) in Accessibility.calls
+    assert ("action", "window", "close") in Accessibility.calls

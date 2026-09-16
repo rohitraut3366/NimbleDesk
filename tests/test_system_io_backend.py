@@ -79,6 +79,21 @@ class FakeSystemController:
     def focus_window(self, window_id: str) -> None:
         self.calls.append(("focus", window_id))
 
+    def move_window(self, window_id: str, point: Point) -> None:
+        self.calls.append(("move-window", window_id, point))
+
+    def resize_window(self, window_id: str, width: int, height: int) -> None:
+        self.calls.append(("resize-window", window_id, width, height))
+
+    def minimize_window(self, window_id: str) -> None:
+        self.calls.append(("minimize-window", window_id))
+
+    def maximize_window(self, window_id: str) -> None:
+        self.calls.append(("maximize-window", window_id))
+
+    def close_window(self, window_id: str) -> None:
+        self.calls.append(("close-window", window_id))
+
     def read_clipboard(self) -> str:
         self.calls.append(("clipboard-read",))
         return "fixture clipboard"
@@ -211,4 +226,42 @@ def test_native_io_bounds_clipboard_and_launches_application() -> None:
         ("clipboard-read",),
         ("clipboard-write", "new value"),
         ("launch", "com.example.Editor"),
+    ]
+
+
+def test_native_io_controls_window_lifecycle() -> None:
+    controller = FakeSystemController()
+    backend = SystemIOBackend(controller)
+    window_id = "pid:42:window"
+
+    requests = (
+        ActionRequest(
+            session_id="session",
+            kind=ActionKind.MOVE_WINDOW,
+            arguments={"window_id": window_id, "left": -20, "top": 30},
+        ),
+        ActionRequest(
+            session_id="session",
+            kind=ActionKind.RESIZE_WINDOW,
+            arguments={"window_id": window_id, "width": 900, "height": 700},
+        ),
+        *(
+            ActionRequest(
+                session_id="session", kind=kind, arguments={"window_id": window_id}
+            )
+            for kind in (
+                ActionKind.MINIMIZE_WINDOW,
+                ActionKind.MAXIMIZE_WINDOW,
+                ActionKind.CLOSE_WINDOW,
+            )
+        ),
+    )
+
+    assert all(backend.execute(request).status is ActionStatus.COMPLETED for request in requests)
+    assert controller.calls == [
+        ("move-window", window_id, Point(x=-20, y=30)),
+        ("resize-window", window_id, 900, 700),
+        ("minimize-window", window_id),
+        ("maximize-window", window_id),
+        ("close-window", window_id),
     ]

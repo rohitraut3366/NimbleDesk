@@ -9,6 +9,8 @@ The current release combines portable PyAutoGUI capture/input with native semant
 - Desktop observation and bounded screenshots.
 - Focused-window and semantic-control observation with observation-bound element invocation.
 - Mouse movement, clicks, dragging, scrolling, text entry, key presses, and hotkeys.
+- Native focus, move, resize, minimize, maximize, and approval-gated close-window actions.
+- Approval-gated application launching and opt-in bounded clipboard access.
 - Bounded sessions with pause, resume, stop, application allowlists, action limits, and expiry.
 - An authenticated, replay-protected loopback connection between the MCP server and daemon.
 - A deterministic simulator that exercises the complete control flow without touching the desktop.
@@ -516,6 +518,11 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `press_key` | `session_id`, `observation_id`, `key` | `presses=1`; `interval=0.1`; accepts PyAutoGUI names such as `enter`, `tab`, `escape`, `backspace`, and `f5`. |
 | `hotkey` | `session_id`, `observation_id`, `keys` | Example: `["command", "s"]` on macOS or `["ctrl", "s"]` elsewhere. |
 | `focus_window` | `session_id`, `observation_id`, `window_id` | Activates a native window returned by the latest observation; accepts an expected application ID. |
+| `move_window` | `session_id`, `observation_id`, `window_id`, `left`, `top` | Moves the current observation-bound native window in logical desktop coordinates. |
+| `resize_window` | `session_id`, `observation_id`, `window_id`, `width`, `height` | Resizes the observation-bound native window. |
+| `minimize_window` | `session_id`, `observation_id`, `window_id` | Minimizes the observation-bound native window. |
+| `maximize_window` | `session_id`, `observation_id`, `window_id` | Maximizes or enters the platform full-screen state for the observation-bound window. |
+| `close_window` | `session_id`, `observation_id`, `window_id` | Requests a native close and always requires exact-action approval. Unsaved-work prompts remain visible to the user. |
 | `read_clipboard` | `session_id`, `observation_id` | Requires both clipboard gates. Returns at most `maximum_characters=10000` with explicit truncation. Clipboard text is redacted from audit records. |
 | `write_clipboard` | `session_id`, `observation_id`, `text` | Requires both clipboard gates and exact-action approval; pass the approval token on the repeated call. |
 | `launch_application` | `session_id`, `observation_id`, `application_id` | Requires an exact match in the session application allowlist and exact-action approval. Uses a macOS bundle ID or Windows executable/AppUserModel ID. |
@@ -783,7 +790,7 @@ uv run nimbledesk-qualify endurance \
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `NIMBLEDESK_BACKEND` | `simulator` | Select `simulator`, `portable`, or `native`. macOS native mode uses ScreenCaptureKit/Core Graphics, CGEvent, AX, and Retina geometry. Windows native mode uses per-monitor DPI geometry, Win32 capture, SendInput, UIA, and explicit UIPI errors. Linux Wayland uses the XDG ScreenCast/RemoteDesktop portals. Unknown values fail at startup. |
+| `NIMBLEDESK_BACKEND` | `simulator` | Select `simulator`, `portable`, or `native`. macOS native mode uses ScreenCaptureKit/Core Graphics, CGEvent, AX, and Retina geometry. Windows native mode uses per-monitor DPI geometry, Win32 capture, SendInput, UIA, and explicit UIPI errors. Linux Wayland uses the XDG ScreenCast/RemoteDesktop portals; X11 adds explicit xdotool window control, xclip/xsel clipboard access, and gtk-launch activation to portable capture/input. Unknown values fail at startup. |
 | `NIMBLEDESK_ENABLE_INPUT` | Disabled | Host input gate. Truthy values are `1`, `true`, `yes`, or `on`, ignoring case. |
 | `NIMBLEDESK_ENABLE_CLIPBOARD` | Disabled | Additional host gate for native clipboard reads and writes. The session must also set `clipboard_enabled=true`. |
 | `NIMBLEDESK_RUNTIME_DIR` | `~/.nimbledesk/runtime` | Directory for `connection.json` and `audit.jsonl`. |

@@ -471,6 +471,75 @@ async def focus_window(
 
 
 @mcp.tool()
+async def move_window(
+    session_id: str,
+    observation_id: str,
+    window_id: str,
+    left: int,
+    top: int,
+) -> dict[str, Any]:
+    """Move a native window to logical desktop coordinates."""
+    return await _window_action(
+        session_id, observation_id, window_id, ActionKind.MOVE_WINDOW, {"left": left, "top": top}
+    )
+
+
+@mcp.tool()
+async def resize_window(
+    session_id: str,
+    observation_id: str,
+    window_id: str,
+    width: int,
+    height: int,
+) -> dict[str, Any]:
+    """Resize a native window in logical desktop units."""
+    return await _window_action(
+        session_id,
+        observation_id,
+        window_id,
+        ActionKind.RESIZE_WINDOW,
+        {"width": width, "height": height},
+    )
+
+
+@mcp.tool()
+async def minimize_window(
+    session_id: str, observation_id: str, window_id: str
+) -> dict[str, Any]:
+    """Minimize a native window."""
+    return await _window_action(
+        session_id, observation_id, window_id, ActionKind.MINIMIZE_WINDOW
+    )
+
+
+@mcp.tool()
+async def maximize_window(
+    session_id: str, observation_id: str, window_id: str
+) -> dict[str, Any]:
+    """Maximize a native window."""
+    return await _window_action(
+        session_id, observation_id, window_id, ActionKind.MAXIMIZE_WINDOW
+    )
+
+
+@mcp.tool()
+async def close_window(
+    session_id: str,
+    observation_id: str,
+    window_id: str,
+    approval_token: str | None = None,
+) -> dict[str, Any]:
+    """Request a native window close after exact-action approval."""
+    return await _window_action(
+        session_id,
+        observation_id,
+        window_id,
+        ActionKind.CLOSE_WINDOW,
+        approval_token=approval_token,
+    )
+
+
+@mcp.tool()
 async def read_clipboard(
     session_id: str,
     observation_id: str,
@@ -606,6 +675,24 @@ async def _execute_action(
         approval_token=approval_token,
     )
     return await client().call("action_execute", {"action": action.model_dump(mode="json")})
+
+
+async def _window_action(
+    session_id: str,
+    observation_id: str,
+    window_id: str,
+    kind: ActionKind,
+    arguments: dict[str, Any] | None = None,
+    approval_token: str | None = None,
+) -> dict[str, Any]:
+    return await _execute_action(
+        session_id=session_id,
+        observation_id=observation_id,
+        kind=kind,
+        arguments={"window_id": window_id, **(arguments or {})},
+        expected_window_id=window_id,
+        approval_token=approval_token,
+    )
 
 
 def main() -> None:

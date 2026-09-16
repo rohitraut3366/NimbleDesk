@@ -106,3 +106,25 @@ def test_application_launch_requires_an_explicit_allowlist_match() -> None:
 
     assert outcome.decision is PolicyDecision.DENY
     assert outcome.reason == "application is outside the session allowlist"
+
+
+def test_window_close_requires_exact_approval() -> None:
+    session = Session(
+        state=SessionState.ACTIVE,
+        reason="test",
+        config=SessionConfig(input_enabled=True),
+        created_at=0,
+        expires_at=100,
+    )
+    action = ActionRequest(
+        session_id=session.session_id,
+        kind=ActionKind.CLOSE_WINDOW,
+        arguments={"window_id": "fixture-window"},
+    )
+    policy = ActionPolicy(host_input_enabled=True)
+
+    assert (
+        policy.evaluate(session, action, approved=False).decision
+        is PolicyDecision.REQUIRE_CONFIRMATION
+    )
+    assert policy.evaluate(session, action, approved=True).decision is PolicyDecision.ALLOW

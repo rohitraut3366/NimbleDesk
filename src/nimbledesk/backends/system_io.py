@@ -49,6 +49,16 @@ class SystemIOController(Protocol):
 
     def focus_window(self, window_id: str) -> None: ...
 
+    def move_window(self, window_id: str, point: Point) -> None: ...
+
+    def resize_window(self, window_id: str, width: int, height: int) -> None: ...
+
+    def minimize_window(self, window_id: str) -> None: ...
+
+    def maximize_window(self, window_id: str) -> None: ...
+
+    def close_window(self, window_id: str) -> None: ...
+
     def read_clipboard(self) -> str: ...
 
     def write_clipboard(self, text: str) -> None: ...
@@ -152,6 +162,31 @@ class SystemIOBackend:
             return {}
         if request.kind is ActionKind.FOCUS_WINDOW:
             self._controller.focus_window(_window_id(request))
+            return {}
+        if request.kind is ActionKind.MOVE_WINDOW:
+            self._controller.move_window(
+                _window_id(request),
+                Point(
+                    x=int(_float_argument(request, "left", 0, -100_000, 100_000)),
+                    y=int(_float_argument(request, "top", 0, -100_000, 100_000)),
+                ),
+            )
+            return {}
+        if request.kind is ActionKind.RESIZE_WINDOW:
+            self._controller.resize_window(
+                _window_id(request),
+                int(_float_argument(request, "width", 0, 1, 100_000)),
+                int(_float_argument(request, "height", 0, 1, 100_000)),
+            )
+            return {}
+        if request.kind is ActionKind.MINIMIZE_WINDOW:
+            self._controller.minimize_window(_window_id(request))
+            return {}
+        if request.kind is ActionKind.MAXIMIZE_WINDOW:
+            self._controller.maximize_window(_window_id(request))
+            return {}
+        if request.kind is ActionKind.CLOSE_WINDOW:
+            self._controller.close_window(_window_id(request))
             return {}
         if request.kind is ActionKind.READ_CLIPBOARD:
             maximum = int(_float_argument(request, "maximum_characters", 10_000, 1, 100_000))
@@ -309,7 +344,14 @@ def _required_capability(kind: ActionKind) -> Capability | None:
         return Capability.POINTER
     if kind in {ActionKind.TYPE_TEXT, ActionKind.PRESS_KEY, ActionKind.HOTKEY}:
         return Capability.KEYBOARD
-    if kind is ActionKind.FOCUS_WINDOW:
+    if kind in {
+        ActionKind.FOCUS_WINDOW,
+        ActionKind.MOVE_WINDOW,
+        ActionKind.RESIZE_WINDOW,
+        ActionKind.MINIMIZE_WINDOW,
+        ActionKind.MAXIMIZE_WINDOW,
+        ActionKind.CLOSE_WINDOW,
+    }:
         return Capability.WINDOWS
     if kind in {ActionKind.READ_CLIPBOARD, ActionKind.WRITE_CLIPBOARD}:
         return Capability.CLIPBOARD

@@ -31,6 +31,9 @@ CAPTUREBLT = 0x40000000
 WHEEL_DELTA = 120
 CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
+SW_MINIMIZE = 6
+SW_MAXIMIZE = 3
+WM_CLOSE = 0x0010
 
 
 class WindowsDesktopAPI(Protocol):
@@ -51,6 +54,16 @@ class WindowsDesktopAPI(Protocol):
     def type_text(self, text: str) -> None: ...
 
     def focus_window(self, handle: int) -> None: ...
+
+    def move_window(self, handle: int, point: Point) -> None: ...
+
+    def resize_window(self, handle: int, width: int, height: int) -> None: ...
+
+    def minimize_window(self, handle: int) -> None: ...
+
+    def maximize_window(self, handle: int) -> None: ...
+
+    def close_window(self, handle: int) -> None: ...
 
     def read_clipboard(self) -> str: ...
 
@@ -121,11 +134,30 @@ class WindowsController:
         self._require_api().type_text(text)
 
     def focus_window(self, window_id: str) -> None:
+        self._require_api().focus_window(self._window_handle(window_id))
+
+    def move_window(self, window_id: str, point: Point) -> None:
+        self._require_api().move_window(self._window_handle(window_id), point)
+
+    def resize_window(self, window_id: str, width: int, height: int) -> None:
+        self._require_api().resize_window(self._window_handle(window_id), width, height)
+
+    def minimize_window(self, window_id: str) -> None:
+        self._require_api().minimize_window(self._window_handle(window_id))
+
+    def maximize_window(self, window_id: str) -> None:
+        self._require_api().maximize_window(self._window_handle(window_id))
+
+    def close_window(self, window_id: str) -> None:
+        self._require_api().close_window(self._window_handle(window_id))
+
+    @staticmethod
+    def _window_handle(window_id: str) -> int:
         try:
             handle = int(window_id.rsplit(":", 1)[1])
         except (IndexError, ValueError) as error:
             raise ValueError("Windows UIA window ID does not contain a native handle") from error
-        self._require_api().focus_window(handle)
+        return handle
 
     def read_clipboard(self) -> str:
         return self._require_api().read_clipboard()
@@ -463,6 +495,52 @@ class Win32DesktopAPI:
                 "or on a secure desktop"
             )
 
+    def move_window(self, handle: int, point: Point) -> None:
+        rectangle = self._window_rectangle(handle)
+        self._set_window_bounds(handle, point.x, point.y, rectangle.width, rectangle.height)
+
+    def resize_window(self, handle: int, width: int, height: int) -> None:
+        rectangle = self._window_rectangle(handle)
+        self._set_window_bounds(handle, rectangle.left, rectangle.top, width, height)
+
+    def minimize_window(self, handle: int) -> None:
+        self._show_window(handle, SW_MINIMIZE)
+
+    def maximize_window(self, handle: int) -> None:
+        self._show_window(handle, SW_MAXIMIZE)
+
+    def close_window(self, handle: int) -> None:
+        self._validate_window(handle)
+        if not self._user32.PostMessageW(handle, WM_CLOSE, 0, 0):
+            raise _windows_error()
+
+    def _window_rectangle(self, handle: int) -> Rectangle:
+        self._validate_window(handle)
+        rectangle = RECT()
+        if not self._user32.GetWindowRect(handle, ctypes.byref(rectangle)):
+            raise _windows_error()
+        return Rectangle(
+            left=rectangle.left,
+            top=rectangle.top,
+            width=rectangle.right - rectangle.left,
+            height=rectangle.bottom - rectangle.top,
+        )
+
+    def _set_window_bounds(
+        self, handle: int, left: int, top: int, width: int, height: int
+    ) -> None:
+        self._validate_window(handle)
+        if not self._user32.MoveWindow(handle, left, top, width, height, True):
+            raise _windows_error()
+
+    def _show_window(self, handle: int, command: int) -> None:
+        self._validate_window(handle)
+        self._user32.ShowWindow(handle, command)
+
+    def _validate_window(self, handle: int) -> None:
+        if not self._user32.IsWindow(handle):
+            raise ValueError("Windows target handle no longer exists")
+
     def read_clipboard(self) -> str:
         self._open_clipboard()
         try:
@@ -592,6 +670,26 @@ class Win32DesktopAPI:
         self._user32.IsWindow.restype = wintypes.BOOL
         self._user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
         self._user32.SetForegroundWindow.restype = wintypes.BOOL
+        self._user32.GetWindowRect.argtypes = (wintypes.HWND, ctypes.POINTER(RECT))
+        self._user32.GetWindowRect.restype = wintypes.BOOL
+        self._user32.MoveWindow.argtypes = (
+            wintypes.HWND,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.BOOL,
+        )
+        self._user32.MoveWindow.restype = wintypes.BOOL
+        self._user32.ShowWindow.argtypes = (wintypes.HWND, ctypes.c_int)
+        self._user32.ShowWindow.restype = wintypes.BOOL
+        self._user32.PostMessageW.argtypes = (
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+        )
+        self._user32.PostMessageW.restype = wintypes.BOOL
         self._user32.OpenClipboard.argtypes = (wintypes.HWND,)
         self._user32.OpenClipboard.restype = wintypes.BOOL
         self._user32.CloseClipboard.restype = wintypes.BOOL

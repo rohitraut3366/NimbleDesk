@@ -45,6 +45,21 @@ class FakeWindowsAPI:
     def focus_window(self, handle: int) -> None:
         self.calls.append(("focus", handle))
 
+    def move_window(self, handle: int, point: Point) -> None:
+        self.calls.append(("move-window", handle, point))
+
+    def resize_window(self, handle: int, width: int, height: int) -> None:
+        self.calls.append(("resize-window", handle, width, height))
+
+    def minimize_window(self, handle: int) -> None:
+        self.calls.append(("minimize-window", handle))
+
+    def maximize_window(self, handle: int) -> None:
+        self.calls.append(("maximize-window", handle))
+
+    def close_window(self, handle: int) -> None:
+        self.calls.append(("close-window", handle))
+
     def read_clipboard(self) -> str:
         self.calls.append(("clipboard-read",))
         return "windows clipboard"
@@ -81,6 +96,11 @@ def test_windows_controller_transforms_logical_capture_and_input_to_pixels() -> 
     controller.move_pointer(Point(x=200, y=100))
     controller.pointer_button(Point(x=200, y=100), "left", True)
     controller.focus_window("uia-window:4242")
+    controller.move_window("uia-window:4242", Point(x=-40, y=20))
+    controller.resize_window("uia-window:4242", 900, 700)
+    controller.minimize_window("uia-window:4242")
+    controller.maximize_window("uia-window:4242")
+    controller.close_window("uia-window:4242")
 
     assert image.size == (300, 150)
     assert api.calls == [
@@ -88,6 +108,11 @@ def test_windows_controller_transforms_logical_capture_and_input_to_pixels() -> 
         ("move", Point(x=300, y=150)),
         ("button", Point(x=300, y=150), "left", True),
         ("focus", 4242),
+        ("move-window", 4242, Point(x=-40, y=20)),
+        ("resize-window", 4242, 900, 700),
+        ("minimize-window", 4242),
+        ("maximize-window", 4242),
+        ("close-window", 4242),
     ]
 
 

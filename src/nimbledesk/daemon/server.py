@@ -16,6 +16,7 @@ from nimbledesk.backends import (
     SimulatorBackend,
     WaylandPortalBackend,
     WindowsNativeBackend,
+    X11DesktopBackend,
     registry_for_host,
     system_semantic_provider,
 )
@@ -54,6 +55,8 @@ def build_runtime(runtime_dir: Path) -> DesktopRuntime:
             portable_backend = WaylandPortalBackend()
         else:
             portable_backend = PortableDesktopBackend(import_module("pyautogui"))
+            if selected_system == "Linux":
+                portable_backend = X11DesktopBackend(portable_backend)
         backend = NativeDesktopBackend(
             portable_backend,
             system_semantic_provider(),
