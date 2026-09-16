@@ -124,6 +124,31 @@ async def test_gateway_starts_compact_session_scoped_creative_job(
 
 
 @pytest.mark.asyncio
+async def test_gateway_exposes_bounded_moment_query_and_domain_packs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recording_client = RecordingClient()
+    monkeypatch.setattr(gateway, "client", lambda: recording_client)
+
+    await gateway.moments_find("session", "index", "grenade kill", 5, 500)
+    shooter = await gateway.domain_pack_describe("generic-shooter")
+
+    assert recording_client.method == "media_index_search"
+    assert recording_client.params == {
+        "session_id": "session",
+        "index_id": "index",
+        "query": "grenade kill",
+        "maximum_results": 5,
+        "maximum_tokens": 500,
+    }
+    assert "grenade_kill" in shooter["importance"]
+    assert {pack["pack_id"] for pack in (await gateway.domain_packs_list())["domain_packs"]} == {
+        "generic-shooter",
+        "general-editorial",
+    }
+
+
+@pytest.mark.asyncio
 async def test_gateway_builds_observation_bound_window_action(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

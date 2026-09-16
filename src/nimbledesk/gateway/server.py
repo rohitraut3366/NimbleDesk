@@ -11,6 +11,7 @@ from typing import Any, Literal
 from mcp.server.fastmcp import FastMCP, Image
 
 from nimbledesk.client import DaemonClient
+from nimbledesk.creative.gaming import DEFAULT_GAME_PACK
 from nimbledesk.creative.models import CreativeBrief, PlanRevisionRequest
 from nimbledesk.creative.style import resolve_brief
 from nimbledesk.creative.workflow import CreationResult
@@ -291,6 +292,48 @@ async def media_index_detail(
 
 
 @mcp.tool()
+async def content_index_query(
+    session_id: str,
+    index_id: str,
+    query: str,
+    maximum_results: int = 20,
+    maximum_tokens: int = 2_000,
+) -> dict[str, Any]:
+    """Query time-aligned media evidence through stable bounded result handles."""
+    return await client().call(
+        "media_index_search",
+        {
+            "session_id": session_id,
+            "index_id": index_id,
+            "query": query,
+            "maximum_results": maximum_results,
+            "maximum_tokens": maximum_tokens,
+        },
+    )
+
+
+@mcp.tool()
+async def moments_find(
+    session_id: str,
+    index_id: str,
+    description: str,
+    maximum_results: int = 20,
+    maximum_tokens: int = 2_000,
+) -> dict[str, Any]:
+    """Find transcript, event, motion, audio, or semantic moments matching a description."""
+    return await client().call(
+        "media_index_search",
+        {
+            "session_id": session_id,
+            "index_id": index_id,
+            "query": description,
+            "maximum_results": maximum_results,
+            "maximum_tokens": maximum_tokens,
+        },
+    )
+
+
+@mcp.tool()
 async def creative_brief_create(brief: dict[str, Any]) -> dict[str, Any]:
     """Validate and fill defaults for a complete creative brief."""
     return resolve_brief(brief, None).model_dump(mode="json")
@@ -364,6 +407,62 @@ async def edit_plan_execute(
 async def media_analysis_status(session_id: str, job_id: str) -> dict[str, Any]:
     """Return compact progress and artifact metadata for one persistent creative job."""
     return _creative_job(session_id, job_id)
+
+
+@mcp.tool()
+async def variants_compare(session_id: str, job_id: str) -> dict[str, Any]:
+    """Return the bounded watchability metrics and tradeoffs for a creative job's variants."""
+    result = _creative_job(session_id, job_id)
+    return {
+        "job_id": job_id,
+        "status": result["status"],
+        "variants": result.get("variant_options", []),
+    }
+
+
+@mcp.tool()
+async def domain_packs_list() -> dict[str, Any]:
+    """List built-in media-domain analysis packs."""
+    return {
+        "domain_packs": [
+            {
+                "pack_id": "generic-shooter",
+                "content_kind": "gameplay",
+                "event_types": sorted(
+                    set(DEFAULT_GAME_PACK.phrases) | set(DEFAULT_GAME_PACK.patterns)
+                ),
+            },
+            {
+                "pack_id": "general-editorial",
+                "content_kind": "auto",
+                "event_types": ["speech", "motion_peak", "audio_peak", "shot_change"],
+            },
+        ]
+    }
+
+
+@mcp.tool()
+async def domain_pack_describe(pack_id: str) -> dict[str, Any]:
+    """Describe one built-in domain pack and its deterministic event contract."""
+    if pack_id == "generic-shooter":
+        return {
+            "pack_id": pack_id,
+            "content_kind": "gameplay",
+            "sample_interval_seconds": DEFAULT_GAME_PACK.sample_interval_seconds,
+            "phrases": DEFAULT_GAME_PACK.phrases,
+            "patterns": DEFAULT_GAME_PACK.patterns,
+            "importance": DEFAULT_GAME_PACK.importance,
+            "cooldown_seconds": DEFAULT_GAME_PACK.cooldown_seconds,
+            "derived_events": ["multi_kill", "clutch", "narrow_survival"],
+        }
+    if pack_id == "general-editorial":
+        return {
+            "pack_id": pack_id,
+            "content_kind": "auto",
+            "tracks": ["motion", "audio", "color", "shots", "transcript", "semantic"],
+            "ranking": "fuses normalized motion, audio, events, diversity, and context",
+        }
+    raise ValueError("unknown domain pack")
 
 
 @mcp.tool()
