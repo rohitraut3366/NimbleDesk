@@ -90,6 +90,7 @@ def verify_bundle(executable: Path) -> None:
             raise RuntimeError("bundled DaVinci worker returned an invalid failure contract")
 
         _verify_media_creation(executable, root)
+        _verify_davinci_adapter(executable, root)
         _verify_studio_runtime(executable, root)
 
         isolation_report = root / "adapter-isolation-contract.json"
@@ -410,6 +411,150 @@ def _verify_studio_runtime(executable: Path, root: Path) -> None:
         _stop_process_tree(process)
     if (runtime_directory / "connection.json").exists():
         raise RuntimeError("bundled Studio left stale daemon connection metadata")
+
+
+def _verify_davinci_adapter(executable: Path, root: Path) -> None:
+    output = root / "creation"
+    plan_path = output / "edit_plan.json"
+    timeline_path = output / "davinci_timeline.fcpxml"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    title = str(plan["brief"]["title"])
+    caption_count = len(plan["captions"])
+    fixture_state = root / "davinci-fixture-state.json"
+    fixture_environment = {
+        **os.environ,
+        "RESOLVE_SCRIPT_API": str(Path(__file__).parent / "fixtures"),
+        "NIMBLEDESK_DAVINCI_FIXTURE_STATE": str(fixture_state),
+        "NIMBLEDESK_DAVINCI_FIXTURE_TITLE": title,
+        "NIMBLEDESK_DAVINCI_FIXTURE_CAPTIONS": str(caption_count),
+        "NIMBLEDESK_DAVINCI_FIXTURE_SOURCE": str(output / "final.mp4"),
+    }
+    first = _run_davinci_worker(
+        executable,
+        plan_path,
+        timeline_path,
+        root / "davinci-output",
+        root / "davinci-first.json",
+        root / "davinci-first.cancel",
+        fixture_environment,
+        render=True,
+    )
+    first_result = first.get("result")
+    if (
+        first.get("success") is not True
+        or not isinstance(first_result, dict)
+        or first_result.get("project_saved") is not True
+        or first_result.get("timeline_reused") is not False
+        or first_result.get("resolve_version") != "20.2.1-fixture"
+        or not Path(str(first_result.get("render_path"))).is_file()
+    ):
+        raise RuntimeError("bundled DaVinci adapter failed its import, save, or render contract")
+
+    reused = _run_davinci_worker(
+        executable,
+        plan_path,
+        timeline_path,
+        root / "davinci-output",
+        root / "davinci-reused.json",
+        root / "davinci-reused.cancel",
+        fixture_environment,
+        render=False,
+    )
+    reused_result = reused.get("result")
+    if (
+        reused.get("success") is not True
+        or not isinstance(reused_result, dict)
+        or reused_result.get("timeline_reused") is not True
+    ):
+        raise RuntimeError("bundled DaVinci adapter did not reuse an identical timeline")
+
+    revision = json.loads(plan_path.read_text(encoding="utf-8"))
+    revision_visual = revision["segments"][0]["visual"]
+    revision_visual["saturation_multiplier"] = 1.05
+    revision_visual["rationale"] = str(revision_visual["rationale"]) + "; fixture revision"
+    revision_path = root / "davinci-revision-plan.json"
+    revision_path.write_text(json.dumps(revision), encoding="utf-8")
+    revised = _run_davinci_worker(
+        executable,
+        revision_path,
+        timeline_path,
+        root / "davinci-output",
+        root / "davinci-revised.json",
+        root / "davinci-revised.cancel",
+        fixture_environment,
+        render=False,
+    )
+    revised_result = revised.get("result")
+    if (
+        revised.get("success") is not True
+        or not isinstance(revised_result, dict)
+        or revised_result.get("timeline_reused") is not False
+        or revised_result.get("plan_fingerprint") == first_result.get("plan_fingerprint")
+    ):
+        raise RuntimeError("bundled DaVinci adapter did not create a revised timeline")
+
+    cancel_path = root / "davinci-cancel.cancel"
+    cancel_path.touch()
+    cancellation_environment = {
+        **fixture_environment,
+        "NIMBLEDESK_DAVINCI_FIXTURE_RENDERING": "1",
+    }
+    cancelled = _run_davinci_worker(
+        executable,
+        revision_path,
+        timeline_path,
+        root / "davinci-output",
+        root / "davinci-cancelled.json",
+        cancel_path,
+        cancellation_environment,
+        render=True,
+        expected_return_code=1,
+    )
+    state = json.loads(fixture_state.read_text(encoding="utf-8"))
+    if (
+        cancelled.get("success") is not False
+        or "cancelled" not in str(cancelled.get("error", ""))
+        or state.get("stopped") is not True
+    ):
+        raise RuntimeError("bundled DaVinci adapter did not stop a cancelled render")
+
+
+def _run_davinci_worker(
+    executable: Path,
+    plan_path: Path,
+    timeline_path: Path,
+    output_directory: Path,
+    result_path: Path,
+    cancel_path: Path,
+    environment: dict[str, str],
+    *,
+    render: bool,
+    expected_return_code: int = 0,
+) -> dict[str, object]:
+    completed = subprocess.run(
+        [
+            str(executable),
+            "davinci-worker",
+            str(plan_path),
+            str(timeline_path),
+            str(output_directory),
+            "1" if render else "0",
+            "30",
+            str(result_path),
+            str(cancel_path),
+        ],
+        capture_output=True,
+        check=False,
+        env=environment,
+        timeout=60,
+    )
+    if completed.returncode != expected_return_code or not result_path.is_file():
+        detail = completed.stderr.decode("utf-8", errors="replace")[:8_192]
+        raise RuntimeError(f"bundled DaVinci worker failed: {detail}")
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("bundled DaVinci worker returned a non-object response")
+    return payload
 
 
 def _studio_request(

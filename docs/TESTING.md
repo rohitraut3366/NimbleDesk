@@ -197,6 +197,11 @@ creative plan, cue sheets, semantic index, and editable DaVinci timeline.
 Finally, it launches the frozen daemon and Studio with a simulator backend, verifies authenticated
 health and browser security headers, creates and pauses a desktop session, exercises the global
 emergency stop, checks creative-intelligence readiness, and confirms clean connection-file removal.
+The bundle contract also loads a deterministic Resolve scripting API fixture through the same
+external module boundary used by Resolve. It requires the frozen DaVinci worker to import and save
+a timeline, render output, reuse an identical plan, version a changed plan, apply editable color,
+and stop a cancelled render. This proves packaged adapter behavior but does not replace the physical
+Resolve 20.x release report.
 Use the target IDs and minimum corpus mix declared in [SUPPORT.md](SUPPORT.md). Pass
 `--corpus-id` and `--source-duration-seconds` to both `nimbledesk qualify events` and
 `nimbledesk qualify ranking`; the identifiers must match for reports derived from the same source.
