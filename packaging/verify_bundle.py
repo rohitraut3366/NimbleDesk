@@ -621,10 +621,87 @@ def _verify_studio_runtime(executable: Path, root: Path) -> None:
             raise RuntimeError("bundled Studio did not serve its completed creative plan")
         if not studio_resolve_state.is_file():
             raise RuntimeError("bundled Studio DaVinci fixture did not persist its timeline")
+        _verify_studio_job_cancellation(base_url, root, process)
     finally:
         _stop_process_tree(process)
     if (runtime_directory / "connection.json").exists():
         raise RuntimeError("bundled Studio left stale daemon connection metadata")
+
+
+def _verify_studio_job_cancellation(
+    base_url: str, root: Path, studio_process: subprocess.Popen[bytes]
+) -> None:
+    output = root / "studio-cancelled-creation"
+    worker = root / "slow-transcription-provider.py"
+    worker.write_text(
+        "import pathlib,sys,time\n"
+        "response=pathlib.Path(sys.argv[2])\n"
+        "response.with_suffix('.started').write_text('started', encoding='utf-8')\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    provider_runtime = Path(sys.executable).resolve().parents[1]
+    provider = root / "slow-transcription-provider.json"
+    provider.write_text(
+        json.dumps(
+            {
+                "provider_id": "bundle-slow-transcription",
+                "model": "cancellation-fixture",
+                "command": [sys.executable, str(worker), "{request}", "{response}"],
+                "code_paths": [str(worker), str(provider_runtime)],
+                "timeout_seconds": 30,
+                "execution_location": "local",
+            }
+        ),
+        encoding="utf-8",
+    )
+    status, _headers, body = _studio_request(
+        base_url + "/api/jobs",
+        method="POST",
+        payload={
+            "source": str(root / "source.mp4"),
+            "output_directory": str(output),
+            "brief": {
+                "title": "Frozen Studio cancellation",
+                "captions": False,
+                "music": False,
+            },
+            "transcription_provider": str(provider),
+            "automatic_intelligence": False,
+            "ffmpeg_render": False,
+        },
+    )
+    submitted = json.loads(body)
+    job_id = submitted.get("job_id")
+    if status != 202 or not isinstance(job_id, str):
+        raise RuntimeError("bundled Studio could not submit its cancellation fixture")
+    started_marker = output / "analysis" / "transcription" / "response.started"
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline and not started_marker.is_file():
+        if studio_process.poll() is not None:
+            _raise_studio_failure(studio_process, "stopped during cancellation fixture")
+        time.sleep(0.05)
+    if not started_marker.is_file():
+        raise RuntimeError("bundled Studio cancellation fixture did not reach its provider")
+    status, _headers, _body = _studio_request(
+        base_url + f"/api/jobs/{job_id}/cancel", method="POST"
+    )
+    if status != 200:
+        raise RuntimeError("bundled Studio could not cancel its running creative job")
+    job: dict[str, object] | None = None
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        status, _headers, body = _studio_request(base_url + f"/api/jobs/{job_id}")
+        if status != 200:
+            raise RuntimeError("bundled Studio lost its cancelled creative job")
+        job = json.loads(body)
+        if job.get("status") in {"cancelled", "completed", "failed", "interrupted"}:
+            break
+        time.sleep(0.05)
+    if job is None or job.get("status") != "cancelled":
+        raise RuntimeError("bundled Studio creative cancellation did not become durable")
+    if (output / "edit_plan.json").exists() or (output / "final.mp4").exists():
+        raise RuntimeError("bundled Studio cancellation produced downstream artifacts")
 
 
 def _verify_davinci_adapter(executable: Path, root: Path) -> None:

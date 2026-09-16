@@ -212,6 +212,9 @@ Studio also submits a real semantic-vision, transcription, licensed-music, sound
 and FFmpeg render job through its HTTP API, waits for durable completion, verifies the production
 artifact catalog, downloads and inspects the generated edit plan, and executes the editor-enabled
 job through the isolated DaVinci worker to import and save its editable timeline.
+It then submits a second job backed by a deliberately slow sandboxed transcription provider,
+cancels it through Studio, requires durable `cancelled` state, and rejects any downstream plan or
+render artifact after cancellation.
 The bundle contract also loads a deterministic Resolve scripting API fixture through the same
 external module boundary used by Resolve. It requires the frozen DaVinci worker to import and save
 a timeline, render output, reuse an identical plan, version a changed plan, apply editable color,
