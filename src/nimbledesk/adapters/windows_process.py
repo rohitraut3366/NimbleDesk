@@ -10,49 +10,6 @@ from typing import IO, Any, BinaryIO
 from nimbledesk.adapters.limits import MAXIMUM_WORKER_MEMORY_BYTES
 
 
-class WindowsJobHandle:
-    def __init__(self, handle: Any, modules: dict[str, ModuleType]) -> None:
-        self._handle = handle
-        self._modules = modules
-
-    def close(self) -> None:
-        if self._handle is not None:
-            self._modules["win32api"].CloseHandle(self._handle)
-            self._handle = None
-
-    def __enter__(self) -> WindowsJobHandle:
-        return self
-
-    def __exit__(self, *_args: object) -> None:
-        self.close()
-
-
-def attach_process_to_windows_job(process: subprocess.Popen[Any]) -> WindowsJobHandle:
-    """Contain a normal-token process tree without restricting desktop-editor IPC."""
-
-    modules = _windows_modules()
-    win32api = modules["win32api"]
-    win32con = modules["win32con"]
-    win32job = modules["win32job"]
-    job_handle = win32job.CreateJobObject(None, None)
-    process_handle = None
-    try:
-        _configure_job(job_handle, modules, active_process_limit=None)
-        process_handle = win32api.OpenProcess(
-            win32con.PROCESS_SET_QUOTA | win32con.PROCESS_TERMINATE,
-            False,
-            process.pid,
-        )
-        win32job.AssignProcessToJobObject(job_handle, process_handle)
-        return WindowsJobHandle(job_handle, modules)
-    except Exception:
-        win32api.CloseHandle(job_handle)
-        raise
-    finally:
-        if process_handle is not None:
-            win32api.CloseHandle(process_handle)
-
-
 class WindowsManagedProcess:
     """Small Popen-compatible wrapper around a Job Object worker."""
 
