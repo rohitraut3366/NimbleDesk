@@ -52,6 +52,9 @@ responses omit the full request and edit plan, returning bounded summaries for m
 Authenticated job RPC tests submit through one client and reconnect through another, proving that
 Studio and MCP share the daemon-owned queue. Shutdown tests verify that queued or active work ends
 in a persisted terminal or explicitly interrupted state instead of leaving an orphaned worker.
+The production resume contract cancels creation after a completed analysis track, requires no
+temporary track to remain, resubmits the same source/output request, and verifies that the valid
+track is reused in the completed content index.
 Music, sound, cue-sheet, plan-comparison, and MCP-resource tests cover licensed catalog filtering,
 embedded path authorization, atomic plan output, deterministic diffs, policy discovery, and bounded
 redacted audit access.

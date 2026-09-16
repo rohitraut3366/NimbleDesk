@@ -8,7 +8,9 @@ from PIL import Image
 from pytest import MonkeyPatch
 from starlette.testclient import TestClient
 
+import nimbledesk.analysis.index as content_index_module
 import nimbledesk.ui.server as ui
+from nimbledesk.analysis.models import ContentIndex
 from nimbledesk.creative.automatic import AutomaticCapability, AutomaticIntelligenceReport
 from nimbledesk.creative.cancellation import CancellationToken
 from nimbledesk.creative.davinci import DaVinciResult
@@ -38,6 +40,8 @@ from nimbledesk.jobs.service import (
 )
 from nimbledesk.media.models import MediaMetadata
 from nimbledesk.media.photos import PhotoManifest
+from nimbledesk.media.process import CancellationCheck, ProcessCancelled
+from nimbledesk.media.signals import FloatArray
 from nimbledesk.ui.server import _HTML, app
 
 
@@ -568,6 +572,102 @@ def test_job_service_cancels_and_persists_long_running_job(
         (storage / f"{job.state.job_id}.json").read_text(encoding="utf-8")
     )
     assert persisted.status == "cancelled"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_cancelled_creation_resumes_from_atomic_track_cache(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x180:rate=30:duration=6",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=6",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(source),
+        ],
+        check=True,
+    )
+    original_extract_audio = content_index_module.extract_audio_signal
+    interrupt_first_analysis = True
+
+    def controlled_audio_analysis(
+        path: Path,
+        window_seconds: float,
+        sample_rate: int = 8_000,
+        cancelled: CancellationCheck | None = None,
+    ) -> FloatArray:
+        nonlocal interrupt_first_analysis
+        if interrupt_first_analysis:
+            interrupt_first_analysis = False
+            assert cancelled is not None
+            while not cancelled():
+                time.sleep(0.01)
+            raise ProcessCancelled("creation was cancelled")
+        return original_extract_audio(
+            path, window_seconds, sample_rate=sample_rate, cancelled=cancelled
+        )
+
+    monkeypatch.setattr(
+        content_index_module, "extract_audio_signal", controlled_audio_analysis
+    )
+    output = tmp_path / "output"
+    request = CreateJobRequest(
+        source=source,
+        output_directory=output,
+        brief=CreativeBrief(
+            title="Resume fixture",
+            target_duration_seconds=5,
+            clip_count=1,
+            captions=False,
+            music=False,
+        ),
+        automatic_intelligence=False,
+        ffmpeg_render=False,
+    )
+    service = JobService(tmp_path / "jobs", maximum_workers=1)
+    first_job = service.submit(request)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and first_job.state.stage != "analyzing audio":
+        time.sleep(0.01)
+    assert first_job.state.stage == "analyzing audio"
+    service.cancel(first_job.state.job_id)
+    _wait_for_status(first_job, "cancelled")
+
+    cache = output / "analysis" / "index"
+    assert (cache / "motion.json").is_file()
+    assert not tuple(cache.glob("*.tmp"))
+    second_job = service.submit(request)
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and second_job.state.status not in {
+        "completed",
+        "failed",
+    }:
+        time.sleep(0.02)
+    service.close()
+
+    assert second_job.state.status == "completed", second_job.state.error
+    persisted_index = ContentIndex.model_validate_json(
+        (cache / "content_index.json").read_text(encoding="utf-8")
+    )
+    assert "motion" in persisted_index.cache_hits
+    assert not tuple(cache.glob("*.tmp"))
 
 
 def test_job_service_marks_running_job_interrupted_after_restart(tmp_path: Path) -> None:
