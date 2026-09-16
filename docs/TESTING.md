@@ -30,6 +30,8 @@ Approval tests verify that the pending record freezes a bounded screenshot from 
 observation and that Studio displays its image, observation ID, dimensions, and content hash.
 Recovery tests verify that daemon startup invalidates stale runtime authority and releases input,
 and that failed, timed-out, or cancelled backend actions force key/button release.
+Watchdog tests close the daemon-liveness pipe and verify that an independent process attempts every
+modifier and mouse-button release even when one platform call fails.
 Gateway tests verify bounded server-side UI search, internal condition waits, adapter discovery,
 session discovery, and redacted audit summaries. Audit tests reopen the log across a simulated
 daemon restart and detect content or chain tampering.

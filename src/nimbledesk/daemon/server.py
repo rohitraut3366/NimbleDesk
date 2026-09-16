@@ -4,6 +4,8 @@ import asyncio
 import os
 import platform
 import secrets
+import subprocess
+import sys
 from contextlib import suppress
 from importlib import import_module
 from pathlib import Path
@@ -87,6 +89,7 @@ async def run() -> None:
     runtime_dir = runtime_directory()
     secret = secrets.token_urlsafe(32)
     runtime = build_runtime(runtime_dir)
+    watchdog = _start_watchdog()
     transport = DaemonTransport(runtime, secret)
     server = await transport.start()
     socket = server.sockets[0]
@@ -100,7 +103,27 @@ async def run() -> None:
             await server.serve_forever()
     finally:
         runtime.shutdown()
+        if watchdog.stdin is not None:
+            watchdog.stdin.close()
+        try:
+            watchdog.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            watchdog.terminate()
         (runtime_dir / "connection.json").unlink(missing_ok=True)
+
+
+def _start_watchdog() -> subprocess.Popen[bytes]:
+    command = (
+        [sys.executable, "watchdog"]
+        if getattr(sys, "frozen", False)
+        else [sys.executable, "-m", "nimbledesk.daemon.watchdog"]
+    )
+    return subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def main() -> None:

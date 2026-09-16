@@ -17,6 +17,7 @@ from nimbledesk.creative.revision_cli import main as revise_main
 from nimbledesk.creative.vision_http import main as vision_http_main
 from nimbledesk.daemon.approval_cli import main as approve_main
 from nimbledesk.daemon.server import main as daemon_main
+from nimbledesk.daemon.watchdog import main as watchdog_main
 from nimbledesk.diagnostics import main as diagnostics_main
 from nimbledesk.gateway.server import main as gateway_main
 from nimbledesk.media.cli import main as highlights_main
@@ -34,6 +35,7 @@ from nimbledesk.update import main as update_main
 
 COMMANDS: dict[str, Callable[[], None]] = {
     "daemon": daemon_main,
+    "watchdog": watchdog_main,
     "mcp": gateway_main,
     "studio": studio_main,
     "create": create_main,

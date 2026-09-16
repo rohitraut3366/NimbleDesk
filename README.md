@@ -582,6 +582,9 @@ Before opening its authenticated RPC listener, the daemon clears stale sessions,
 approvals, content-index handles, and common pressed keys/buttons. Handled backend failures,
 timeouts, and cancellations force the same input release. Normal shutdown performs a global
 emergency stop before deleting the connection file.
+The daemon also starts a minimal companion watchdog through an inherited pipe. If the daemon exits
+or crashes, pipe closure makes the independent process release Shift, Control, Alt, Command/Windows,
+and all common mouse buttons before the service manager restarts the daemon.
 
 ## Use the real desktop
 
