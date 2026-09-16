@@ -214,7 +214,8 @@ NimbleDesk extracts at most the configured number of 640-pixel samples and packs
 Vision and transcription commands run in a declared-path sandbox with network denied by default,
 deadlines, cancellation, aggregate 512 MiB process-tree memory limits, and descendant cleanup. A
 provider cannot read unrelated user files, and a timed-out, cancelled, or over-limit provider cannot
-leave its helper processes running after the job stops.
+leave its helper processes running after the job stops. Standard output is capped at one megabyte
+and standard error at 64 KiB so a faulty provider cannot grow temporary output without bound.
 
 ### Persistent long-form analysis
 

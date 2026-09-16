@@ -15,6 +15,7 @@ from nimbledesk.adapters.runner import (
     AdapterError,
     AdapterProcess,
     _close_process,
+    _kill_process,
     _kill_process_group,
     _process_tree_memory_bytes,
     _sandboxed_worker_command,
@@ -24,6 +25,7 @@ from nimbledesk.adapters.runner import (
 from nimbledesk.media.process import CancellationCheck, ProcessCancelled
 
 MAXIMUM_STDERR_BYTES = 65_536
+MAXIMUM_STDOUT_BYTES = 1_000_000
 
 
 def run_isolated_command(
@@ -158,18 +160,23 @@ def run_isolated_command(
             if os.fstat(stderr_file.fileno()).st_size > MAXIMUM_STDERR_BYTES:
                 _stop_process(process)
                 raise AdapterError("provider stderr exceeded the 64-kilobyte limit")
+            if os.fstat(stdout_file.fileno()).st_size > MAXIMUM_STDOUT_BYTES:
+                _stop_process(process)
+                raise AdapterError("provider stdout exceeded the one-megabyte limit")
             time.sleep(0.02)
         _kill_process_group(process)
         stdout_file.seek(0)
         stderr_file.seek(0)
-        stdout = stdout_file.read().decode("utf-8", errors="replace")
-        stderr = stderr_file.read(MAXIMUM_STDERR_BYTES + 1).decode(
-            "utf-8", errors="replace"
-        )
+        stdout_bytes = stdout_file.read(MAXIMUM_STDOUT_BYTES + 1)
+        stderr_bytes = stderr_file.read(MAXIMUM_STDERR_BYTES + 1)
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
         return_code = process.returncode or 0
         _close_process(process)
-        if len(stderr.encode("utf-8")) > MAXIMUM_STDERR_BYTES:
+        if len(stderr_bytes) > MAXIMUM_STDERR_BYTES:
             raise AdapterError("provider stderr exceeded the 64-kilobyte limit")
+        if len(stdout_bytes) > MAXIMUM_STDOUT_BYTES:
+            raise AdapterError("provider stdout exceeded the one-megabyte limit")
         return subprocess.CompletedProcess(command, return_code, stdout, stderr)
 
 
@@ -178,9 +185,10 @@ def _stop_process(process: AdapterProcess) -> None:
     try:
         process.wait(timeout=2)
     except subprocess.TimeoutExpired:
-        process.kill()
+        _kill_process(process)
         process.wait()
     finally:
+        _kill_process_group(process)
         _close_process(process)
 
 
