@@ -200,7 +200,8 @@ the final merged analysis.
 The deterministic transcription fixture receives the real source path through the versioned
 provider request and returns time-aligned dialogue plus measured usage; the build requires its
 captions and provider provenance in the final edit. It also attempts to read an undeclared sentinel
-and the build fails if the packaged provider sandbox permits that access.
+and connect to an undeclared loopback listener; the build fails if the packaged provider sandbox
+permits either file or network access.
 Finally, it launches the frozen daemon and Studio with a simulator backend, verifies authenticated
 health and browser security headers, creates and pauses a desktop session, exercises the global
 emergency stop, checks creative-intelligence readiness, and confirms clean connection-file removal.

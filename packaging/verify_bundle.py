@@ -198,8 +198,13 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
     transcription_worker = root / "transcription-provider.py"
     provider_private_file = root / "provider-private.txt"
     provider_private_file.write_text("must remain unreadable", encoding="utf-8")
+    provider_network = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    provider_network.bind(("127.0.0.1", 0))
+    provider_network.listen(1)
+    provider_network_port = provider_network.getsockname()[1]
     transcription_worker.write_text(
         "import json\n"
+        "import socket\n"
         "import sys\n"
         "blocked = False\n"
         "try:\n"
@@ -207,6 +212,12 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
         "except OSError:\n"
         "    blocked = True\n"
         "assert blocked, 'provider read an undeclared file'\n"
+        "network_blocked = False\n"
+        "try:\n"
+        "    socket.create_connection(('127.0.0.1', int(sys.argv[4])), timeout=1).close()\n"
+        "except OSError:\n"
+        "    network_blocked = True\n"
+        "assert network_blocked, 'provider used network without a grant'\n"
         "request = json.load(open(sys.argv[1], encoding='utf-8'))\n"
         "assert request['source_name'] == 'source.mp4'\n"
         "json.dump({'segments': ["
@@ -232,6 +243,7 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
                     "{request}",
                     "{response}",
                     str(provider_private_file),
+                    str(provider_network_port),
                 ],
                 "code_paths": [str(transcription_worker), str(provider_runtime)],
                 "timeout_seconds": 30,
@@ -369,6 +381,7 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
         },
         timeout=180,
     )
+    provider_network.close()
     if creation.returncode != 0:
         raise RuntimeError(
             "bundled creative workflow failed: "

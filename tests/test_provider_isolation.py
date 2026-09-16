@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import platform
 import shutil
+import socket
 import sys
 import threading
 import time
@@ -106,3 +107,43 @@ def test_cancelled_provider_kills_sigterm_ignoring_descendant(tmp_path: Path) ->
 
     time.sleep(1.1)
     assert not marker.exists()
+
+
+@pytest.mark.skipif(
+    platform.system() not in {"Darwin", "Linux"}
+    or (platform.system() == "Darwin" and shutil.which("sandbox-exec") is None)
+    or (platform.system() == "Linux" and shutil.which("bwrap") is None),
+    reason="a supported provider sandbox is not installed",
+)
+def test_provider_network_requires_an_explicit_grant(tmp_path: Path) -> None:
+    worker = tmp_path / "provider.py"
+    worker.write_text(
+        "import socket,sys\n"
+        "connection=socket.create_connection(('127.0.0.1', int(sys.argv[1])), timeout=1)\n"
+        "connection.close()\n",
+        encoding="utf-8",
+    )
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(2)
+        port = server.getsockname()[1]
+
+        denied = run_isolated_command(
+            [sys.executable, str(worker), str(port)],
+            readable_paths=(worker,),
+            writable_paths=(),
+            network_access=False,
+            timeout_seconds=10,
+            code_paths=(worker,),
+        )
+        allowed = run_isolated_command(
+            [sys.executable, str(worker), str(port)],
+            readable_paths=(worker,),
+            writable_paths=(),
+            network_access=True,
+            timeout_seconds=10,
+            code_paths=(worker,),
+        )
+
+    assert denied.returncode != 0
+    assert allowed.returncode == 0
