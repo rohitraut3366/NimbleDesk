@@ -132,3 +132,42 @@ def test_provider_requires_request_and_response_placeholders(tmp_path: Path) -> 
 
     with pytest.raises(TranscriptionError, match="must contain"):
         transcribe_with_provider(source, tmp_path / "analysis", config)
+
+
+@pytest.mark.parametrize(
+    ("response", "error"),
+    [
+        ('{"segments": [], "segments": []}', "duplicate key"),
+        (
+            '{"segments": ['
+            '{"source_range":{"start_seconds":0,"end_seconds":2},"text":"first"},'
+            '{"source_range":{"start_seconds":1,"end_seconds":3},"text":"overlap"}'
+            "]}",
+            "ordered and non-overlapping",
+        ),
+    ],
+)
+def test_provider_rejects_ambiguous_transcript_responses(
+    tmp_path: Path, response: str, error: str
+) -> None:
+    source = tmp_path / "fixture.mp4"
+    source.write_bytes(b"media")
+    worker = tmp_path / "provider.py"
+    worker.write_text(
+        "import pathlib,sys\n"
+        f"pathlib.Path(sys.argv[2]).write_text({response!r}, encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "provider.json"
+    config.write_text(
+        TranscriptionProviderConfig(
+            provider_id="strict-transcriber",
+            model="fixture",
+            command=(sys.executable, str(worker), "{request}", "{response}"),
+            code_paths=(worker,),
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TranscriptionError, match=error):
+        transcribe_with_provider(source, tmp_path / "analysis", config)

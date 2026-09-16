@@ -9,10 +9,11 @@ import tempfile
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nimbledesk.adapters.command_runner import run_isolated_command
 from nimbledesk.creative.models import TimeRange, TranscriptSegment
+from nimbledesk.creative.provider_json import ProviderResponseError, load_provider_json
 from nimbledesk.media.process import CancellationCheck, ProcessCancelled, run_cancellable
 
 
@@ -53,8 +54,25 @@ class TranscriptionProviderUsage(TranscriptionModel):
 
 class TranscriptionProviderResponse(TranscriptionModel):
     segments: tuple[TranscriptSegment, ...]
-    detected_language: str | None = None
+    detected_language: Annotated[str, Field(min_length=1, max_length=64)] | None = None
     usage: TranscriptionProviderUsage | None = None
+
+    @model_validator(mode="after")
+    def ordered_bounded_segments(self) -> TranscriptionProviderResponse:
+        previous_end = 0.0
+        for segment in self.segments:
+            if not segment.text.strip():
+                raise ValueError("transcription provider returned an empty segment")
+            if len(segment.text) > 4_096:
+                raise ValueError("transcription provider segment exceeded 4096 characters")
+            if segment.speaker is not None and len(segment.speaker) > 200:
+                raise ValueError("transcription provider speaker exceeded 200 characters")
+            if segment.source_range.start_seconds < previous_end:
+                raise ValueError(
+                    "transcription provider segments must be ordered and non-overlapping"
+                )
+            previous_end = segment.source_range.end_seconds
+        return self
 
 
 class TranscriptionAnalysis(TranscriptionModel):
@@ -163,9 +181,12 @@ def transcribe_with_provider(
         raise TranscriptionError("transcription provider did not write its response")
     if response_path.stat().st_size > MAXIMUM_PROVIDER_RESPONSE_BYTES:
         raise TranscriptionError("transcription provider response exceeded one megabyte")
-    response = TranscriptionProviderResponse.model_validate_json(
-        response_path.read_text(encoding="utf-8")
-    )
+    try:
+        response = TranscriptionProviderResponse.model_validate(
+            load_provider_json(response_path)
+        )
+    except (ProviderResponseError, ValueError) as error:
+        raise TranscriptionError(str(error)) from error
     analysis = TranscriptionAnalysis(
         provider_id=config.provider_id,
         model=config.model,

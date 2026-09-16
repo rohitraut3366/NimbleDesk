@@ -168,6 +168,8 @@ outside the configuration file. Remote execution enables network access, while l
 request it explicitly for a loopback model endpoint. `code_paths` must declare the provider program,
 libraries, and interpreter runtime it needs; these paths are read-only inside the sandbox. Process
 control variables such as `PYTHONPATH`, `PYTHONHOME`, `LD_*`, and `DYLD_*` cannot be delegated.
+Provider responses use strict UTF-8 JSON: duplicate keys and non-finite numbers are rejected.
+Transcript segments must contain bounded text and arrive in chronological, non-overlapping order.
 
 ### Model-pluggable semantic vision
 
@@ -210,7 +212,7 @@ For a local OpenAI-compatible server, use a loopback `http://127.0.0.1:...` endp
 sets `data_policy.allow_remote_frames=true`. The worker rejects non-HTTPS remote URLs, sends
 low-detail bounded contact sheets, accepts only structured events, and never writes the API key.
 
-NimbleDesk extracts at most the configured number of 640-pixel samples and packs twelve timestamped frames into each contact sheet. The worker receives the request JSON path and response JSON path as separate arguments without a shell. It must write `{"events":[{"time_seconds":12,"event_type":"grenade_kill","label":"Grenade double kill","confidence":0.91,"evidence":"throw, explosion, and two elimination markers"}]}`. Responses are schema-validated, limited to one megabyte, filtered by confidence, merged with OCR and supplied events, and retained with provenance. This bounded contact-sheet protocol keeps image-token use predictable and lets local models, hosted APIs, or future providers implement the same contract.
+NimbleDesk extracts at most the configured number of 640-pixel samples and packs twelve timestamped frames into each contact sheet. The worker receives the request JSON path and response JSON path as separate arguments without a shell. It must write `{"events":[{"time_seconds":12,"event_type":"grenade_kill","label":"Grenade double kill","confidence":0.91,"evidence":"throw, explosion, and two elimination markers"}]}`. Responses use strict UTF-8 JSON, reject duplicate keys and non-finite numbers, require chronologically ordered events with bounded labels and evidence, and are limited to one megabyte. Accepted events are filtered by confidence, merged with OCR and supplied events, and retained with provenance. This bounded contact-sheet protocol keeps image-token use predictable and lets local models, hosted APIs, or future providers implement the same contract.
 
 Vision and transcription commands run in a declared-path sandbox with network denied by default,
 deadlines, cancellation, aggregate 512 MiB process-tree memory limits, and descendant cleanup. A

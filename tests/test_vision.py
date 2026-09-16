@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 from PIL import Image
-from pytest import MonkeyPatch
+from pytest import MonkeyPatch, raises
 
 import nimbledesk.creative.vision as vision
 
@@ -70,3 +70,35 @@ json.dump({'events': [
     )
     assert (tmp_path / "analysis" / "request.json").is_file()
     assert (tmp_path / "analysis" / "analysis.json").is_file()
+
+
+def test_semantic_vision_rejects_duplicate_response_keys(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    frame = tmp_path / "frame.jpg"
+    Image.new("RGB", (640, 360), (20, 30, 40)).save(frame)
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import pathlib,sys\n"
+        "pathlib.Path(sys.argv[2]).write_text("
+        "'{\"events\": [], \"events\": []}', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "provider.json"
+    config.write_text(
+        json.dumps(
+            {
+                "provider_id": "strict-vision",
+                "model": "fixture",
+                "command": [sys.executable, str(worker), "{request}", "{response}"],
+                "code_paths": [str(worker)],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(vision, "_extract_frames", lambda *_args: (frame,))
+
+    with raises(vision.VisionAnalysisError, match="duplicate key"):
+        vision.analyze_with_vision_provider(
+            tmp_path / "source.mp4", tmp_path / "analysis", config, "gameplay"
+        )

@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from PIL import Image, ImageDraw
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nimbledesk.adapters.command_runner import run_isolated_command
+from nimbledesk.creative.provider_json import ProviderResponseError, load_provider_json
 from nimbledesk.media.models import TimelineEvent
 from nimbledesk.media.process import CancellationCheck, run_cancellable
 
@@ -49,10 +50,10 @@ class VisionRequest(VisionModel):
 
 class VisionEvent(VisionModel):
     time_seconds: Annotated[float, Field(ge=0)]
-    event_type: str
-    label: str
+    event_type: Annotated[str, Field(min_length=1, max_length=100)]
+    label: Annotated[str, Field(min_length=1, max_length=500)]
     confidence: Annotated[float, Field(ge=0, le=1)]
-    evidence: str
+    evidence: Annotated[str, Field(min_length=1, max_length=4_096)]
 
 
 class VisionProviderUsage(VisionModel):
@@ -66,6 +67,13 @@ class VisionProviderUsage(VisionModel):
 class VisionProviderResponse(VisionModel):
     events: tuple[VisionEvent, ...]
     usage: VisionProviderUsage | None = None
+
+    @model_validator(mode="after")
+    def chronologically_ordered(self) -> VisionProviderResponse:
+        times = tuple(event.time_seconds for event in self.events)
+        if times != tuple(sorted(times)):
+            raise ValueError("semantic vision events must be ordered chronologically")
+        return self
 
 
 class VisionAnalysis(VisionModel):
@@ -150,9 +158,10 @@ def analyze_with_vision_provider(
         raise VisionAnalysisError("semantic vision provider did not write its response")
     if response_path.stat().st_size > MAXIMUM_RESPONSE_BYTES:
         raise VisionAnalysisError("semantic vision response exceeded one megabyte")
-    response = VisionProviderResponse.model_validate_json(
-        response_path.read_text(encoding="utf-8")
-    )
+    try:
+        response = VisionProviderResponse.model_validate(load_provider_json(response_path))
+    except (ProviderResponseError, ValueError) as error:
+        raise VisionAnalysisError(str(error)) from error
     accepted = tuple(
         event for event in response.events if event.confidence >= config.minimum_confidence
     )
