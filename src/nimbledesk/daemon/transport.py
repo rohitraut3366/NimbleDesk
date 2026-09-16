@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from nimbledesk.daemon.runtime import DesktopRuntime
 from nimbledesk.protocol.models import (
@@ -16,6 +16,7 @@ from nimbledesk.protocol.models import (
     Rectangle,
     SessionConfig,
     SessionState,
+    Target,
 )
 from nimbledesk.protocol.rpc import ConnectionInfo, RequestAuthenticator, RpcRequest, RpcResponse
 
@@ -127,6 +128,11 @@ class DaemonTransport:
                 options,
             )
             return capture.model_dump(mode="json")
+        if method == "target_resolve":
+            target: Target = TypeAdapter(Target).validate_python(params["target"])
+            return self._runtime.resolve_target(
+                str(params["session_id"]), str(params["observation_id"]), target
+            )
         if method == "media_index_open":
             return self._runtime.open_content_index(
                 str(params["session_id"]), Path(str(params["index_path"]))

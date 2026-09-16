@@ -20,6 +20,7 @@ from nimbledesk.protocol.models import (
     Point,
     RecoveryOptions,
     Rectangle,
+    SelectorTarget,
     SessionConfig,
     SessionState,
     TextTarget,
@@ -233,6 +234,26 @@ def test_semantic_element_click_is_observation_bound() -> None:
 
     assert result.status is ActionStatus.COMPLETED
     assert backend.executed_actions == [action]
+
+
+def test_target_resolve_converts_unique_selector_without_input() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("resolve fixture", SessionConfig())
+    observation = runtime.observe(session.session_id)
+
+    result = runtime.resolve_target(
+        session.session_id,
+        observation.observation_id,
+        SelectorTarget(role="button", name="Create"),
+    )
+
+    assert result["target"] == {
+        "target_type": "element",
+        "observation_id": observation.observation_id,
+        "element_id": "fixture-create",
+    }
+    assert result["evidence"]["name"] == "Create"
+    assert backend.executed_actions == []
 
 
 def test_visual_click_recaptures_signature_and_executes_at_crop_center() -> None:

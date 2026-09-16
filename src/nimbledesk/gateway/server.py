@@ -168,6 +168,29 @@ async def ui_find(
 
 
 @mcp.tool()
+async def target_resolve(
+    session_id: str, observation_id: str, target: Target
+) -> dict[str, Any]:
+    """Resolve one coordinate, semantic, selector, visual, or OCR target without input."""
+    return await client().call(
+        "target_resolve",
+        {
+            "session_id": session_id,
+            "observation_id": observation_id,
+            "target": target.model_dump(mode="json"),
+        },
+    )
+
+
+@mcp.tool()
+async def action_execute(action: ActionRequest) -> dict[str, Any]:
+    """Execute one complete governed action protocol request through the desktop daemon."""
+    return await client().call(
+        "action_execute", {"action": action.model_dump(mode="json")}
+    )
+
+
+@mcp.tool()
 async def condition_wait(
     session_id: str,
     condition_type: Literal[

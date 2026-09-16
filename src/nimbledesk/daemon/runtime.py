@@ -33,6 +33,7 @@ from nimbledesk.protocol.models import (
     Session,
     SessionConfig,
     SessionState,
+    Target,
     TextTarget,
     VisualTarget,
 )
@@ -287,6 +288,85 @@ class DesktopRuntime:
         if time() >= observation.expires_at:
             raise ValueError("observation has expired")
         return self._backend.capture(observation_id, region, options)
+
+    def resolve_target(
+        self, session_id: str, observation_id: str, target: Target
+    ) -> dict[str, object]:
+        probe = ActionRequest(
+            session_id=session_id,
+            source_observation_id=observation_id,
+            kind=ActionKind.MOVE_POINTER,
+            target=target,
+        )
+        observation_error = self._validate_observation(probe)
+        if observation_error:
+            raise ValueError(observation_error)
+        observation = self._observations[session_id]
+        resolved_target: Target = target
+        evidence: dict[str, object] = {}
+        if isinstance(target, ElementTarget):
+            matches = [
+                element
+                for element in observation.elements
+                if element.element_id == target.element_id and element.enabled
+            ]
+            if len(matches) != 1:
+                raise ValueError("semantic element target is unavailable or ambiguous")
+            element = matches[0]
+            evidence = {
+                "element_id": element.element_id,
+                "window_id": element.window_id,
+                "role": element.role,
+                "name": element.name,
+                "bounds": element.bounds.model_dump() if element.bounds else None,
+            }
+        elif isinstance(target, SelectorTarget):
+            matches = [
+                element
+                for element in observation.elements
+                if element.enabled
+                and (target.role is None or element.role == target.role)
+                and (target.name is None or element.name == target.name)
+                and (target.window_id is None or element.window_id == target.window_id)
+                and (
+                    target.application_id is None
+                    or any(
+                        window.window_id == element.window_id
+                        and window.application_id == target.application_id
+                        for window in observation.windows
+                    )
+                )
+            ]
+            if len(matches) != 1:
+                raise ValueError(f"selector resolved to {len(matches)} enabled elements")
+            element = matches[0]
+            resolved_target = ElementTarget(
+                observation_id=observation_id, element_id=element.element_id
+            )
+            evidence = {
+                "element_id": element.element_id,
+                "window_id": element.window_id,
+                "role": element.role,
+                "name": element.name,
+                "bounds": element.bounds.model_dump() if element.bounds else None,
+            }
+        elif isinstance(target, VisualTarget):
+            resolved, error, evidence = self._resolve_visual_target(probe)
+            if error:
+                raise ValueError(error)
+            assert resolved.target is not None
+            resolved_target = resolved.target
+        elif isinstance(target, TextTarget):
+            resolved, error, evidence = self._resolve_text_target(probe)
+            if error:
+                raise ValueError(error)
+            assert resolved.target is not None
+            resolved_target = resolved.target
+        return {
+            "observation_id": observation_id,
+            "target": resolved_target.model_dump(mode="json"),
+            "evidence": evidence,
+        }
 
     def execute(self, action: ActionRequest) -> ActionResult:
         started_at = time()

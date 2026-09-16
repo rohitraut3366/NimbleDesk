@@ -507,6 +507,8 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `permissions_get` | `session_id` | Performs a fresh permission probe and returns its new observation ID, capabilities, and warnings. |
 | `desktop_observe` | `session_id` | `max_estimated_text_tokens=2000` (128–100,000); `max_windows=10` (0–200); `max_elements=100` (0–2,000). Reports truncation separately for windows and elements. |
 | `ui_find` | `session_id` plus `role` or `name` | Searches accessibility elements server-side and returns bounded actionable matches tied to one new observation. |
+| `target_resolve` | `session_id`, `observation_id`, `target` | Resolves coordinate, semantic, selector, visual-signature, or OCR targets without producing input. |
+| `action_execute` | Complete `ActionRequest` | Executes one primitive through the same stale-observation, policy, approval, recovery, and audit path as the convenience tools. |
 | `condition_wait` | `session_id`, `condition_type`, `value` | Internally waits up to 60 seconds for an active application, focused window, or element presence/absence without consuming model turns for polling. |
 | `media_index_open` | `session_id`, `index_path` | Opens a content index only within the session's explicit `granted_paths`; returns a session-scoped, content-derived handle without exposing the source path. |
 | `media_index_search` | `session_id`, `index_id`, `query` | Searches labels, transcript text, event types, and evidence. `maximum_results=20`; `maximum_tokens=2000`; returns stable result IDs and explicit usage/truncation. |

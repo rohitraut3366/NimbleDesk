@@ -5,7 +5,13 @@ from typing import Any
 import pytest
 
 import nimbledesk.gateway.server as gateway
-from nimbledesk.protocol.models import ActionKind, CoordinateTarget, Point
+from nimbledesk.protocol.models import (
+    ActionKind,
+    ActionRequest,
+    CoordinateTarget,
+    Point,
+    SelectorTarget,
+)
 
 
 class RecordingClient:
@@ -42,6 +48,27 @@ async def test_gateway_builds_observation_bound_action(monkeypatch: pytest.Monke
     assert action["expected_application_id"] == "fixture.app"
     assert action["expected_window_id"] == "fixture-window"
     assert action["target"]["point"] == {"x": 10, "y": 20}
+
+
+@pytest.mark.asyncio
+async def test_gateway_exposes_generic_action_and_target_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recording_client = RecordingClient()
+    monkeypatch.setattr(gateway, "client", lambda: recording_client)
+    action = ActionRequest(
+        session_id="session", source_observation_id="observation", kind=ActionKind.WAIT
+    )
+
+    await gateway.action_execute(action)
+    assert recording_client.method == "action_execute"
+    assert recording_client.params["action"]["kind"] == "wait"
+
+    await gateway.target_resolve(
+        "session", "observation", SelectorTarget(role="button", name="Save")
+    )
+    assert recording_client.method == "target_resolve"
+    assert recording_client.params["target"]["target_type"] == "selector"
 
 
 @pytest.mark.asyncio
