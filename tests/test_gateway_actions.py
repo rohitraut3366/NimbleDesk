@@ -64,6 +64,93 @@ async def test_gateway_builds_observation_bound_window_action(
 
 
 @pytest.mark.asyncio
+async def test_gateway_finds_ui_with_bounded_server_side_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ObservationClient(RecordingClient):
+        async def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "observation_id": "observation",
+                "elements": [
+                    {
+                        "element_id": "save",
+                        "window_id": "editor",
+                        "role": "button",
+                        "name": "Save project",
+                        "enabled": True,
+                        "actions": ["press"],
+                    },
+                    {
+                        "element_id": "cancel",
+                        "window_id": "editor",
+                        "role": "button",
+                        "name": "Cancel",
+                        "enabled": True,
+                    },
+                ],
+            }
+
+    monkeypatch.setattr(gateway, "client", ObservationClient)
+
+    result = await gateway.ui_find("session", role="button", name="save")
+
+    assert result["observation_id"] == "observation"
+    assert [match["element_id"] for match in result["matches"]] == ["save"]
+    assert result["usage"]["total_matches"] == 1
+
+
+@pytest.mark.asyncio
+async def test_gateway_condition_wait_reuses_observations_internally(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ChangingClient(RecordingClient):
+        calls = 0
+
+        async def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+            type(self).calls += 1
+            return {
+                "observation_id": f"observation-{self.calls}",
+                "active_application_id": "editor" if self.calls >= 2 else "launcher",
+                "windows": [],
+                "elements": [],
+            }
+
+    changing = ChangingClient()
+    monkeypatch.setattr(gateway, "client", lambda: changing)
+
+    result = await gateway.condition_wait(
+        "session",
+        "application_active",
+        "editor",
+        timeout_seconds=1,
+        poll_interval_seconds=0.05,
+    )
+
+    assert result["matched"] is True
+    assert result["observations"] == 2
+    assert result["observation_id"] == "observation-2"
+
+
+@pytest.mark.asyncio
+async def test_gateway_discovers_session_and_adapter_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DiscoveryClient(RecordingClient):
+        async def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+            if method == "session_status":
+                return {"session_id": "session", "state": "active"}
+            return {"adapters": [{"adapter_id": "editor.adapter", "commands": {}}]}
+
+    monkeypatch.setattr(gateway, "client", DiscoveryClient)
+
+    session = await gateway.session_status("session")
+    adapter = await gateway.adapter_describe("editor.adapter")
+
+    assert session["state"] == "active"
+    assert adapter == {"adapter_id": "editor.adapter", "commands": {}}
+
+
+@pytest.mark.asyncio
 async def test_gateway_builds_semantic_element_action(monkeypatch: pytest.MonkeyPatch) -> None:
     recording_client = RecordingClient()
     monkeypatch.setattr(gateway, "client", lambda: recording_client)

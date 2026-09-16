@@ -95,9 +95,24 @@ class DaemonTransport:
                     for session in self._runtime.list_sessions()
                 ]
             }
+        if method == "session_status":
+            return self._runtime.session_status(str(params["session_id"])).model_dump(
+                mode="json"
+            )
         if method == "emergency_stop":
             sessions = self._runtime.emergency_stop()
             return {"status": "stopped", "stopped_sessions": len(sessions)}
+        if method == "adapters_list":
+            return {"adapters": list(self._runtime.adapter_descriptions())}
+        if method == "audit_query":
+            return {
+                "entries": list(
+                    self._runtime.audit_summaries(
+                        str(params["session_id"]), int(params.get("limit", 20))
+                    )
+                ),
+                "integrity": self._runtime.audit_integrity(),
+            }
         if method == "desktop_observe":
             observation = self._runtime.observe(str(params["session_id"]))
             return observation.model_dump(mode="json")

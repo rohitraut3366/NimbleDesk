@@ -100,6 +100,11 @@ async def test_client_reaches_runtime_through_authenticated_transport() -> None:
             {"reason": "transport test", "config": {"input_enabled": False}},
         )
         observation = await client.call("desktop_observe", {"session_id": session["session_id"]})
+        status = await client.call("session_status", {"session_id": session["session_id"]})
+        adapters = await client.call("adapters_list")
+        audit = await client.call(
+            "audit_query", {"session_id": session["session_id"], "limit": 10}
+        )
         capture = await client.call(
             "screen_capture",
             {
@@ -112,6 +117,15 @@ async def test_client_reaches_runtime_through_authenticated_transport() -> None:
     assert health["backend"] == "simulator"
     assert "screen_capture" in health["capabilities"]
     assert observation["platform"] == "simulator"
+    assert status["session_id"] == session["session_id"]
+    assert status["state"] == "active"
+    assert adapters == {"adapters": []}
+    assert audit["entries"] == []
+    assert audit["integrity"] == {
+        "valid": True,
+        "entries": 0,
+        "head_hash": "0" * 64,
+    }
     assert capture["mime_type"] == "image/jpeg"
 
 

@@ -117,6 +117,25 @@ class AdapterDesktopBackend:
     def cancel_input(self) -> None:
         self._desktop.cancel_input()
 
+    def adapter_descriptions(self) -> tuple[dict[str, object], ...]:
+        return tuple(
+            {
+                "adapter_id": manifest.adapter_id,
+                "version": manifest.version,
+                "vendor": manifest.vendor,
+                "supported_platforms": sorted(manifest.supported_platforms),
+                "isolation": manifest.isolation,
+                "network_access": manifest.network_access,
+                "commands": {
+                    name: command.model_dump(mode="json")
+                    for name, command in sorted(manifest.commands.items())
+                },
+            }
+            for manifest in sorted(
+                self._registry.manifests.values(), key=lambda item: item.adapter_id
+            )
+        )
+
 
 def registry_for_host(directory: Path) -> AdapterRegistry:
     registry = AdapterRegistry.load(directory)

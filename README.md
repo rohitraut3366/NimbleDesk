@@ -502,7 +502,12 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | --- | --- | --- |
 | `health` | None | Checks daemon availability. |
 | `session_start` | `reason` | `input_enabled=false`; `clipboard_enabled=false`; `allowed_applications=[]`. Sessions default to 1,000 actions and one hour. |
+| `session_status` | `session_id` | Returns current state, original limits, expiry, and consumed action count. |
+| `capabilities_get` | None | Returns the selected backend and currently advertised capabilities. |
+| `permissions_get` | `session_id` | Performs a fresh permission probe and returns its new observation ID, capabilities, and warnings. |
 | `desktop_observe` | `session_id` | `max_estimated_text_tokens=2000` (128–100,000); `max_windows=10` (0–200); `max_elements=100` (0–2,000). Reports truncation separately for windows and elements. |
+| `ui_find` | `session_id` plus `role` or `name` | Searches accessibility elements server-side and returns bounded actionable matches tied to one new observation. |
+| `condition_wait` | `session_id`, `condition_type`, `value` | Internally waits up to 60 seconds for an active application, focused window, or element presence/absence without consuming model turns for polling. |
 | `media_index_open` | `session_id`, `index_path` | Opens a content index only within the session's explicit `granted_paths`; returns a session-scoped, content-derived handle without exposing the source path. |
 | `media_index_search` | `session_id`, `index_id`, `query` | Searches labels, transcript text, event types, and evidence. `maximum_results=20`; `maximum_tokens=2000`; returns stable result IDs and explicit usage/truncation. |
 | `media_index_detail` | `session_id`, `index_id`, `result_id` | Retrieves one time-aligned result by stable ID. `maximum_tokens=2000`; expires when the session stops. |
@@ -529,7 +534,10 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `launch_application` | `session_id`, `observation_id`, `application_id` | Requires an exact match in the session application allowlist and exact-action approval. Uses a macOS bundle ID or Windows executable/AppUserModel ID. |
 | `wait` | `session_id`, `seconds` | Waits for an interface or animation to settle; maximum 10 seconds per call. |
 | `application_command` | `session_id`, `observation_id`, `adapter_id`, `command`, `arguments` | Executes an installed subprocess adapter after exact-action approval; pass the returned token as `approval_token` on the repeated call. |
+| `adapters_list` | None | Lists installed adapters and bounded command contracts without exposing package paths. |
+| `adapter_describe` | `adapter_id` | Returns one adapter's version, isolation, network declaration, risks, arguments, and timeouts. |
 | `approval_status` | `approval_id` | Polls a human decision. An approved response contains the short-lived token; consumed, rejected, invalidated, and expired approvals cannot authorize work. |
+| `audit_query` | `session_id` | Returns up to 100 redacted action summaries and hash-chain integrity evidence. |
 | `session_pause` | `session_id` | Pauses input and releases common modifier keys and mouse buttons. |
 | `session_resume` | `session_id` | Restores the original session limits; a stopped session cannot resume. |
 | `session_stop` | `session_id` | Permanently stops the session and releases input. |

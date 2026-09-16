@@ -21,6 +21,9 @@ Window-contract tests cover focus, move, resize, minimize, maximize, and approva
 the shared controller plus native macOS, Win32, X11, and explicit Wayland capability behavior.
 Studio tests cover session creation and state controls; runtime tests prove global emergency stop
 releases input and invalidates pending and already granted approval authority.
+Gateway tests verify bounded server-side UI search, internal condition waits, adapter discovery,
+session discovery, and redacted audit summaries. Audit tests reopen the log across a simulated
+daemon restart and detect content or chain tampering.
 
 Cancellation tests start a real child process, request cancellation, verify prompt termination, and confirm that no output directory is created when a job is cancelled before execution. Console tests verify atomic job persistence, terminal cancellation state, and conversion of jobs left running across restart into explicit interrupted/recoverable records.
 

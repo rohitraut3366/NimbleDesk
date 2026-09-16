@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from nimbledesk.backends import SimulatorBackend
 from nimbledesk.daemon.approvals import ApprovalManager
 from nimbledesk.daemon.audit import AuditLog
@@ -89,6 +91,17 @@ def test_valid_click_executes_and_is_audited(tmp_path: Path) -> None:
     record = json.loads(audit_path.read_text())
     assert record["request"]["action_id"] == action.action_id
     assert len(record["entry_hash"]) == 64
+    assert runtime.audit_summaries(session.session_id, 10) == (
+        {
+            "action_id": action.action_id,
+            "kind": "click",
+            "status": "completed",
+            "message": "Action executed by simulator",
+            "started_at": record["result"]["started_at"],
+            "finished_at": record["result"]["finished_at"],
+            "entry_hash": record["entry_hash"],
+        },
+    )
 
 
 def test_emergency_stop_stops_sessions_releases_input_and_revokes_approvals() -> None:
@@ -111,6 +124,29 @@ def test_emergency_stop_stops_sessions_releases_input_and_revokes_approvals() ->
     assert backend.input_cancelled is True
     assert pending.approval_id is not None
     assert runtime.approval_status(pending.approval_id).status == "rejected"
+
+
+def test_audit_hash_chain_survives_daemon_restart_and_detects_tampering(tmp_path: Path) -> None:
+    audit_path = tmp_path / "audit.jsonl"
+    runtime, _backend = make_runtime(audit_path)
+    session = runtime.start_session("fixture test", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = click_request(session.session_id, observation.observation_id)
+    first_result = runtime.execute(action)
+
+    reopened = AuditLog(audit_path)
+    second_action = action.model_copy(update={"action_id": "second-action"})
+    second_result = first_result.model_copy(update={"action_id": "second-action"})
+    reopened.record(second_action, second_result)
+    records = [json.loads(line) for line in audit_path.read_text().splitlines()]
+
+    assert records[1]["previous_hash"] == records[0]["entry_hash"]
+    assert reopened.integrity()["valid"] is True
+
+    records[0]["result"]["message"] = "tampered"
+    audit_path.write_text("\n".join(json.dumps(record) for record in records) + "\n")
+    with pytest.raises(RuntimeError, match="audit log integrity failed at line 1"):
+        AuditLog(audit_path)
 
 
 def test_clipboard_and_launch_flow_through_policy_approval_and_audit(

@@ -66,6 +66,18 @@ def test_adapter_runs_in_worker_with_granted_path(tmp_path: Path) -> None:
     assert result.result == {"received": {"project": str(project)}}
 
 
+def test_adapter_catalog_hides_local_package_paths() -> None:
+    backend = AdapterDesktopBackend(
+        SimulatorBackend(), AdapterRegistry({_manifest().adapter_id: _manifest()})
+    )
+
+    descriptions = backend.adapter_descriptions()
+
+    assert descriptions[0]["adapter_id"] == "nimbledesk.fixture"
+    assert "package_path" not in descriptions[0]
+    assert descriptions[0]["commands"]["inspect"]["read_only"] is True
+
+
 def test_frozen_bundle_uses_internal_adapter_worker(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("nimbledesk.adapters.runner.sys.frozen", True, raising=False)
 

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import os
 from functools import lru_cache
 from pathlib import Path
+from time import monotonic
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP, Image
 
 from nimbledesk.client import DaemonClient
-from nimbledesk.gateway.budget import compact_observation
+from nimbledesk.gateway.budget import compact_observation, estimate_text_tokens
 from nimbledesk.protocol.models import (
     ActionKind,
     ActionRequest,
@@ -66,6 +68,30 @@ async def session_start(
 
 
 @mcp.tool()
+async def session_status(session_id: str) -> dict[str, Any]:
+    """Return the current state, limits, and action usage for one session."""
+    return await client().call("session_status", {"session_id": session_id})
+
+
+@mcp.tool()
+async def capabilities_get() -> dict[str, Any]:
+    """Return the selected backend and currently advertised runtime capabilities."""
+    return await client().call("health")
+
+
+@mcp.tool()
+async def permissions_get(session_id: str) -> dict[str, Any]:
+    """Probe current OS permission states through a fresh bounded observation."""
+    observation = await client().call("desktop_observe", {"session_id": session_id})
+    return {
+        "observation_id": observation["observation_id"],
+        "permissions": observation.get("permissions", {}),
+        "capabilities": observation.get("capabilities", []),
+        "warnings": observation.get("warnings", [])[:10],
+    }
+
+
+@mcp.tool()
 async def desktop_observe(
     session_id: str,
     max_estimated_text_tokens: int = 2_000,
@@ -80,6 +106,107 @@ async def desktop_observe(
         max_elements=max_elements,
     )
     return compact_observation(observation, budget)
+
+
+@mcp.tool()
+async def ui_find(
+    session_id: str,
+    role: str | None = None,
+    name: str | None = None,
+    exact_name: bool = False,
+    maximum_results: int = 20,
+    maximum_tokens: int = 2_000,
+) -> dict[str, Any]:
+    """Find enabled accessibility elements server-side without returning the full UI tree."""
+    if not role and not name:
+        raise ValueError("ui_find requires a role or name")
+    if not 1 <= maximum_results <= 100 or not 128 <= maximum_tokens <= 100_000:
+        raise ValueError("UI result or token budget is outside allowed bounds")
+    observation = await client().call("desktop_observe", {"session_id": session_id})
+    normalized_role = role.casefold() if role else None
+    normalized_name = name.casefold() if name else None
+    matches = []
+    for element in observation.get("elements", []):
+        element_name = str(element.get("name", ""))
+        role_matches = (
+            normalized_role is None
+            or str(element.get("role", "")).casefold() == normalized_role
+        )
+        name_matches = normalized_name is None or (
+            element_name.casefold() == normalized_name
+            if exact_name
+            else normalized_name in element_name.casefold()
+        )
+        if role_matches and name_matches and element.get("enabled", True):
+            matches.append(
+                {
+                    key: element.get(key)
+                    for key in (
+                        "element_id",
+                        "window_id",
+                        "role",
+                        "name",
+                        "bounds",
+                        "focused",
+                        "actions",
+                    )
+                }
+            )
+    returned = matches[:maximum_results]
+    while returned and estimate_text_tokens(returned) > maximum_tokens:
+        returned.pop()
+    return {
+        "observation_id": observation["observation_id"],
+        "matches": returned,
+        "usage": {
+            "estimated_text_tokens": estimate_text_tokens(returned),
+            "maximum_text_tokens": maximum_tokens,
+            "total_matches": len(matches),
+            "truncated": len(returned) < len(matches),
+        },
+    }
+
+
+@mcp.tool()
+async def condition_wait(
+    session_id: str,
+    condition_type: Literal[
+        "application_active", "window_focused", "element_present", "element_absent"
+    ],
+    value: str,
+    role: str | None = None,
+    timeout_seconds: float = 10,
+    poll_interval_seconds: float = 0.25,
+) -> dict[str, Any]:
+    """Wait internally for an application, window, or accessible element state change."""
+    if not value:
+        raise ValueError("condition value cannot be empty")
+    if not 0.1 <= timeout_seconds <= 60 or not 0.05 <= poll_interval_seconds <= 2:
+        raise ValueError("condition wait timing is outside allowed bounds")
+    deadline = monotonic() + timeout_seconds
+    observations = 0
+    while True:
+        observation = await client().call("desktop_observe", {"session_id": session_id})
+        observations += 1
+        if _condition_matches(observation, condition_type, value, role):
+            return {
+                "matched": True,
+                "condition_type": condition_type,
+                "value": value,
+                "observation_id": observation["observation_id"],
+                "observations": observations,
+            }
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return {
+                "matched": False,
+                "condition_type": condition_type,
+                "value": value,
+                "observation_id": observation["observation_id"],
+                "observations": observations,
+                "reason": "condition wait timed out",
+            }
+        await asyncio.sleep(min(poll_interval_seconds, remaining))
 
 
 @mcp.tool()
@@ -620,9 +747,34 @@ async def application_command(
 
 
 @mcp.tool()
+async def adapters_list() -> dict[str, Any]:
+    """List installed application adapters and their bounded command contracts."""
+    return await client().call("adapters_list")
+
+
+@mcp.tool()
+async def adapter_describe(adapter_id: str) -> dict[str, Any]:
+    """Describe one installed adapter without exposing its local package path."""
+    response = await client().call("adapters_list")
+    adapter = next(
+        (item for item in response.get("adapters", []) if item.get("adapter_id") == adapter_id),
+        None,
+    )
+    if not isinstance(adapter, dict):
+        raise ValueError("adapter is not installed")
+    return dict(adapter)
+
+
+@mcp.tool()
 async def approval_status(approval_id: str) -> dict[str, Any]:
     """Check whether a human approved or rejected a pending exact action."""
     return await client().call("approval_status", {"approval_id": approval_id})
+
+
+@mcp.tool()
+async def audit_query(session_id: str, limit: int = 20) -> dict[str, Any]:
+    """Return bounded redacted action summaries for one session."""
+    return await client().call("audit_query", {"session_id": session_id, "limit": limit})
 
 
 @mcp.tool()
@@ -693,6 +845,31 @@ async def _window_action(
         expected_window_id=window_id,
         approval_token=approval_token,
     )
+
+
+def _condition_matches(
+    observation: dict[str, Any],
+    condition_type: str,
+    value: str,
+    role: str | None,
+) -> bool:
+    if condition_type == "application_active":
+        return observation.get("active_application_id") == value
+    if condition_type == "window_focused":
+        return observation.get("focused_window_id") == value or any(
+            window.get("focused") and value.casefold() in str(window.get("title", "")).casefold()
+            for window in observation.get("windows", [])
+        )
+    matching_element = any(
+        value.casefold() in str(element.get("name", "")).casefold()
+        and (role is None or str(element.get("role", "")).casefold() == role.casefold())
+        for element in observation.get("elements", [])
+    )
+    if condition_type == "element_present":
+        return matching_element
+    if condition_type == "element_absent":
+        return not matching_element
+    raise ValueError(f"unknown condition type: {condition_type}")
 
 
 def main() -> None:

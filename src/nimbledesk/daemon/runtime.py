@@ -13,7 +13,7 @@ from nimbledesk.daemon.audit import AuditLog
 from nimbledesk.daemon.policy import ActionPolicy
 from nimbledesk.daemon.sessions import SessionError, SessionManager
 from nimbledesk.perception.ocr import OcrProvider
-from nimbledesk.ports import DesktopBackend
+from nimbledesk.ports import AdapterCatalogBackend, DesktopBackend
 from nimbledesk.protocol.models import (
     ActionKind,
     ActionRequest,
@@ -85,12 +85,29 @@ class DesktopRuntime:
     def list_sessions(self) -> tuple[Session, ...]:
         return self._sessions.list_sessions()
 
+    def session_status(self, session_id: str) -> Session:
+        return self._sessions.get(session_id)
+
     def emergency_stop(self) -> tuple[Session, ...]:
         sessions = self._sessions.stop_all()
         self._backend.cancel_input()
         self._approvals.revoke_all()
         self._content_indexes.clear()
         return sessions
+
+    def adapter_descriptions(self) -> tuple[dict[str, object], ...]:
+        if not isinstance(self._backend, AdapterCatalogBackend):
+            return ()
+        return self._backend.adapter_descriptions()
+
+    def audit_summaries(self, session_id: str, limit: int) -> tuple[dict[str, object], ...]:
+        self._sessions.get(session_id)
+        if not 1 <= limit <= 100:
+            raise ValueError("audit result limit must be between 1 and 100")
+        return self._audit.summaries(session_id, limit)
+
+    def audit_integrity(self) -> dict[str, object]:
+        return self._audit.integrity()
 
     def open_content_index(self, session_id: str, index_path: Path) -> dict[str, object]:
         session = self._active_session(session_id)

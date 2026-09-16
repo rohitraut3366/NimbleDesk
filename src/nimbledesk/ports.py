@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from nimbledesk.protocol.models import (
     ActionRequest,
@@ -38,3 +38,8 @@ class RuntimeClient(Protocol):
     def observe(self, session_id: str) -> DesktopObservation: ...
 
     def execute(self, request: ActionRequest) -> ActionResult: ...
+
+
+@runtime_checkable
+class AdapterCatalogBackend(Protocol):
+    def adapter_descriptions(self) -> tuple[dict[str, object], ...]: ...
