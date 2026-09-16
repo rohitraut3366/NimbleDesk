@@ -14,8 +14,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from nimbledesk.adapters.limits import MAXIMUM_WORKER_MEMORY_BYTES
+from nimbledesk.adapters.runner import _kill_process_group, _process_tree_memory_bytes
 from nimbledesk.creative.models import EditPlan
-from nimbledesk.media.process import ProcessCancelled
+from nimbledesk.media.process import ProcessCancelled, stop_process
+
+MAXIMUM_DAVINCI_STDERR_BYTES = 65_536
 
 
 class DaVinciError(RuntimeError):
@@ -54,7 +58,10 @@ def execute_davinci_isolated(
     worker_command: tuple[str, ...] | None = None,
 ) -> DaVinciResult:
     command_prefix = worker_command or _davinci_worker_command()
-    with tempfile.TemporaryDirectory(prefix="nimbledesk-davinci-") as temporary:
+    with (
+        tempfile.TemporaryDirectory(prefix="nimbledesk-davinci-") as temporary,
+        tempfile.TemporaryFile() as stderr_file,
+    ):
         working = Path(temporary)
         result_path = working / "result.json"
         cancel_path = working / "cancel"
@@ -85,9 +92,15 @@ def execute_davinci_isolated(
         process = subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stderr=stderr_file,
             env=environment,
             cwd=tempfile.gettempdir(),
+            start_new_session=os.name == "posix",
+            creationflags=(
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                if os.name == "nt"
+                else 0
+            ),
         )
         cancel_requested = False
         deadline = time.monotonic() + timeout_seconds + 10
@@ -97,19 +110,26 @@ def execute_davinci_isolated(
                 cancel_requested = True
             if time.monotonic() >= deadline:
                 cancel_path.touch()
-                process.terminate()
-                _wait_or_kill(process)
+                stop_process(process)
                 raise DaVinciError("isolated DaVinci worker timed out")
             if cancel_requested and cancel_path.stat().st_mtime < time.time() - 5:
-                process.terminate()
-                _wait_or_kill(process)
+                stop_process(process)
                 raise ProcessCancelled("DaVinci worker did not stop after cancellation")
+            if _process_tree_memory_bytes(process) > MAXIMUM_WORKER_MEMORY_BYTES:
+                cancel_path.touch()
+                stop_process(process)
+                raise DaVinciError("DaVinci worker exceeded the 512 MiB memory limit")
+            if os.fstat(stderr_file.fileno()).st_size > MAXIMUM_DAVINCI_STDERR_BYTES:
+                cancel_path.touch()
+                stop_process(process)
+                raise DaVinciError("DaVinci worker stderr exceeded 64 kilobytes")
             time.sleep(0.1)
-        assert process.stderr is not None
-        stderr = process.stderr.read(65_537)
+        _kill_process_group(process)
+        stderr_file.seek(0)
+        stderr = stderr_file.read(MAXIMUM_DAVINCI_STDERR_BYTES + 1)
         if cancel_requested:
             raise ProcessCancelled("creation was cancelled; DaVinci rendering was stopped")
-        if len(stderr) > 65_536:
+        if len(stderr) > MAXIMUM_DAVINCI_STDERR_BYTES:
             raise DaVinciError("DaVinci worker stderr exceeded 64 kilobytes")
         if process.returncode != 0 and not result_path.is_file():
             message = stderr.decode("utf-8", errors="replace").strip()
@@ -340,11 +360,3 @@ def _default_module_paths() -> list[Path]:
             / "Modules"
         ]
     return [Path("/opt/resolve/Developer/Scripting/Modules")]
-
-
-def _wait_or_kill(process: subprocess.Popen[bytes]) -> None:
-    try:
-        process.wait(timeout=2)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=2)

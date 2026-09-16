@@ -26,6 +26,8 @@
 - Run media providers in bounded process sessions; cancellation, timeout, or memory-limit failure
   terminates the provider and every descendant process.
 - Bound provider standard output and error independently from schema-validated response files.
+- Bound the DaVinci worker's aggregate memory, stderr, result file, deadline, and process tree while
+  retaining only the environment required by Resolve's scripting bridge.
 - Write append-only, redacted audit events for every attempted action.
 - Never expose a generic shell through the desktop protocol.
 - Give third-party adapter workers only declared filesystem paths and opt-in network capabilities;

@@ -1,10 +1,13 @@
+import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from nimbledesk.creative.davinci import (
+    DaVinciError,
     _davinci_worker_command,
     execute_davinci_isolated,
     execute_in_davinci,
@@ -362,3 +365,59 @@ raise SystemExit(1)
             worker_command=(sys.executable, str(worker)),
             cancelled=lambda: True,
         )
+
+
+def test_isolated_davinci_worker_bounds_stderr(tmp_path: Path) -> None:
+    plan_path = tmp_path / "plan.json"
+    timeline_path = tmp_path / "timeline.fcpxml"
+    plan_path.write_text("{}", encoding="utf-8")
+    timeline_path.write_text("<fcpxml />", encoding="utf-8")
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import sys,time\nsys.stderr.write('x' * 70000)\nsys.stderr.flush()\ntime.sleep(30)\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(DaVinciError, match="stderr exceeded"):
+        execute_davinci_isolated(
+            plan_path,
+            timeline_path,
+            tmp_path,
+            render=False,
+            worker_command=(sys.executable, str(worker)),
+        )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group cleanup contract")
+def test_completed_davinci_worker_cannot_leave_descendants(tmp_path: Path) -> None:
+    plan_path = tmp_path / "plan.json"
+    timeline_path = tmp_path / "timeline.fcpxml"
+    marker = tmp_path / "survived.txt"
+    plan_path.write_text("{}", encoding="utf-8")
+    timeline_path.write_text("<fcpxml />", encoding="utf-8")
+    child_code = (
+        "import pathlib,signal,time;"
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+        "time.sleep(1);"
+        f"pathlib.Path({str(marker)!r}).write_text('survived')"
+    )
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import json,subprocess,sys\n"
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+        "json.dump({'success':True,'result':{'project_name':'Fixture',"
+        "'timeline_name':'Timeline'},'error':None},"
+        "open(sys.argv[6], 'w', encoding='utf-8'))\n",
+        encoding="utf-8",
+    )
+
+    execute_davinci_isolated(
+        plan_path,
+        timeline_path,
+        tmp_path,
+        render=False,
+        worker_command=(sys.executable, str(worker)),
+    )
+
+    time.sleep(1.1)
+    assert not marker.exists()
