@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 from PIL import Image, ImageDraw
 from pydantic import BaseModel, ConfigDict, Field
 
+from nimbledesk.adapters.limits import MAXIMUM_WORKER_MEMORY_BYTES
 from nimbledesk.media.models import TimelineEvent
 from nimbledesk.media.process import CancellationCheck, run_cancellable
 
@@ -130,6 +131,7 @@ def analyze_with_vision_provider(
             command,
             cancelled=cancelled,
             timeout_seconds=config.timeout_seconds,
+            maximum_memory_bytes=MAXIMUM_WORKER_MEMORY_BYTES,
         )
     except TimeoutError as error:
         raise VisionAnalysisError("semantic vision provider timed out") from error

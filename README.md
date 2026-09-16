@@ -204,6 +204,10 @@ low-detail bounded contact sheets, accepts only structured events, and never wri
 
 NimbleDesk extracts at most the configured number of 640-pixel samples and packs twelve timestamped frames into each contact sheet. The worker receives the request JSON path and response JSON path as separate arguments without a shell. It must write `{"events":[{"time_seconds":12,"event_type":"grenade_kill","label":"Grenade double kill","confidence":0.91,"evidence":"throw, explosion, and two elimination markers"}]}`. Responses are schema-validated, limited to one megabyte, filtered by confidence, merged with OCR and supplied events, and retained with provenance. This bounded contact-sheet protocol keeps image-token use predictable and lets local models, hosted APIs, or future providers implement the same contract.
 
+Vision and transcription commands run in their own process sessions with deadlines, cancellation,
+aggregate 512 MiB process-tree memory limits, and descendant cleanup. A timed-out, cancelled, or
+over-limit provider cannot leave its helper processes running after the job stops.
+
 ### Persistent long-form analysis
 
 Every creation fingerprints the source and builds time-aligned motion, spatial motion centroids, audio energy/silence, color/exposure, shot-boundary, transcript-semantic, and combined semantic tracks. Each point has a rational source range, confidence, evidence, analyzer/version, and configuration hash. Transcript questions, reactions, instructions, and payoffs become semantic moments; domain-pack events and coincident audiovisual action remain separate evidence. When source and delivery aspect ratios differ, the planner smooths spatial motion into bounded crop keyframes, follows the action in FFmpeg, and exports editable position keyframes in FCPXML. Weak motion retains a documented center crop rather than inventing a subject location.

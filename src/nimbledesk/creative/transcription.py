@@ -11,6 +11,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from nimbledesk.adapters.limits import MAXIMUM_WORKER_MEMORY_BYTES
 from nimbledesk.creative.models import TimeRange, TranscriptSegment
 from nimbledesk.media.process import CancellationCheck, ProcessCancelled, run_cancellable
 
@@ -140,7 +141,10 @@ def transcribe_with_provider(
     command = _provider_command(config.command, request_path, response_path)
     try:
         completed = run_cancellable(
-            command, cancelled=cancelled, timeout_seconds=config.timeout_seconds
+            command,
+            cancelled=cancelled,
+            timeout_seconds=config.timeout_seconds,
+            maximum_memory_bytes=MAXIMUM_WORKER_MEMORY_BYTES,
         )
     except TimeoutError as error:
         raise TranscriptionError("transcription provider timed out") from error
