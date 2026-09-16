@@ -5,7 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from time import time
+from time import monotonic, time
 
 from nimbledesk.analysis.models import ContentIndex
 from nimbledesk.daemon.approvals import (
@@ -29,18 +29,23 @@ from nimbledesk.jobs.service import (
 from nimbledesk.perception.ocr import OcrProvider
 from nimbledesk.ports import AdapterCatalogBackend, DesktopBackend
 from nimbledesk.protocol.models import (
+    ActionCondition,
     ActionKind,
     ActionRequest,
     ActionResult,
     ActionStatus,
     Capability,
     CaptureOptions,
+    ConditionEvaluation,
+    ConditionKind,
     CoordinateTarget,
     DesktopObservation,
     ElementTarget,
+    IdempotencyClass,
     PermissionState,
     Point,
     PolicyDecision,
+    PostconditionResult,
     Rectangle,
     ScreenCapture,
     SelectorTarget,
@@ -74,6 +79,9 @@ class DesktopRuntime:
         self._observations: dict[str, DesktopObservation] = {}
         self._observation_history: dict[str, dict[str, DesktopObservation]] = {}
         self._content_indexes: dict[tuple[str, str], ContentIndex] = {}
+        self._action_results: dict[
+            tuple[str, str], tuple[ActionRequest, ActionResult]
+        ] = {}
 
     def health(self) -> dict[str, object]:
         capabilities = set(self._backend.capabilities)
@@ -92,6 +100,7 @@ class DesktopRuntime:
         self._observations.clear()
         self._observation_history.clear()
         self._content_indexes.clear()
+        self._action_results.clear()
         self._backend.cancel_input()
 
     def start_session(self, reason: str, config: SessionConfig) -> Session:
@@ -104,6 +113,9 @@ class DesktopRuntime:
         if state is SessionState.STOPPED:
             self._observations.pop(session_id, None)
             self._observation_history.pop(session_id, None)
+            self._action_results = {
+                key: value for key, value in self._action_results.items() if key[0] != session_id
+            }
             self._content_indexes = {
                 key: value for key, value in self._content_indexes.items() if key[0] != session_id
             }
@@ -122,6 +134,7 @@ class DesktopRuntime:
         self._observations.clear()
         self._observation_history.clear()
         self._content_indexes.clear()
+        self._action_results.clear()
         return sessions
 
     def shutdown(self) -> tuple[Session, ...]:
@@ -611,10 +624,56 @@ class DesktopRuntime:
 
     def execute(self, action: ActionRequest) -> ActionResult:
         started_at = time()
+        started_monotonic = monotonic()
+        deadline = started_monotonic + action.deadline_ms / 1_000
+        action_key = (action.session_id, action.action_id)
+        cached_entry = self._action_results.get(action_key)
+        if cached_entry is not None:
+            completed_action, cached = cached_entry
+            if completed_action != action:
+                return self._finish(
+                    action,
+                    ActionStatus.REJECTED,
+                    "action ID was already used for a different request",
+                    started_at,
+                    error_code="action_id_conflict",
+                )
+            if action.idempotency in {
+                IdempotencyClass.IDEMPOTENT,
+                IdempotencyClass.READ_ONLY,
+            }:
+                replay = cached.model_copy(
+                    update={"data": {**cached.data, "idempotent_replay": True}}
+                )
+                self._audit.record(action, replay)
+                return replay
+            if action.idempotency is IdempotencyClass.NON_IDEMPOTENT:
+                return self._finish(
+                    action,
+                    ActionStatus.REJECTED,
+                    "non-idempotent action ID has already completed",
+                    started_at,
+                    error_code="duplicate_action",
+                )
         try:
             session = self._sessions.get(action.session_id)
         except SessionError as error:
-            return self._finish(action, ActionStatus.REJECTED, str(error), started_at)
+            return self._finish(
+                action,
+                ActionStatus.REJECTED,
+                str(error),
+                started_at,
+                error_code="session_unavailable",
+            )
+
+        if monotonic() >= deadline:
+            return self._finish(
+                action,
+                ActionStatus.TIMED_OUT,
+                "action deadline expired before validation",
+                started_at,
+                error_code="deadline_exceeded",
+            )
 
         execution_action = action
         observation_error = self._validate_observation(execution_action)
@@ -637,6 +696,22 @@ class DesktopRuntime:
                     "recovery_classification": "revalidation_failed",
                     "reobservations": recovery_attempts,
                 },
+                error_code="stale_observation",
+            )
+
+        preconditions = self._evaluate_conditions(
+            action.preconditions, self._observations.get(action.session_id)
+        )
+        if not preconditions.satisfied:
+            return self._finish(
+                action,
+                ActionStatus.REJECTED,
+                "one or more action preconditions were not satisfied",
+                started_at,
+                data={
+                    "preconditions": preconditions.model_dump(mode="json"),
+                },
+                error_code="precondition_failed",
             )
 
         visual_evidence: dict[str, object] = {}
@@ -651,6 +726,7 @@ class DesktopRuntime:
                     visual_error,
                     started_at,
                     data=visual_evidence,
+                    error_code="visual_target_changed",
                 )
         if isinstance(execution_action.target, TextTarget):
             execution_action, text_error, text_evidence = self._resolve_text_target(
@@ -663,14 +739,40 @@ class DesktopRuntime:
                     else ActionStatus.STALE_OBSERVATION
                 )
                 return self._finish(
-                    action, status, text_error, started_at, data=text_evidence
+                    action,
+                    status,
+                    text_error,
+                    started_at,
+                    data=text_evidence,
+                    error_code=(
+                        "capability_unavailable"
+                        if status is ActionStatus.CAPABILITY_UNAVAILABLE
+                        else "text_target_changed"
+                    ),
                 )
             visual_evidence.update(text_evidence)
+
+        if monotonic() >= deadline:
+            return self._finish(
+                action,
+                ActionStatus.TIMED_OUT,
+                "action deadline expired before policy evaluation",
+                started_at,
+                error_code="deadline_exceeded",
+                resolved_target=execution_action.target,
+            )
 
         approved = self._approvals.consume(action.approval_token, action)
         outcome = self._policy.evaluate(session, execution_action, approved)
         if outcome.decision is PolicyDecision.DENY:
-            return self._finish(action, ActionStatus.REJECTED, outcome.reason, started_at)
+            return self._finish(
+                action,
+                ActionStatus.REJECTED,
+                outcome.reason,
+                started_at,
+                error_code="policy_denied",
+                resolved_target=execution_action.target,
+            )
         if outcome.decision is PolicyDecision.REQUIRE_CONFIRMATION:
             pending = self._approvals.request(action, self._approval_evidence(action))
             return self._finish(
@@ -679,6 +781,18 @@ class DesktopRuntime:
                 outcome.reason,
                 started_at,
                 approval_id=pending.approval_id,
+                error_code="approval_required",
+                resolved_target=execution_action.target,
+            )
+
+        if monotonic() >= deadline:
+            return self._finish(
+                action,
+                ActionStatus.TIMED_OUT,
+                "action deadline expired before execution",
+                started_at,
+                error_code="deadline_exceeded",
+                resolved_target=execution_action.target,
             )
 
         try:
@@ -692,10 +806,43 @@ class DesktopRuntime:
                         }
                     }
                 )
+            execution_attempts = 1
             result = self._backend.execute(execution_action)
+            while (
+                result.status is ActionStatus.FAILED
+                and execution_attempts <= action.maximum_retries
+                and action.idempotency
+                in {IdempotencyClass.IDEMPOTENT, IdempotencyClass.READ_ONLY}
+                and monotonic() < deadline
+            ):
+                execution_attempts += 1
+                result = self._backend.execute(execution_action)
         except (SessionError, ValueError, RuntimeError) as error:
             self._backend.cancel_input()
-            return self._finish(action, ActionStatus.FAILED, str(error), started_at)
+            return self._finish(
+                action,
+                ActionStatus.FAILED,
+                str(error),
+                started_at,
+                error_code="backend_failure",
+                resolved_target=execution_action.target,
+            )
+        backend_evidence = result.backend_evidence or result.data
+        if execution_attempts > 1:
+            result = result.model_copy(
+                update={
+                    "data": {**result.data, "execution_attempts": execution_attempts}
+                }
+            )
+        if monotonic() >= deadline:
+            self._backend.cancel_input()
+            result = result.model_copy(
+                update={
+                    "status": ActionStatus.TIMED_OUT,
+                    "message": "action exceeded its deadline",
+                    "error_code": "deadline_exceeded",
+                }
+            )
         if result.status in {
             ActionStatus.FAILED,
             ActionStatus.TIMED_OUT,
@@ -717,8 +864,118 @@ class DesktopRuntime:
             result = result.model_copy(
                 update={"data": {**result.data, **visual_evidence}}
             )
+        next_observation: DesktopObservation | None = None
+        postcondition_result: PostconditionResult | None = None
+        if result.status is ActionStatus.COMPLETED and (
+            action.capture_after or action.postconditions
+        ):
+            try:
+                next_observation = self.observe(action.session_id)
+            except (SessionError, ValueError, RuntimeError) as error:
+                result = result.model_copy(
+                    update={
+                        "status": ActionStatus.FAILED,
+                        "message": f"action completed but follow-up observation failed: {error}",
+                        "error_code": "postcondition_observation_failed",
+                    }
+                )
+            else:
+                postcondition_result = self._evaluate_conditions(
+                    action.postconditions, next_observation
+                )
+                if not postcondition_result.satisfied:
+                    result = result.model_copy(
+                        update={
+                            "status": ActionStatus.FAILED,
+                            "message": "action completed but a postcondition was not satisfied",
+                            "error_code": "postcondition_failed",
+                        }
+                    )
+        result = result.model_copy(
+            update={
+                "duration_ms": max(0, (time() - started_at) * 1_000),
+                "backend_evidence": backend_evidence,
+                "resolved_target": execution_action.target,
+                "postcondition_result": postcondition_result,
+                "next_observation_id": (
+                    next_observation.observation_id if next_observation else None
+                ),
+                "error_code": result.error_code or _error_code_for_status(result.status),
+            }
+        )
         self._audit.record(action, result)
+        if result.status is ActionStatus.COMPLETED and action.idempotency in {
+            IdempotencyClass.IDEMPOTENT,
+            IdempotencyClass.READ_ONLY,
+            IdempotencyClass.NON_IDEMPOTENT,
+        }:
+            self._action_results[action_key] = (action, result)
         return result
+
+    def _evaluate_conditions(
+        self,
+        conditions: tuple[ActionCondition, ...],
+        observation: DesktopObservation | None,
+    ) -> PostconditionResult:
+        evaluations: list[ConditionEvaluation] = []
+        for condition in conditions:
+            satisfied = False
+            actual: str | None = None
+            if observation is not None:
+                if condition.kind is ConditionKind.ACTIVE_APPLICATION:
+                    actual = observation.active_application_id
+                    satisfied = actual == condition.value
+                elif condition.kind is ConditionKind.FOCUSED_WINDOW:
+                    actual = observation.focused_window_id
+                    satisfied = actual == condition.value
+                elif condition.kind in {
+                    ConditionKind.ELEMENT_PRESENT,
+                    ConditionKind.ELEMENT_ABSENT,
+                }:
+                    element_matches = [
+                        element
+                        for element in observation.elements
+                        if (
+                            element.element_id == condition.value
+                            or element.name == condition.value
+                        )
+                        and (condition.role is None or element.role == condition.role)
+                    ]
+                    actual = str(len(element_matches))
+                    satisfied = bool(element_matches)
+                    if condition.kind is ConditionKind.ELEMENT_ABSENT:
+                        satisfied = not satisfied
+                elif condition.kind in {
+                    ConditionKind.WINDOW_PRESENT,
+                    ConditionKind.WINDOW_ABSENT,
+                }:
+                    window_matches = [
+                        window
+                        for window in observation.windows
+                        if window.window_id == condition.value or window.title == condition.value
+                    ]
+                    actual = str(len(window_matches))
+                    satisfied = bool(window_matches)
+                    if condition.kind is ConditionKind.WINDOW_ABSENT:
+                        satisfied = not satisfied
+                elif condition.kind is ConditionKind.UI_TREE_CHANGED:
+                    actual = observation.ui_tree_sha256
+                    satisfied = actual is not None and actual != condition.value
+                elif condition.kind is ConditionKind.WINDOWS_CHANGED:
+                    actual = observation.windows_sha256
+                    satisfied = actual is not None and actual != condition.value
+            evaluations.append(
+                ConditionEvaluation(
+                    condition=condition,
+                    satisfied=satisfied,
+                    actual=actual,
+                )
+            )
+        return PostconditionResult(
+            satisfied=all(evaluation.satisfied for evaluation in evaluations),
+            observation_id=observation.observation_id if observation else None,
+            evaluations=tuple(evaluations),
+        )
 
     def _approval_evidence(self, action: ActionRequest) -> ApprovalEvidence | None:
         observation_id = action.source_observation_id
@@ -955,18 +1212,36 @@ class DesktopRuntime:
         started_at: float,
         approval_id: str | None = None,
         data: dict[str, object] | None = None,
+        error_code: str | None = None,
+        resolved_target: Target | None = None,
     ) -> ActionResult:
+        finished_at = time()
         result = ActionResult(
             action_id=action.action_id,
             status=status,
             message=message,
             started_at=started_at,
-            finished_at=time(),
+            finished_at=finished_at,
             approval_id=approval_id,
             data=data or {},
+            error_code=error_code or _error_code_for_status(status),
+            duration_ms=max(0, (finished_at - started_at) * 1_000),
+            resolved_target=resolved_target,
         )
         self._audit.record(action, result)
         return result
+
+
+def _error_code_for_status(status: ActionStatus) -> str | None:
+    return {
+        ActionStatus.FAILED: "backend_failure",
+        ActionStatus.REJECTED: "rejected",
+        ActionStatus.CONFIRMATION_REQUIRED: "approval_required",
+        ActionStatus.STALE_OBSERVATION: "stale_observation",
+        ActionStatus.TIMED_OUT: "deadline_exceeded",
+        ActionStatus.CANCELLED: "cancelled",
+        ActionStatus.CAPABILITY_UNAVAILABLE: "capability_unavailable",
+    }.get(status)
 
 
 def _granted_file(path: Path, granted_paths: tuple[str, ...]) -> Path:

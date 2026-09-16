@@ -73,6 +73,24 @@ class ActionStatus(StrEnum):
     CAPABILITY_UNAVAILABLE = "capability_unavailable"
 
 
+class IdempotencyClass(StrEnum):
+    UNSPECIFIED = "unspecified"
+    READ_ONLY = "read_only"
+    IDEMPOTENT = "idempotent"
+    NON_IDEMPOTENT = "non_idempotent"
+
+
+class ConditionKind(StrEnum):
+    ACTIVE_APPLICATION = "active_application"
+    FOCUSED_WINDOW = "focused_window"
+    ELEMENT_PRESENT = "element_present"
+    ELEMENT_ABSENT = "element_absent"
+    WINDOW_PRESENT = "window_present"
+    WINDOW_ABSENT = "window_absent"
+    UI_TREE_CHANGED = "ui_tree_changed"
+    WINDOWS_CHANGED = "windows_changed"
+
+
 class RiskLevel(StrEnum):
     OBSERVE = "observe"
     LOW = "low"
@@ -243,6 +261,24 @@ class RecoveryOptions(ProtocolModel):
     max_reobservations: Annotated[int, Field(ge=0, le=3)] = 0
 
 
+class ActionCondition(ProtocolModel):
+    kind: ConditionKind
+    value: str = Field(min_length=1, max_length=500)
+    role: str | None = Field(default=None, max_length=200)
+
+
+class ConditionEvaluation(ProtocolModel):
+    condition: ActionCondition
+    satisfied: bool
+    actual: str | None = None
+
+
+class PostconditionResult(ProtocolModel):
+    satisfied: bool
+    observation_id: str | None = None
+    evaluations: tuple[ConditionEvaluation, ...] = ()
+
+
 class ActionRequest(ProtocolModel):
     protocol_version: Literal["1.0.0"] = PROTOCOL_VERSION
     action_id: str = Field(default_factory=lambda: str(uuid4()))
@@ -254,6 +290,12 @@ class ActionRequest(ProtocolModel):
     target: Target | None = None
     arguments: dict[str, Any] = Field(default_factory=dict)
     deadline_ms: Annotated[int, Field(ge=1, le=120_000)] = 10_000
+    maximum_retries: Annotated[int, Field(ge=0, le=3)] = 0
+    idempotency: IdempotencyClass = IdempotencyClass.UNSPECIFIED
+    preconditions: tuple[ActionCondition, ...] = ()
+    postconditions: tuple[ActionCondition, ...] = ()
+    capture_after: bool = False
+    risk_context: str | None = Field(default=None, max_length=1_000)
     approval_token: str | None = None
     recovery: RecoveryOptions = RecoveryOptions()
 
@@ -266,6 +308,12 @@ class ActionResult(ProtocolModel):
     started_at: float
     finished_at: float
     data: dict[str, Any] = Field(default_factory=dict)
+    error_code: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]*$")
+    duration_ms: Annotated[float, Field(ge=0)] | None = None
+    backend_evidence: dict[str, Any] = Field(default_factory=dict)
+    resolved_target: Target | None = None
+    postcondition_result: PostconditionResult | None = None
+    next_observation_id: str | None = None
     observation_id: str | None = None
     approval_id: str | None = None
 

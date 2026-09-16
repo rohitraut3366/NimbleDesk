@@ -11,12 +11,16 @@ from nimbledesk.daemon.runtime import DesktopRuntime
 from nimbledesk.daemon.sessions import SessionManager
 from nimbledesk.perception.ocr import OcrMatch
 from nimbledesk.protocol.models import (
+    ActionCondition,
     ActionKind,
     ActionRequest,
+    ActionResult,
     ActionStatus,
     CaptureOptions,
+    ConditionKind,
     CoordinateTarget,
     ElementTarget,
+    IdempotencyClass,
     Point,
     RecoveryOptions,
     Rectangle,
@@ -139,6 +143,10 @@ def test_valid_click_executes_and_is_audited(tmp_path: Path) -> None:
     result = runtime.execute(action)
 
     assert result.status is ActionStatus.COMPLETED
+    assert result.error_code is None
+    assert result.resolved_target == action.target
+    assert result.backend_evidence["backend"] == "simulator"
+    assert result.duration_ms is not None
     assert backend.executed_actions == [action]
     record = json.loads(audit_path.read_text())
     assert record["request"]["action_id"] == action.action_id
@@ -154,6 +162,164 @@ def test_valid_click_executes_and_is_audited(tmp_path: Path) -> None:
             "entry_hash": record["entry_hash"],
         },
     )
+
+
+def test_action_precondition_stops_input_before_execution() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("precondition fixture", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = click_request(session.session_id, observation.observation_id).model_copy(
+        update={
+            "preconditions": (
+                ActionCondition(
+                    kind=ConditionKind.ACTIVE_APPLICATION,
+                    value="different.app",
+                ),
+            )
+        }
+    )
+
+    result = runtime.execute(action)
+
+    assert result.status is ActionStatus.REJECTED
+    assert result.error_code == "precondition_failed"
+    assert result.data["preconditions"]["satisfied"] is False
+    assert backend.executed_actions == []
+
+
+def test_action_postcondition_returns_follow_up_observation() -> None:
+    runtime, _backend = make_runtime()
+    session = runtime.start_session("postcondition fixture", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = click_request(session.session_id, observation.observation_id).model_copy(
+        update={
+            "postconditions": (
+                ActionCondition(
+                    kind=ConditionKind.ELEMENT_PRESENT,
+                    value="Create",
+                    role="button",
+                ),
+            )
+        }
+    )
+
+    result = runtime.execute(action)
+
+    assert result.status is ActionStatus.COMPLETED
+    assert result.next_observation_id is not None
+    assert result.postcondition_result is not None
+    assert result.postcondition_result.satisfied is True
+    assert result.postcondition_result.observation_id == result.next_observation_id
+
+
+def test_idempotency_replays_completed_result_without_repeating_input() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("idempotency fixture", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = click_request(session.session_id, observation.observation_id).model_copy(
+        update={"idempotency": IdempotencyClass.IDEMPOTENT}
+    )
+
+    first = runtime.execute(action)
+    replay = runtime.execute(action)
+
+    assert first.status is ActionStatus.COMPLETED
+    assert replay.status is ActionStatus.COMPLETED
+    assert replay.data["idempotent_replay"] is True
+    assert backend.executed_actions == [action]
+
+
+def test_non_idempotent_duplicate_is_rejected() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("duplicate fixture", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = click_request(session.session_id, observation.observation_id).model_copy(
+        update={"idempotency": IdempotencyClass.NON_IDEMPOTENT}
+    )
+
+    assert runtime.execute(action).status is ActionStatus.COMPLETED
+    duplicate = runtime.execute(action)
+
+    assert duplicate.status is ActionStatus.REJECTED
+    assert duplicate.error_code == "duplicate_action"
+    assert backend.executed_actions == [action]
+
+
+def test_action_id_cannot_replay_a_changed_idempotent_request() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("action ID fixture", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = click_request(session.session_id, observation.observation_id).model_copy(
+        update={"idempotency": IdempotencyClass.IDEMPOTENT}
+    )
+    changed = action.model_copy(
+        update={"target": CoordinateTarget(point=Point(x=400, y=300))}
+    )
+
+    assert runtime.execute(action).status is ActionStatus.COMPLETED
+    conflict = runtime.execute(changed)
+
+    assert conflict.status is ActionStatus.REJECTED
+    assert conflict.error_code == "action_id_conflict"
+    assert backend.executed_actions == [action]
+
+
+def test_deadline_is_enforced_before_backend_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("deadline fixture", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    clock = iter((0.0, 2.0))
+    monkeypatch.setattr("nimbledesk.daemon.runtime.monotonic", lambda: next(clock))
+    action = click_request(session.session_id, observation.observation_id).model_copy(
+        update={"deadline_ms": 1}
+    )
+
+    result = runtime.execute(action)
+
+    assert result.status is ActionStatus.TIMED_OUT
+    assert result.error_code == "deadline_exceeded"
+    assert backend.executed_actions == []
+
+
+def test_only_explicitly_idempotent_actions_retry_backend_failures() -> None:
+    class FlakyBackend(SimulatorBackend):
+        def execute(self, request: ActionRequest) -> ActionResult:
+            if not self.executed_actions:
+                self.executed_actions.append(request)
+                now = 1.0
+                return ActionResult(
+                    action_id=request.action_id,
+                    status=ActionStatus.FAILED,
+                    message="temporary failure",
+                    started_at=now,
+                    finished_at=now,
+                )
+            return super().execute(request)
+
+    backend = FlakyBackend()
+    runtime = DesktopRuntime(
+        backend,
+        SessionManager(),
+        ActionPolicy(host_input_enabled=True),
+        ApprovalManager(),
+        AuditLog(),
+    )
+    session = runtime.start_session("retry fixture", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = click_request(session.session_id, observation.observation_id).model_copy(
+        update={
+            "idempotency": IdempotencyClass.IDEMPOTENT,
+            "maximum_retries": 1,
+        }
+    )
+
+    result = runtime.execute(action)
+
+    assert result.status is ActionStatus.COMPLETED
+    assert result.data["execution_attempts"] == 2
+    assert backend.executed_actions == [action, action]
 
 
 def test_emergency_stop_stops_sessions_releases_input_and_revokes_approvals() -> None:

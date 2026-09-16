@@ -14,6 +14,11 @@ uv run --extra dev ruff check .
 
 The simulator verifies protocol validation, session state, action budgets, stale observations, approval binding, audit records, RPC authentication/replay prevention, response budgets, and gateway boundaries without touching the real desktop.
 
+Action-lifecycle tests enforce relative deadlines before input, reject failed preconditions, capture
+and evaluate postconditions, expose resolved targets and structured error codes, replay completed
+idempotent action IDs without new input, reject duplicate non-idempotent IDs, and retry backend
+failures only when the request explicitly classifies the operation as safe to repeat.
+
 Clipboard tests require independent host/session grants, cap returned text, redact both request and
 result text in the audit chain, and prove a changed write cannot reuse an approval. Application
 launch tests require an exact session allowlist match and an exact one-time approval token.
