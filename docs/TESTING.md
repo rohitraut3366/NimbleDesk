@@ -94,6 +94,12 @@ Graphics display with logical and backing-pixel bounds, and exercises capture an
 ScreenCaptureKit is preferred; Core Graphics remains the explicit fallback when ScreenCaptureKit
 does not expose a display to a command-line or restricted process.
 
+Windows native runs must report a `windows-win32-gdi-sendinput` I/O provider. The shared contract
+checks negative virtual coordinates and 100%, 125%, 150%, and 200% monitor scaling, captures each
+monitor through a native device context, and verifies absolute SendInput normalization across the
+whole virtual desktop. Run one fixture normally and one elevated; an unelevated-to-elevated input
+or focus attempt must return the explicit UIPI/secure-desktop failure rather than report success.
+
 For a Wayland fixture run, install the desktop's XDG portal backend and GStreamer PipeWire plugin, set `NIMBLEDESK_BACKEND=native`, and keep `XDG_SESSION_TYPE=wayland`. The first observation must show the compositor-owned monitor and remote-control consent dialog. Test capture on every selected stream, absolute motion on monitors with positive and negative origins, buttons, smooth drag, continuous scroll, Unicode text, hotkeys, consent denial, session revocation, and emergency release. The backend must report denied permissions without advertising capture or input when the user cancels sharing.
 
 ## 4. Real application workflows

@@ -774,7 +774,7 @@ uv run nimbledesk-qualify endurance \
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `NIMBLEDESK_BACKEND` | `simulator` | Select `simulator`, `portable`, or `native`. On macOS, native mode uses ScreenCaptureKit with a Core Graphics fallback, CGEvent input, AX semantics, Retina geometry, and application activation. On Linux Wayland it uses the XDG ScreenCast/RemoteDesktop portals. Unknown values fail at startup. |
+| `NIMBLEDESK_BACKEND` | `simulator` | Select `simulator`, `portable`, or `native`. macOS native mode uses ScreenCaptureKit/Core Graphics, CGEvent, AX, and Retina geometry. Windows native mode uses per-monitor DPI geometry, Win32 capture, SendInput, UIA, and explicit UIPI errors. Linux Wayland uses the XDG ScreenCast/RemoteDesktop portals. Unknown values fail at startup. |
 | `NIMBLEDESK_ENABLE_INPUT` | Disabled | Host input gate. Truthy values are `1`, `true`, `yes`, or `on`, ignoring case. |
 | `NIMBLEDESK_RUNTIME_DIR` | `~/.nimbledesk/runtime` | Directory for `connection.json` and `audit.jsonl`. |
 | `NIMBLEDESK_CONNECTION_FILE` | `~/.nimbledesk/runtime/connection.json` | Connection file read by `nimbledesk-mcp`. |

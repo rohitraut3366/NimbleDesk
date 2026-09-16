@@ -15,6 +15,7 @@ from nimbledesk.backends import (
     PortableDesktopBackend,
     SimulatorBackend,
     WaylandPortalBackend,
+    WindowsNativeBackend,
     registry_for_host,
     system_semantic_provider,
 )
@@ -44,6 +45,8 @@ def build_runtime(runtime_dir: Path) -> DesktopRuntime:
         portable_backend: DesktopBackend
         if selected_system == "Darwin":
             portable_backend = MacOSNativeBackend()
+        elif selected_system == "Windows":
+            portable_backend = WindowsNativeBackend()
         elif (
             selected_system == "Linux"
             and os.getenv("XDG_SESSION_TYPE", "").casefold() == "wayland"

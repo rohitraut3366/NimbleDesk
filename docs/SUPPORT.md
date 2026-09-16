@@ -7,7 +7,7 @@ for the release candidate.
 | Target ID | Operating system and desktop | Native contract |
 | --- | --- | --- |
 | `macos-arm64` | The current and previous major macOS releases on Apple silicon | ScreenCaptureKit/Core Graphics capture, Accessibility, CGEvent pointer/keyboard input, application activation, and DaVinci Resolve |
-| `windows-11-x64` | Supported Windows 11 x64 releases | Screen capture, UI Automation, pointer, keyboard, restricted workers, and DaVinci Resolve |
+| `windows-11-x64` | Supported Windows 11 x64 releases | Per-monitor-aware Win32 capture, UI Automation, SendInput pointer/keyboard input, UIPI diagnostics, AppContainer workers, and DaVinci Resolve |
 | `ubuntu-24.04-gnome-wayland` | Ubuntu 24.04 LTS, GNOME Wayland | PipeWire ScreenCast, RemoteDesktop portal input, AT-SPI, and DaVinci Resolve |
 | `ubuntu-24.04-gnome-x11` | Ubuntu 24.04 LTS, GNOME X11 | X11 capture/input fallback, AT-SPI, and DaVinci Resolve |
 | `kde-plasma-6-wayland` | A maintained Linux distribution with KDE Plasma 6 Wayland | PipeWire ScreenCast and RemoteDesktop portal subset plus available AT-SPI controls |
