@@ -436,6 +436,26 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
 def _verify_studio_runtime(executable: Path, root: Path) -> None:
     runtime_directory = root / "studio-runtime"
     runtime_directory.mkdir()
+    studio_resolve_directory = root / "studio-resolve-fixture"
+    studio_resolve_directory.mkdir()
+    studio_resolve_state = root / "studio-resolve-state.json"
+    resolve_fixture_path = Path(__file__).parent / "fixtures" / "DaVinciResolveScript.py"
+    resolve_fixture_source = resolve_fixture_path.read_text(encoding="utf-8")
+    fixture_environment = (
+        "\nimport os\n"
+        f"os.environ['NIMBLEDESK_DAVINCI_FIXTURE_STATE'] = {str(studio_resolve_state)!r}\n"
+        "os.environ['NIMBLEDESK_DAVINCI_FIXTURE_TITLE'] = 'Frozen Studio creation'\n"
+        "os.environ['NIMBLEDESK_DAVINCI_FIXTURE_CAPTIONS'] = '20'\n"
+        f"os.environ['NIMBLEDESK_DAVINCI_FIXTURE_SOURCE'] = {str(root / 'source.mp4')!r}\n"
+    )
+    (studio_resolve_directory / "DaVinciResolveScript.py").write_text(
+        resolve_fixture_source.replace(
+            "from __future__ import annotations\n",
+            "from __future__ import annotations\n" + fixture_environment,
+            1,
+        ),
+        encoding="utf-8",
+    )
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as port_socket:
         port_socket.bind(("127.0.0.1", 0))
         port = int(port_socket.getsockname()[1])
@@ -448,6 +468,7 @@ def _verify_studio_runtime(executable: Path, root: Path) -> None:
             "NIMBLEDESK_BACKEND": "simulator",
             "NIMBLEDESK_RUNTIME_DIR": str(runtime_directory),
             "NIMBLEDESK_SAFETY_CONSOLE": "0",
+            "RESOLVE_SCRIPT_API": str(studio_resolve_directory),
         },
     )
     try:
@@ -530,6 +551,7 @@ def _verify_studio_runtime(executable: Path, root: Path) -> None:
                     "clip_count": 1,
                     "captions": True,
                     "music": True,
+                    "autonomy": "execute_editor",
                 },
                 "events": str(root / "events.json"),
                 "vision_provider": str(root / "vision-provider.json"),
@@ -538,6 +560,7 @@ def _verify_studio_runtime(executable: Path, root: Path) -> None:
                 "sound_catalog": str(root / "sounds.json"),
                 "automatic_intelligence": False,
                 "ffmpeg_render": True,
+                "davinci": True,
             },
         )
         submitted = json.loads(body)
@@ -576,6 +599,15 @@ def _verify_studio_runtime(executable: Path, root: Path) -> None:
         }
         if not required_artifacts.issubset(artifact_names):
             raise RuntimeError("bundled Studio creative job omitted production artifacts")
+        result = job.get("result")
+        davinci = result.get("davinci") if isinstance(result, dict) else None
+        if (
+            not isinstance(davinci, dict)
+            or davinci.get("project_saved") is not True
+            or davinci.get("resolve_version") != "20.2.1-fixture"
+            or davinci.get("timeline_reused") is not False
+        ):
+            raise RuntimeError("bundled Studio did not execute its DaVinci editor job")
         status, _headers, body = _studio_request(
             base_url + f"/api/jobs/{job_id}/artifacts/plan"
         )
@@ -587,6 +619,8 @@ def _verify_studio_runtime(executable: Path, root: Path) -> None:
             or studio_plan.get("music_cue") is None
         ):
             raise RuntimeError("bundled Studio did not serve its completed creative plan")
+        if not studio_resolve_state.is_file():
+            raise RuntimeError("bundled Studio DaVinci fixture did not persist its timeline")
     finally:
         _stop_process_tree(process)
     if (runtime_directory / "connection.json").exists():
