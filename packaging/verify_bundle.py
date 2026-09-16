@@ -512,6 +512,81 @@ def _verify_studio_runtime(executable: Path, root: Path) -> None:
             "sound",
         }:
             raise RuntimeError("bundled Studio omitted creative-intelligence readiness")
+
+        studio_output = root / "studio-creation"
+        status, _headers, body = _studio_request(
+            base_url + "/api/jobs",
+            method="POST",
+            payload={
+                "source": str(root / "source.mp4"),
+                "output_directory": str(studio_output),
+                "brief": {
+                    "title": "Frozen Studio creation",
+                    "content_kind": "gameplay",
+                    "target_duration_seconds": 5,
+                    "aspect_ratio": "9:16",
+                    "pace": "fast",
+                    "mood": "exciting",
+                    "clip_count": 1,
+                    "captions": True,
+                    "music": True,
+                },
+                "events": str(root / "events.json"),
+                "vision_provider": str(root / "vision-provider.json"),
+                "transcription_provider": str(root / "transcription-provider.json"),
+                "music_catalog": str(root / "music.json"),
+                "sound_catalog": str(root / "sounds.json"),
+                "automatic_intelligence": False,
+                "ffmpeg_render": True,
+            },
+        )
+        submitted = json.loads(body)
+        job_id = submitted.get("job_id")
+        if status != 202 or not isinstance(job_id, str):
+            raise RuntimeError("bundled Studio could not submit a creative job")
+        job: dict[str, object] | None = None
+        job_deadline = time.monotonic() + 180
+        while time.monotonic() < job_deadline:
+            if process.poll() is not None:
+                _raise_studio_failure(process, "stopped during creative job")
+            status, _headers, body = _studio_request(base_url + f"/api/jobs/{job_id}")
+            if status != 200:
+                raise RuntimeError("bundled Studio lost its submitted creative job")
+            job = json.loads(body)
+            if job.get("status") in {"completed", "failed", "cancelled", "interrupted"}:
+                break
+            time.sleep(0.1)
+        if job is None or job.get("status") != "completed":
+            raise RuntimeError(
+                "bundled Studio creative job failed: " + str((job or {}).get("error"))
+            )
+        artifacts = job.get("artifacts")
+        artifact_names = {
+            item.get("name") for item in artifacts if isinstance(item, dict)
+        } if isinstance(artifacts, list) else set()
+        required_artifacts = {
+            "render",
+            "plan",
+            "content-index",
+            "transcript",
+            "transcription-analysis",
+            "vision-analysis",
+            "cue-sheet",
+            "render-verification",
+        }
+        if not required_artifacts.issubset(artifact_names):
+            raise RuntimeError("bundled Studio creative job omitted production artifacts")
+        status, _headers, body = _studio_request(
+            base_url + f"/api/jobs/{job_id}/artifacts/plan"
+        )
+        studio_plan = json.loads(body)
+        if (
+            status != 200
+            or studio_plan.get("brief", {}).get("title") != "Frozen Studio creation"
+            or not studio_plan.get("captions")
+            or studio_plan.get("music_cue") is None
+        ):
+            raise RuntimeError("bundled Studio did not serve its completed creative plan")
     finally:
         _stop_process_tree(process)
     if (runtime_directory / "connection.json").exists():

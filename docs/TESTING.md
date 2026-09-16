@@ -208,6 +208,9 @@ environment variables.
 Finally, it launches the frozen daemon and Studio with a simulator backend, verifies authenticated
 health and browser security headers, creates and pauses a desktop session, exercises the global
 emergency stop, checks creative-intelligence readiness, and confirms clean connection-file removal.
+Studio also submits a real semantic-vision, transcription, licensed-music, sound-design, caption,
+and FFmpeg render job through its HTTP API, waits for durable completion, verifies the production
+artifact catalog, and downloads and inspects the generated edit plan.
 The bundle contract also loads a deterministic Resolve scripting API fixture through the same
 external module boundary used by Resolve. It requires the frozen DaVinci worker to import and save
 a timeline, render output, reuse an identical plan, version a changed plan, apply editable color,
