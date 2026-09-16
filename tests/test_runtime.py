@@ -91,6 +91,28 @@ def test_valid_click_executes_and_is_audited(tmp_path: Path) -> None:
     assert len(record["entry_hash"]) == 64
 
 
+def test_emergency_stop_stops_sessions_releases_input_and_revokes_approvals() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("fixture test", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    pending = runtime.execute(
+        ActionRequest(
+            session_id=session.session_id,
+            source_observation_id=observation.observation_id,
+            kind=ActionKind.APP_COMMAND,
+            arguments={"adapter_id": "fixture", "command": "save", "arguments": {}},
+        )
+    )
+
+    stopped = runtime.emergency_stop()
+
+    assert stopped[0].state is SessionState.STOPPED
+    assert runtime.list_sessions()[0].state is SessionState.STOPPED
+    assert backend.input_cancelled is True
+    assert pending.approval_id is not None
+    assert runtime.approval_status(pending.approval_id).status == "rejected"
+
+
 def test_clipboard_and_launch_flow_through_policy_approval_and_audit(
     tmp_path: Path,
 ) -> None:

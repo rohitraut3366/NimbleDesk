@@ -66,3 +66,17 @@ class SessionManager:
             updated = session.model_copy(update={"action_count": session.action_count + 1})
             self._sessions[session_id] = updated
             return updated
+
+    def list_sessions(self) -> tuple[Session, ...]:
+        with self._lock:
+            session_ids = tuple(self._sessions)
+        return tuple(self.get(session_id) for session_id in session_ids)
+
+    def stop_all(self) -> tuple[Session, ...]:
+        with self._lock:
+            stopped = tuple(
+                session.model_copy(update={"state": SessionState.STOPPED})
+                for session in self._sessions.values()
+            )
+            self._sessions = {session.session_id: session for session in stopped}
+        return stopped

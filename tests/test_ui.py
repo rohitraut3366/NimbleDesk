@@ -141,6 +141,8 @@ def test_console_serves_creation_form_and_rejects_missing_source(tmp_path: Path)
     assert "NimbleDesk Studio" in page.text
     assert "Review and revise" in page.text
     assert "Actions awaiting your approval" in page.text
+    assert "Desktop control sessions" in page.text
+    assert "Emergency stop all" in page.text
     approval_arguments_expression = (
         "action.kind==='app_command'?action.arguments?.arguments||{}:action.arguments||{}"
     )
@@ -427,6 +429,48 @@ def test_console_lists_and_approves_daemon_action(monkeypatch: MonkeyPatch) -> N
     assert daemon.calls == [
         ("approval_list", {}),
         ("approval_approve", {"approval_id": "approval-1"}),
+    ]
+
+
+def test_console_manages_sessions_and_emergency_stop(monkeypatch: MonkeyPatch) -> None:
+    class FakeDaemonClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        async def call(
+            self, method: str, params: dict[str, object] | None = None
+        ) -> dict[str, object]:
+            self.calls.append((method, params or {}))
+            if method == "session_list":
+                return {"sessions": []}
+            if method == "emergency_stop":
+                return {"status": "stopped", "stopped_sessions": 1}
+            return {"session_id": "session-1", "state": "active"}
+
+    daemon = FakeDaemonClient()
+    monkeypatch.setattr(ui, "daemon_client", lambda: daemon)
+    client = TestClient(app, base_url="http://127.0.0.1")
+
+    listed = client.get("/api/sessions")
+    started = client.post(
+        "/api/sessions",
+        json={"reason": "Edit video", "config": {"input_enabled": True}},
+    )
+    paused = client.post("/api/sessions/session-1/paused")
+    stopped = client.post("/api/emergency-stop")
+
+    assert listed.json() == {"sessions": []}
+    assert started.status_code == 201
+    assert paused.json()["state"] == "active"
+    assert stopped.json() == {"status": "stopped", "stopped_sessions": 1}
+    assert daemon.calls == [
+        ("session_list", {}),
+        (
+            "session_start",
+            {"reason": "Edit video", "config": {"input_enabled": True}},
+        ),
+        ("session_set_state", {"session_id": "session-1", "state": "paused"}),
+        ("emergency_stop", {}),
     ]
 
 

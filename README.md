@@ -23,7 +23,8 @@ The current release combines portable PyAutoGUI capture/input with native semant
 - Licensed local music-catalog ranking and timeline mixing.
 - Finished FFmpeg review renders and DaVinci Resolve-importable FCPXML timelines.
 - Direct project, timeline, and render execution through the DaVinci Resolve scripting API.
-- A loopback-only creation console with background job monitoring.
+- A loopback-only production console with desktop-session start/pause/resume/stop, global emergency
+  stop, exact-action approvals, creative-intelligence readiness, and background job monitoring.
 - Durable console photo stories with duplicate removal, correction, contact sheets, and optional MP4 slideshows.
 - Rendered, ranked MP4 clips with FFprobe validation and a JSON manifest.
 - Recursive photo discovery, perceptual duplicate removal, technical ranking, light correction, a contact sheet, and an optional MP4 slideshow.

@@ -88,6 +88,16 @@ class DaemonTransport:
                 SessionState(str(params["state"])),
             )
             return session.model_dump(mode="json")
+        if method == "session_list":
+            return {
+                "sessions": [
+                    session.model_dump(mode="json")
+                    for session in self._runtime.list_sessions()
+                ]
+            }
+        if method == "emergency_stop":
+            sessions = self._runtime.emergency_stop()
+            return {"status": "stopped", "stopped_sessions": len(sessions)}
         if method == "desktop_observe":
             observation = self._runtime.observe(str(params["session_id"]))
             return observation.model_dump(mode="json")

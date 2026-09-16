@@ -82,6 +82,16 @@ class DesktopRuntime:
             }
         return session
 
+    def list_sessions(self) -> tuple[Session, ...]:
+        return self._sessions.list_sessions()
+
+    def emergency_stop(self) -> tuple[Session, ...]:
+        sessions = self._sessions.stop_all()
+        self._backend.cancel_input()
+        self._approvals.revoke_all()
+        self._content_indexes.clear()
+        return sessions
+
     def open_content_index(self, session_id: str, index_path: Path) -> dict[str, object]:
         session = self._active_session(session_id)
         resolved = _granted_file(index_path, session.config.granted_paths)

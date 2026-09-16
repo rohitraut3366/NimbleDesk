@@ -682,6 +682,46 @@ async def runtime_health(request: Request) -> JSONResponse:
         return JSONResponse({"status": "unavailable", "error": str(error)}, status_code=503)
 
 
+async def list_sessions(request: Request) -> JSONResponse:
+    try:
+        return JSONResponse(await daemon_client().call("session_list"))
+    except Exception as error:
+        return JSONResponse({"sessions": [], "daemon_error": str(error)}, status_code=503)
+
+
+async def start_session(request: Request) -> JSONResponse:
+    try:
+        payload = await request.json()
+        result = await daemon_client().call(
+            "session_start",
+            {"reason": payload["reason"], "config": payload.get("config", {})},
+        )
+    except Exception as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return JSONResponse(result, status_code=201)
+
+
+async def set_session_state(request: Request) -> JSONResponse:
+    state = request.path_params["state"]
+    if state not in {"active", "paused", "stopped"}:
+        return JSONResponse({"error": "unknown session state"}, status_code=404)
+    try:
+        result = await daemon_client().call(
+            "session_set_state",
+            {"session_id": request.path_params["session_id"], "state": state},
+        )
+    except Exception as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return JSONResponse(result)
+
+
+async def emergency_stop(request: Request) -> JSONResponse:
+    try:
+        return JSONResponse(await daemon_client().call("emergency_stop"))
+    except Exception as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+
+
 async def intelligence_readiness(request: Request) -> JSONResponse:
     with tempfile.TemporaryDirectory(prefix="nimbledesk-intelligence-readiness-") as temporary:
         selection = resolve_automatic_intelligence(
@@ -853,6 +893,12 @@ app = Starlette(
         ),
         Route("/api/approvals", list_approvals, methods=["GET"]),
         Route("/api/health", runtime_health, methods=["GET"]),
+        Route("/api/sessions", list_sessions, methods=["GET"]),
+        Route("/api/sessions", start_session, methods=["POST"]),
+        Route(
+            "/api/sessions/{session_id}/{state}", set_session_state, methods=["POST"]
+        ),
+        Route("/api/emergency-stop", emergency_stop, methods=["POST"]),
         Route("/api/intelligence", intelligence_readiness, methods=["GET"]),
         Route(
             "/api/approvals/{approval_id}/{decision}", decide_approval, methods=["POST"]
@@ -922,6 +968,20 @@ _HTML = """<!doctype html>
   <p>Turn long footage into a planned, rendered, and editable DaVinci Resolve timeline.</p>
   <section id="health"></section>
   <section id="intelligence"></section>
+  <form id="session-control">
+    <h2>Desktop control sessions</h2>
+    <div class="grid">
+      <label>Reason<input name="reason" required value="Operate an approved desktop workflow"></label>
+      <label>Allowed application IDs<input name="applications" placeholder="com.blackmagic-design.DaVinciResolve"></label>
+    </div>
+    <div class="checks">
+      <label><input name="inputEnabled" type="checkbox"> Allow desktop input</label>
+      <label><input name="clipboardEnabled" type="checkbox"> Allow clipboard access</label>
+    </div>
+    <div class="actions"><button>Start session</button>
+      <button class="cancel" type="button" onclick="emergencyStop()">Emergency stop all</button></div>
+    <div id="sessions"></div>
+  </form>
   <section id="approvals"></section>
   <form id="create">
     <div class="grid">
@@ -1030,6 +1090,26 @@ const photoForm = document.querySelector('#photos');
 const approvals = document.querySelector('#approvals');
 const health = document.querySelector('#health');
 const intelligence = document.querySelector('#intelligence');
+const sessionForm = document.querySelector('#session-control');
+const sessions = document.querySelector('#sessions');
+sessionForm.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(sessionForm);
+  const applications=String(data.get('applications')||'').split(',').map(value=>value.trim()).filter(Boolean);
+  const response=await fetch('/api/sessions',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({reason:data.get('reason'),config:{input_enabled:data.has('inputEnabled'),
+      clipboard_enabled:data.has('clipboardEnabled'),allowed_applications:applications}})});
+  const result=await response.json();if(!response.ok){alert(result.error);return;}refreshSessions();});
+async function refreshSessions(){const response=await fetch('/api/sessions');const data=await response.json();
+  sessions.innerHTML=(data.sessions||[]).map(item=>`<article><strong>${h(item.reason)}</strong> · ${h(item.state)}
+    <small>${h(item.session_id)} · ${item.action_count} actions</small><div class="actions">
+    ${item.state==='active'?`<button type="button" onclick="setSessionState('${h(item.session_id)}','paused')">Pause</button>`:''}
+    ${item.state==='paused'?`<button type="button" onclick="setSessionState('${h(item.session_id)}','active')">Resume</button>`:''}
+    ${item.state!=='stopped'?`<button type="button" class="cancel" onclick="setSessionState('${h(item.session_id)}','stopped')">Stop</button>`:''}
+    </div></article>`).join('')||'<p>No desktop-control sessions.</p>';}
+async function setSessionState(sessionId,state){const response=await fetch(
+  `/api/sessions/${encodeURIComponent(sessionId)}/${state}`,{method:'POST'});const result=await response.json();
+  if(!response.ok){alert(result.error);return;}refreshSessions();}
+async function emergencyStop(){const response=await fetch('/api/emergency-stop',{method:'POST'});
+  const result=await response.json();if(!response.ok){alert(result.error);return;}refreshSessions();refreshApprovals();}
 form.addEventListener('submit', async event => {
   event.preventDefault(); try { const data = new FormData(form);
   const optional = name => data.get(name) || null;
@@ -1178,7 +1258,7 @@ jobs.addEventListener('submit',async event=>{if(!event.target.matches('.revision
   const response=await fetch(`/api/jobs/${revisionForm.dataset.jobId}/revisions`,{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
   const result=await response.json();if(!response.ok){alert(result.error);return;}refresh();});
-refresh();refreshApprovals();refreshHealth();refreshIntelligence();loadStyleProfiles();setInterval(()=>{refreshApprovals();
+refresh();refreshSessions();refreshApprovals();refreshHealth();refreshIntelligence();loadStyleProfiles();setInterval(()=>{refreshSessions();refreshApprovals();
   refreshHealth();
   if(!document.querySelector('.revision-form:focus-within'))refresh();},2000);
 </script></body></html>"""

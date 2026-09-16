@@ -139,6 +139,24 @@ class ApprovalManager:
                 )
         return valid
 
+    def revoke_all(self) -> None:
+        with self._lock:
+            now = self._clock()
+            for pending in self._pending.values():
+                self._decisions[pending.approval_id] = ApprovalDecision(
+                    approval_id=pending.approval_id,
+                    status="rejected",
+                    expires_at=max(now + 1, pending.expires_at),
+                )
+            for grant in self._grants.values():
+                self._decisions[grant.approval_id] = ApprovalDecision(
+                    approval_id=grant.approval_id,
+                    status="invalidated",
+                    expires_at=max(now + 1, grant.expires_at),
+                )
+            self._pending.clear()
+            self._grants.clear()
+
     def _prune(self) -> None:
         now = self._clock()
         self._pending = {
