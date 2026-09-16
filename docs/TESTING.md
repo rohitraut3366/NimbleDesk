@@ -191,6 +191,9 @@ Use the matching target ID from `SUPPORT.md`. On Windows, retain both this commo
 standalone AppContainer report. The AppContainer contract also runs during every Windows bundle
 build. Every platform bundle build runs the common isolation contract against the frozen executable
 before producing its archive, so a source-only pass cannot hide a packaged-worker failure.
+It also generates deterministic video, transcript, event, licensed-music, and licensed-sound
+fixtures and requires the frozen executable to produce a verified portrait render, captions,
+creative plan, cue sheets, semantic index, and editable DaVinci timeline.
 Use the target IDs and minimum corpus mix declared in [SUPPORT.md](SUPPORT.md). Pass
 `--corpus-id` and `--source-duration-seconds` to both `nimbledesk qualify events` and
 `nimbledesk qualify ranking`; the identifiers must match for reports derived from the same source.

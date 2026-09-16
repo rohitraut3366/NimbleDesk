@@ -119,7 +119,7 @@ def _draw_lower_third(
 
 
 def _draw_caption(draw: ImageDraw.ImageDraw, text: str, width: int, height: int) -> None:
-    font = _font(max(20, min(72, round(height * 0.045))), None)
+    font = _caption_font(draw, text, width, height)
     bounds = draw.multiline_textbbox(
         (0, 0), text, font=font, spacing=round(height * 0.008), align="center"
     )
@@ -146,6 +146,27 @@ def _draw_caption(draw: ImageDraw.ImageDraw, text: str, width: int, height: int)
         spacing=round(height * 0.008),
         align="center",
     )
+
+
+def _caption_font(
+    draw: ImageDraw.ImageDraw, text: str, width: int, height: int
+) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    maximum_text_width = width * 0.84
+    size = max(20, min(72, round(height * 0.045)))
+    while size > 20:
+        font = _font(size, None)
+        bounds = draw.multiline_textbbox(
+            (0, 0),
+            text,
+            font=font,
+            spacing=round(height * 0.008),
+            align="center",
+            stroke_width=max(1, round(height * 0.002)),
+        )
+        if bounds[2] - bounds[0] <= maximum_text_width:
+            return font
+        size -= 2
+    return _font(20, None)
 
 
 def _font(

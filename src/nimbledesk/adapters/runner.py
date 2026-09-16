@@ -386,6 +386,8 @@ def _terminate_process(process: AdapterProcess) -> None:
             return
         except ProcessLookupError:
             return
+        except PermissionError:
+            pass
     process.terminate()
 
 
@@ -397,6 +399,8 @@ def _kill_process(process: AdapterProcess) -> None:
             return
         except ProcessLookupError:
             return
+        except PermissionError:
+            pass
     process.kill()
 
 
@@ -405,7 +409,7 @@ def _kill_process_group(process: AdapterProcess) -> None:
         return
     process_id = getattr(process, "pid", None)
     if os.name == "posix" and isinstance(process_id, int):
-        with suppress(ProcessLookupError):
+        with suppress(ProcessLookupError, PermissionError):
             os.killpg(process_id, signal.SIGKILL)
 
 

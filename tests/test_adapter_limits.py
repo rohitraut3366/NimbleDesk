@@ -94,6 +94,25 @@ def test_posix_runner_terminates_the_entire_worker_process_group(
     assert not process.killed
 
 
+def test_posix_runner_falls_back_when_process_group_signals_are_denied(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    process = FakeProcess()
+    monkeypatch.setattr(runner.os, "name", "posix")
+
+    def denied_signal(_process_id: int, _signal: int) -> None:
+        raise PermissionError
+
+    monkeypatch.setattr(runner.os, "killpg", denied_signal)
+
+    runner._terminate_process(process)
+    runner._kill_process(process)
+    runner._kill_process_group(process)
+
+    assert process.terminated
+    assert process.killed
+
+
 def test_runner_measures_the_complete_worker_process_tree(
     monkeypatch: MonkeyPatch,
 ) -> None:

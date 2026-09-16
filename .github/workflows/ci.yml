@@ -74,6 +74,15 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
+      - name: Install FFmpeg on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+      - name: Install FFmpeg on macOS
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: Install FFmpeg on Windows
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --yes --no-progress
       - run: uv sync --extra bundle --extra native --extra speech --locked
       - run: uv run --extra bundle --extra native --extra speech python packaging/build_bundle.py
       - name: Install WiX
