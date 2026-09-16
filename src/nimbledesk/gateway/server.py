@@ -150,15 +150,43 @@ async def desktop_observe(
     max_estimated_text_tokens: int = 2_000,
     max_windows: int = 10,
     max_elements: int = 100,
+    previous_observation_id: str | None = None,
+    continuation_observation_id: str | None = None,
+    window_offset: int = 0,
+    element_offset: int = 0,
+    omit_unchanged: bool = True,
 ) -> dict[str, Any]:
-    """Observe displays, cursor, focused application, windows, and capabilities."""
-    observation = await client().call("desktop_observe", {"session_id": session_id})
+    """Observe or continue one bounded desktop snapshot with an optional change summary."""
+    if previous_observation_id and continuation_observation_id:
+        raise ValueError("previous and continuation observation IDs cannot be combined")
+    if continuation_observation_id:
+        observation = await client().call(
+            "desktop_observation_get",
+            {
+                "session_id": session_id,
+                "observation_id": continuation_observation_id,
+            },
+        )
+    else:
+        observation = await client().call(
+            "desktop_observe",
+            {
+                "session_id": session_id,
+                "previous_observation_id": previous_observation_id,
+            },
+        )
     budget = ResponseBudget(
         max_estimated_text_tokens=max_estimated_text_tokens,
         max_windows=max_windows,
         max_elements=max_elements,
     )
-    return compact_observation(observation, budget)
+    return compact_observation(
+        observation,
+        budget,
+        window_offset=window_offset,
+        element_offset=element_offset,
+        omit_unchanged=omit_unchanged,
+    )
 
 
 @mcp.tool()

@@ -11,19 +11,39 @@ MAXIMUM_LABEL_CHARACTERS = 200
 def compact_observation(
     observation: dict[str, Any],
     budget: ResponseBudget,
+    *,
+    window_offset: int = 0,
+    element_offset: int = 0,
+    omit_unchanged: bool = True,
 ) -> dict[str, Any]:
+    if window_offset < 0 or element_offset < 0:
+        raise ValueError("observation offsets cannot be negative")
     windows = sorted(
         observation.get("windows", []),
         key=lambda window: not bool(window.get("focused")),
     )
     truncated_fields: list[str] = []
-    if len(windows) > budget.max_windows:
+    total_windows = len(windows)
+    if total_windows > window_offset + budget.max_windows:
         truncated_fields.append("windows")
-    windows = [_compact_window(window) for window in windows[: budget.max_windows]]
-    elements = observation.get("elements", [])
-    if len(elements) > budget.max_elements:
+    windows = [
+        _compact_window(window)
+        for window in windows[window_offset : window_offset + budget.max_windows]
+    ]
+    elements = sorted(
+        observation.get("elements", []),
+        key=lambda element: (
+            not bool(element.get("focused")),
+            not bool(element.get("enabled", True) and element.get("actions")),
+        ),
+    )
+    total_elements = len(elements)
+    if total_elements > element_offset + budget.max_elements:
         truncated_fields.append("elements")
-    elements = [_compact_element(element) for element in elements[: budget.max_elements]]
+    elements = [
+        _compact_element(element)
+        for element in elements[element_offset : element_offset + budget.max_elements]
+    ]
     summary = {
         "observation_id": observation["observation_id"],
         "sequence": observation["sequence"],
@@ -36,16 +56,54 @@ def compact_observation(
         "cursor": observation["cursor"],
         "active_application_id": observation.get("active_application_id"),
         "focused_window_id": observation.get("focused_window_id"),
+        "screenshot_sha256": observation.get("screenshot_sha256"),
+        "windows_sha256": observation.get("windows_sha256"),
+        "ui_tree_sha256": observation.get("ui_tree_sha256"),
+        "change_summary": observation.get("change_summary"),
         "windows": windows,
         "elements": elements,
         "warnings": [
             _truncate_text(str(warning)) for warning in observation.get("warnings", [])[:10]
         ],
     }
+    changes = summary.get("change_summary")
+    if omit_unchanged and isinstance(changes, dict) and changes.get("unchanged"):
+        summary["displays"] = []
+        summary["windows"] = []
+        summary["elements"] = []
+        summary["permissions"] = {}
+        summary["warnings"] = []
+        truncated_fields.extend(
+            ("unchanged:displays", "unchanged:windows", "unchanged:elements")
+        )
+    for field in (
+        "change_summary",
+        "screenshot_sha256",
+        "windows_sha256",
+        "ui_tree_sha256",
+    ):
+        if summary.get(field) is None:
+            summary.pop(field, None)
     _shrink_to_budget(summary, budget.max_estimated_text_tokens, truncated_fields)
     estimated_tokens = estimate_text_tokens(summary)
+    returned_windows = len(summary["windows"])
+    returned_elements = len(summary["elements"])
+    continuation = None
+    unchanged_omitted = bool(
+        omit_unchanged and isinstance(changes, dict) and changes.get("unchanged")
+    )
+    if not unchanged_omitted and (
+        window_offset + returned_windows < total_windows
+        or element_offset + returned_elements < total_elements
+    ):
+        continuation = {
+            "observation_id": observation["observation_id"],
+            "window_offset": window_offset + returned_windows,
+            "element_offset": element_offset + returned_elements,
+        }
     return {
         "observation": summary,
+        "continuation": continuation,
         "usage": {
             "estimated_text_tokens": estimated_tokens,
             "maximum_text_tokens": budget.max_estimated_text_tokens,
@@ -76,6 +134,17 @@ def _shrink_to_budget(
     maximum_tokens: int,
     truncated_fields: list[str],
 ) -> None:
+    for field in (
+        "change_summary",
+        "screenshot_sha256",
+        "windows_sha256",
+        "ui_tree_sha256",
+    ):
+        if estimate_text_tokens(summary) <= maximum_tokens:
+            return
+        if field in summary:
+            summary.pop(field)
+            truncated_fields.append(field)
     for field in ("elements", "windows", "permissions", "warnings"):
         if estimate_text_tokens(summary) <= maximum_tokens:
             return

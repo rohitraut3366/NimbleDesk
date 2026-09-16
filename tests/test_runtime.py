@@ -74,6 +74,33 @@ def test_startup_recovery_stops_sessions_and_releases_input() -> None:
     assert backend.input_cancelled is True
 
 
+def test_observation_change_summary_detects_unchanged_semantic_state() -> None:
+    runtime, _backend = make_runtime()
+    session = runtime.start_session("change fixture", SessionConfig())
+    previous = runtime.observe(session.session_id)
+    current = runtime.observe(session.session_id)
+
+    changes = runtime.observation_changes(
+        session.session_id, previous.observation_id, current.observation_id
+    )
+
+    assert changes["unchanged"] is True
+    assert changes["changed_fields"] == []
+    assert previous.windows_sha256 == current.windows_sha256
+    assert previous.ui_tree_sha256 == current.ui_tree_sha256
+
+
+def test_stopping_session_invalidates_retained_observations() -> None:
+    runtime, _backend = make_runtime()
+    session = runtime.start_session("retained observation fixture", SessionConfig())
+    observation = runtime.observe(session.session_id)
+
+    runtime.set_session_state(session.session_id, SessionState.STOPPED)
+
+    with pytest.raises(ValueError, match="unknown or expired"):
+        runtime.observation(session.session_id, observation.observation_id)
+
+
 def test_backend_failure_forces_input_release() -> None:
     runtime, backend = make_runtime()
     session = runtime.start_session("failure fixture", SessionConfig(input_enabled=True))

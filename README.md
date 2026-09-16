@@ -492,7 +492,7 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 
 1. Call `health`.
 2. Call `session_start` with a clear reason. Set `input_enabled` to `true` only when input is intended. Enable `clipboard_enabled` only for a workflow that needs clipboard text, and allowlist every application that may be launched. Add only the project or analysis directories needed by media tools to `granted_paths`.
-3. Call `desktop_observe` and retain its `observation_id`, active application, focused window, semantic elements, and display bounds.
+3. Call `desktop_observe` and retain its `observation_id`, active application, focused window, semantic elements, display bounds, and semantic hashes. On the next fresh observation, pass that ID as `previous_observation_id` so unchanged trees can be omitted. Follow a returned continuation with `continuation_observation_id` and its offsets to page through the exact same snapshot.
 4. Call `take_screenshot` with that observation. Prefer a crop when the relevant region is known.
 5. Prefer `click_element` when the observation contains the intended accessible control. Use `click_text` for visible labels in inaccessible applications. For a model-detected visual box, call `capture_region_signature` immediately before `click_visual`. Use raw coordinates only when none of these targets apply. Include expected application and window IDs when available.
 6. Observe again after each action that can change the interface. Do not reuse an old observation.
@@ -507,7 +507,7 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `session_status` | `session_id` | Returns current state, original limits, expiry, and consumed action count. |
 | `capabilities_get` | None | Returns the selected backend and currently advertised capabilities. |
 | `permissions_get` | `session_id` | Performs a fresh permission probe and returns its new observation ID, capabilities, and warnings. |
-| `desktop_observe` | `session_id` | `max_estimated_text_tokens=2000` (128–100,000); `max_windows=10` (0–200); `max_elements=100` (0–2,000). Reports truncation separately for windows and elements. |
+| `desktop_observe` | `session_id` | `max_estimated_text_tokens=2000` (128–100,000); `max_windows=10` (0–200); `max_elements=100` (0–2,000). `previous_observation_id` returns semantic hashes and a change summary, while `omit_unchanged=true` suppresses repeated trees. Use the returned `continuation.observation_id` as `continuation_observation_id` with its offsets to read another bounded page from the same snapshot. |
 | `ui_find` | `session_id` plus `role` or `name` | Searches accessibility elements server-side and returns bounded actionable matches tied to one new observation. |
 | `target_resolve` | `session_id`, `observation_id`, `target` | Resolves coordinate, semantic, selector, visual-signature, or OCR targets without producing input. |
 | `action_execute` | Complete `ActionRequest` | Executes one primitive through the same stale-observation, policy, approval, recovery, and audit path as the convenience tools. |
@@ -734,14 +734,15 @@ The source files remain unchanged. The output directory contains:
 
 Desktop images dominate model cost, so observe and capture progressively:
 
-1. Start with `desktop_observe(max_estimated_text_tokens=512, max_windows=5)`.
+1. Start with `desktop_observe(max_estimated_text_tokens=512, max_windows=5)` and keep its observation ID.
 2. Use window bounds to crop `take_screenshot` to the relevant application or control.
 3. Keep JPEG at the default quality for visual navigation and reduce `max_width`/`max_height` when text remains readable.
 4. Use PNG only for small, text-heavy regions where JPEG artifacts prevent reading.
-5. Observe again after an action instead of repeatedly capturing an unchanged screen.
-6. Preserve application and window IDs in the model's working state; avoid resending entire earlier observations.
+5. Pass the prior ID as `previous_observation_id` when observing again. Unchanged window and accessibility trees are represented by stable SHA-256 values and omitted by default.
+6. When an observation is paginated, use its continuation ID and offsets to fetch more controls from the same frozen snapshot instead of taking another observation.
+7. Preserve application and window IDs in the model's working state; avoid resending entire earlier observations.
 
-Observation responses include a `usage` object with `estimated_text_tokens`, `maximum_text_tokens`, and `truncated_fields`. Required safety fields are preserved even when window titles and lists are shortened. Screenshot limits are 64–4,096 pixels per dimension; JPEG quality accepts 20–95.
+Observation responses include a `usage` object with `estimated_text_tokens`, `maximum_text_tokens`, and `truncated_fields`. They also include normalized `windows_sha256` and `ui_tree_sha256` values. A fresh observation made with `previous_observation_id` reports the fields and item counts that changed. Required safety fields are preserved even when window titles and lists are shortened. Continuations remain valid only while their short-lived source observation is retained. Screenshot limits are 64–4,096 pixels per dimension; JPEG quality accepts 20–95.
 
 Every capture also reports its source dimensions, delivered pixel count, exact encoded byte count, estimated 512-pixel vision tiles, and a conservative image-token estimate (`85 + 170 × tiles`). Provider billing formulas differ, so this estimate is for comparing capture choices; the byte and pixel measurements are exact. Lower `max_width`, `max_height`, or JPEG quality and recapture when the resulting text and controls remain readable.
 

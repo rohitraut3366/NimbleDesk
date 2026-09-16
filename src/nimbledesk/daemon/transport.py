@@ -126,6 +126,17 @@ class DaemonTransport:
             return {"authorized": True, "path_count": len(raw_paths)}
         if method == "desktop_observe":
             observation = self._runtime.observe(str(params["session_id"]))
+            observation_payload = observation.model_dump(mode="json")
+            previous_id = params.get("previous_observation_id")
+            if previous_id:
+                observation_payload["change_summary"] = self._runtime.observation_changes(
+                    str(params["session_id"]), str(previous_id), observation.observation_id
+                )
+            return observation_payload
+        if method == "desktop_observation_get":
+            observation = self._runtime.observation(
+                str(params["session_id"]), str(params["observation_id"])
+            )
             return observation.model_dump(mode="json")
         if method == "screen_capture":
             region_data = params.get("region")
@@ -163,8 +174,8 @@ class DaemonTransport:
                 int(params.get("maximum_tokens", 2_000)),
             )
         if method == "action_execute":
-            result = self._runtime.execute(ActionRequest.model_validate(params["action"]))
-            return result.model_dump(mode="json")
+            action_result = self._runtime.execute(ActionRequest.model_validate(params["action"]))
+            return action_result.model_dump(mode="json")
         if method == "approval_approve":
             return {"approval_token": self._runtime.approve(str(params["approval_id"]))}
         if method == "approval_reject":

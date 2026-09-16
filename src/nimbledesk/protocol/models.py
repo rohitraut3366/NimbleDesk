@@ -201,6 +201,8 @@ class DesktopObservation(ProtocolModel):
     active_application_id: str | None = None
     focused_window_id: str | None = None
     screenshot_sha256: str | None = None
+    windows_sha256: str | None = None
+    ui_tree_sha256: str | None = None
     warnings: tuple[str, ...] = ()
 
 

@@ -91,6 +91,8 @@ class DesktopRuntime:
         if state in {SessionState.PAUSED, SessionState.STOPPED}:
             self._backend.cancel_input()
         if state is SessionState.STOPPED:
+            self._observations.pop(session_id, None)
+            self._observation_history.pop(session_id, None)
             self._content_indexes = {
                 key: value for key, value in self._content_indexes.items() if key[0] != session_id
             }
@@ -106,6 +108,8 @@ class DesktopRuntime:
         sessions = self._sessions.stop_all()
         self._backend.cancel_input()
         self._approvals.revoke_all()
+        self._observations.clear()
+        self._observation_history.clear()
         self._content_indexes.clear()
         return sessions
 
@@ -274,12 +278,75 @@ class DesktopRuntime:
                     },
                 }
             )
+        observation = observation.model_copy(
+            update={
+                "windows_sha256": _content_hash(
+                    [window.model_dump(mode="json") for window in observation.windows]
+                ),
+                "ui_tree_sha256": _content_hash(
+                    [element.model_dump(mode="json") for element in observation.elements]
+                ),
+            }
+        )
         self._observations[session_id] = observation
         history = self._observation_history.setdefault(session_id, {})
         history[observation.observation_id] = observation
         while len(history) > 8:
             del history[next(iter(history))]
         return observation
+
+    def observation(self, session_id: str, observation_id: str) -> DesktopObservation:
+        self._sessions.get(session_id)
+        observation = self._observation_history.get(session_id, {}).get(observation_id)
+        if observation is None or time() >= observation.expires_at:
+            raise ValueError("observation is unknown or expired")
+        return observation
+
+    def observation_changes(
+        self, session_id: str, previous_id: str, current_id: str
+    ) -> dict[str, object]:
+        history = self._observation_history.get(session_id, {})
+        previous = history.get(previous_id)
+        current = history.get(current_id)
+        if previous is None or current is None:
+            return {
+                "previous_observation_id": previous_id,
+                "unavailable": True,
+                "unchanged": False,
+                "changed_fields": [],
+                "changed_windows": 0,
+                "changed_elements": 0,
+            }
+        previous_windows = {window.window_id: window for window in previous.windows}
+        current_windows = {window.window_id: window for window in current.windows}
+        previous_elements = {element.element_id: element for element in previous.elements}
+        current_elements = {element.element_id: element for element in current.elements}
+        changed_windows = sum(
+            previous_windows.get(item) != current_windows.get(item)
+            for item in set(previous_windows) | set(current_windows)
+        )
+        changed_elements = sum(
+            previous_elements.get(item) != current_elements.get(item)
+            for item in set(previous_elements) | set(current_elements)
+        )
+        fields = {
+            "active_application": previous.active_application_id
+            != current.active_application_id,
+            "focused_window": previous.focused_window_id != current.focused_window_id,
+            "cursor": previous.cursor != current.cursor,
+            "capabilities": previous.capabilities != current.capabilities,
+            "permissions": previous.permissions != current.permissions,
+            "displays": previous.displays != current.displays,
+            "windows": changed_windows > 0,
+            "elements": changed_elements > 0,
+        }
+        return {
+            "previous_observation_id": previous_id,
+            "unchanged": not any(fields.values()),
+            "changed_fields": sorted(name for name, changed in fields.items() if changed),
+            "changed_windows": changed_windows,
+            "changed_elements": changed_elements,
+        }
 
     def approve(self, approval_id: str) -> str:
         return self._approvals.approve(approval_id)
@@ -812,6 +879,11 @@ def _event_id(event_number: int, asset_id: str) -> str:
 def _estimated_tokens(value: object) -> int:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     return max(1, (len(encoded) + 3) // 4)
+
+
+def _content_hash(value: object) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _bounded_media_results(

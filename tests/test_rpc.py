@@ -100,6 +100,20 @@ async def test_client_reaches_runtime_through_authenticated_transport() -> None:
             {"reason": "transport test", "config": {"input_enabled": False}},
         )
         observation = await client.call("desktop_observe", {"session_id": session["session_id"]})
+        changed = await client.call(
+            "desktop_observe",
+            {
+                "session_id": session["session_id"],
+                "previous_observation_id": observation["observation_id"],
+            },
+        )
+        retrieved = await client.call(
+            "desktop_observation_get",
+            {
+                "session_id": session["session_id"],
+                "observation_id": changed["observation_id"],
+            },
+        )
         status = await client.call("session_status", {"session_id": session["session_id"]})
         adapters = await client.call("adapters_list")
         audit = await client.call(
@@ -109,7 +123,7 @@ async def test_client_reaches_runtime_through_authenticated_transport() -> None:
             "screen_capture",
             {
                 "session_id": session["session_id"],
-                "observation_id": observation["observation_id"],
+                "observation_id": changed["observation_id"],
             },
         )
 
@@ -117,6 +131,10 @@ async def test_client_reaches_runtime_through_authenticated_transport() -> None:
     assert health["backend"] == "simulator"
     assert "screen_capture" in health["capabilities"]
     assert observation["platform"] == "simulator"
+    assert changed["change_summary"]["unchanged"] is True
+    assert retrieved["observation_id"] == changed["observation_id"]
+    assert len(changed["windows_sha256"]) == 64
+    assert len(changed["ui_tree_sha256"]) == 64
     assert status["session_id"] == session["session_id"]
     assert status["state"] == "active"
     assert adapters == {"adapters": []}

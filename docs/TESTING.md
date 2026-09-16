@@ -28,6 +28,10 @@ and that failed, timed-out, or cancelled backend actions force key/button releas
 Gateway tests verify bounded server-side UI search, internal condition waits, adapter discovery,
 session discovery, and redacted audit summaries. Audit tests reopen the log across a simulated
 daemon restart and detect content or chain tampering.
+Observation-budget tests verify stable normalized window and accessibility hashes, focused and
+actionable-first ordering, fresh-observation change summaries, omission of unchanged trees, and
+same-snapshot continuation offsets. Authenticated RPC tests retrieve a retained observation and
+prove that a continuation never triggers a fresh desktop capture.
 Creative gateway tests verify that long-running video and photo work is submitted to the persistent
 job service only after every input and output path is authorized by the active session. Status
 responses omit the full request and edit plan, returning bounded summaries for model token control.

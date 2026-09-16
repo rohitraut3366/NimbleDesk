@@ -76,3 +76,42 @@ def test_small_budget_preserves_action_safety_fields() -> None:
     assert result["observation"]["active_application_id"] == "fixture.app"
     assert result["observation"]["focused_window_id"] == "window-0"
     assert result["usage"]["estimated_text_tokens"] <= 128
+
+
+def test_observation_continuation_reuses_same_snapshot() -> None:
+    observation = observation_with_windows(3)
+    first = compact_observation(
+        observation,
+        ResponseBudget(max_estimated_text_tokens=2_000, max_windows=1, max_elements=2),
+    )
+    continuation = first["continuation"]
+    assert continuation is not None
+
+    second = compact_observation(
+        observation,
+        ResponseBudget(max_estimated_text_tokens=2_000, max_windows=1, max_elements=2),
+        window_offset=continuation["window_offset"],
+        element_offset=continuation["element_offset"],
+    )
+
+    assert first["observation"]["observation_id"] == second["observation"]["observation_id"]
+    assert first["observation"]["windows"][0]["window_id"] != second["observation"][
+        "windows"
+    ][0]["window_id"]
+
+
+def test_unchanged_observation_omits_repeated_tree() -> None:
+    observation = observation_with_windows(1)
+    observation["change_summary"] = {
+        "previous_observation_id": "previous",
+        "unchanged": True,
+        "changed_fields": [],
+    }
+
+    result = compact_observation(observation, ResponseBudget())
+
+    assert result["observation"]["change_summary"]["unchanged"] is True
+    assert result["observation"]["windows"] == []
+    assert result["observation"]["elements"] == []
+    assert result["continuation"] is None
+    assert "unchanged:windows" in result["usage"]["truncated_fields"]
