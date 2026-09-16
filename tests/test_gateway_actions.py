@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -211,6 +213,46 @@ async def test_gateway_resources_use_authenticated_bounded_runtime_calls(
     assert policy == {"method": "policy_get"}
     assert audit == {"method": "audit_query"}
     assert resource_client.params == {"session_id": "session", "limit": 20}
+
+
+@pytest.mark.asyncio
+async def test_gateway_returns_bounded_highlights_and_rendered_clips(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    analysis = tmp_path / "analysis"
+    analysis.mkdir()
+    (analysis / "highlights.json").write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {"rank": 1, "score": 0.9},
+                    {"rank": 2, "score": 0.8},
+                ],
+                "clips": [
+                    {"output_path": str(analysis / "one.mp4")},
+                    {"output_path": str(analysis / "two.mp4")},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = gateway.CreationResult.model_construct(output_directory=tmp_path)
+    job = SimpleNamespace(
+        lock=threading.Lock(),
+        state=SimpleNamespace(
+            session_id="session", status="completed", result=result
+        ),
+    )
+    service = SimpleNamespace(get=lambda job_id: job if job_id == "job" else None)
+    monkeypatch.setattr(gateway, "JOB_SERVICE", service)
+
+    highlights = await gateway.highlights_rank("session", "job", 1)
+    clips = await gateway.clip_set_generate("session", "job", 1)
+
+    assert highlights["highlights"] == [{"rank": 1, "score": 0.9}]
+    assert highlights["truncated"] is True
+    assert clips["clips"][0]["output_path"].endswith("one.mp4")
+    assert clips["truncated"] is True
 
 
 @pytest.mark.asyncio

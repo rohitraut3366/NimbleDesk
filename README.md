@@ -514,6 +514,8 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `media_index_search` | `session_id`, `index_id`, `query` | Searches labels, transcript text, event types, and evidence. `maximum_results=20`; `maximum_tokens=2000`; returns stable result IDs and explicit usage/truncation. |
 | `media_index_detail` | `session_id`, `index_id`, `result_id` | Retrieves one time-aligned result by stable ID. `maximum_tokens=2000`; expires when the session stops. |
 | `content_index_query` / `moments_find` | `session_id`, `index_id`, description | Searches transcript, event, motion, audio, shot, and semantic evidence with stable detail handles and explicit result/token limits. |
+| `media_ingest` / `media_analysis_start` | `session_id`, source, output, brief | Starts persistent fingerprinting, integrity checks, hierarchical signal extraction, semantic analysis, ranking, clip rendering, and plan generation. |
+| `highlights_rank` / `clip_set_generate` | `session_id`, completed job ID | Returns bounded evidence-backed candidate summaries or the rendered clip set from the persistent analysis job. |
 | `domain_packs_list` / `domain_pack_describe` | Optional pack ID | Discovers the built-in general editorial and generic shooter contracts, including kill, grenade, multi-kill, clutch, narrow-survival, and victory evidence. |
 | `variants_compare` | `session_id`, `job_id` | Returns bounded hook, payoff-time, information-density, pacing, narrative, caption, and evidence metrics with explicit tradeoffs. |
 | `music_brief_create` / `music_search` | Brief and licensed local catalog | Produces inspectable mood, energy, platform, duration, and instrumental criteria and returns bounded ranked metadata without exposing asset paths. |
@@ -527,6 +529,7 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `media_analysis_status` / `media_analysis_get` | `session_id`, `job_id` | Returns compact progress or terminal results with bounded capability, variant, and artifact summaries. Jobs survive process restart as explicit interrupted/recoverable records. |
 | `media_analysis_cancel` | `session_id`, `job_id` | Cancels the session-owned job and its active media/adapter child process. |
 | `edit_revision_apply` | `session_id`, `job_id`, revision changes | Preserves locked decisions, validates the revised plan, and optionally renders or executes it in DaVinci. |
+| `edit_review_render` | `session_id`, completed planning job ID | Starts a persistent revision render and full verification without changing approved plan decisions. |
 | `photo_creation_start` | `session_id`, photo source, output directory | Selects and corrects photos and can create a contact sheet, slideshow, thumbnail, poster, collage, carousel, and animated GIF. |
 | `take_screenshot` | `session_id`, `observation_id` | Crop with all of `left`, `top`, `width`, `height`; `image_format=jpeg`; `max_width=1280`; `max_height=800`; `jpeg_quality=75`. |
 | `capture_region_signature` | `session_id`, `observation_id`, `left`, `top`, `width`, `height` | Losslessly recaptures a target crop and returns its SHA-256 plus measured image usage without returning duplicate image bytes. |
@@ -551,6 +554,7 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `launch_application` | `session_id`, `observation_id`, `application_id` | Requires an exact match in the session application allowlist and exact-action approval. Uses a macOS bundle ID or Windows executable/AppUserModel ID. |
 | `wait` | `session_id`, `seconds` | Waits for an interface or animation to settle; maximum 10 seconds per call. |
 | `application_command` | `session_id`, `observation_id`, `adapter_id`, `command`, `arguments` | Executes an installed subprocess adapter after exact-action approval; pass the returned token as `approval_token` on the repeated call. |
+| `adapter_execute` | Same adapter arguments | Stable planned-name alias using the identical policy, approval, isolation, timeout, path-grant, and audit route. |
 | `adapters_list` | None | Lists installed adapters and bounded command contracts without exposing package paths. |
 | `adapter_describe` | `adapter_id` | Returns one adapter's version, isolation, network declaration, risks, arguments, and timeouts. |
 | `approval_status` | `approval_id` | Polls a human decision. An approved response contains the short-lived token; consumed, rejected, invalidated, and expired approvals cannot authorize work. |

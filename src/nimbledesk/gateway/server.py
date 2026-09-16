@@ -452,6 +452,63 @@ async def media_analysis_status(session_id: str, job_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+async def media_ingest(
+    session_id: str,
+    source: str,
+    output_directory: str,
+    brief: CreativeBrief,
+    automatic_intelligence: bool = True,
+    game_ocr: bool = False,
+    transcribe: bool = False,
+) -> dict[str, Any]:
+    """Start persistent media fingerprinting, integrity checks, analysis, and indexing."""
+    return await _start_creation_job(
+        session_id,
+        source,
+        output_directory,
+        brief,
+        automatic_intelligence=automatic_intelligence,
+        game_ocr=game_ocr,
+        transcribe=transcribe,
+        vision_provider=None,
+        music_catalog=None,
+        sound_catalog=None,
+        render=False,
+        execute_davinci=False,
+        render_in_davinci=False,
+    )
+
+
+@mcp.tool()
+async def media_analysis_start(
+    session_id: str,
+    source: str,
+    output_directory: str,
+    brief: CreativeBrief,
+    automatic_intelligence: bool = True,
+    game_ocr: bool = False,
+    transcribe: bool = False,
+    vision_provider: str | None = None,
+) -> dict[str, Any]:
+    """Start persistent multimodal analysis, moment detection, ranking, and plan generation."""
+    return await _start_creation_job(
+        session_id,
+        source,
+        output_directory,
+        brief,
+        automatic_intelligence=automatic_intelligence,
+        game_ocr=game_ocr,
+        transcribe=transcribe,
+        vision_provider=vision_provider,
+        music_catalog=None,
+        sound_catalog=None,
+        render=False,
+        execute_davinci=False,
+        render_in_davinci=False,
+    )
+
+
+@mcp.tool()
 async def variants_compare(session_id: str, job_id: str) -> dict[str, Any]:
     """Return the bounded watchability metrics and tradeoffs for a creative job's variants."""
     result = _creative_job(session_id, job_id)
@@ -459,6 +516,40 @@ async def variants_compare(session_id: str, job_id: str) -> dict[str, Any]:
         "job_id": job_id,
         "status": result["status"],
         "variants": result.get("variant_options", []),
+    }
+
+
+@mcp.tool()
+async def highlights_rank(
+    session_id: str, job_id: str, maximum_results: int = 20
+) -> dict[str, Any]:
+    """Return bounded evidence-backed highlight candidates from a completed analysis job."""
+    if not 1 <= maximum_results <= 100:
+        raise ValueError("highlight result limit must be between 1 and 100")
+    manifest = _highlight_manifest(session_id, job_id)
+    candidates = manifest.get("candidates", [])
+    return {
+        "job_id": job_id,
+        "highlights": candidates[:maximum_results],
+        "available_highlights": len(candidates),
+        "truncated": len(candidates) > maximum_results,
+    }
+
+
+@mcp.tool()
+async def clip_set_generate(
+    session_id: str, job_id: str, maximum_results: int = 20
+) -> dict[str, Any]:
+    """Return the bounded rendered clip set produced by a completed analysis job."""
+    if not 1 <= maximum_results <= 100:
+        raise ValueError("clip result limit must be between 1 and 100")
+    manifest = _highlight_manifest(session_id, job_id)
+    clips = manifest.get("clips", [])
+    return {
+        "job_id": job_id,
+        "clips": clips[:maximum_results],
+        "available_clips": len(clips),
+        "truncated": len(clips) > maximum_results,
     }
 
 
@@ -708,6 +799,15 @@ async def edit_revision_apply(
         session_id=session_id,
     )
     return _compact_job(revision.response())
+
+
+@mcp.tool()
+async def edit_review_render(session_id: str, job_id: str) -> dict[str, Any]:
+    """Render and verify a review MP4 from a completed planning job."""
+    result: dict[str, Any] = await edit_revision_apply(
+        session_id, job_id, PlanRevisionRequest(), render=True
+    )
+    return result
 
 
 @mcp.tool()
@@ -1391,6 +1491,27 @@ def _creative_job(session_id: str, job_id: str) -> dict[str, Any]:
     return _compact_job(job.response())
 
 
+def _highlight_manifest(session_id: str, job_id: str) -> dict[str, Any]:
+    job = JOB_SERVICE.get(job_id)
+    if job is None:
+        raise ValueError("unknown creative job")
+    with job.lock:
+        result = job.state.result
+        if (
+            job.state.session_id != session_id
+            or job.state.status != "completed"
+            or not isinstance(result, CreationResult)
+        ):
+            raise ValueError("completed session-owned analysis job is required")
+        path = result.output_directory / "analysis" / "highlights.json"
+    if not path.is_file():
+        raise ValueError("highlight manifest is unavailable")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("highlight manifest is invalid")
+    return payload
+
+
 def _compact_job(response: dict[str, Any]) -> dict[str, Any]:
     result = response.pop("result", None)
     response.pop("request", None)
@@ -1446,6 +1567,29 @@ async def _window_action(
         kind=kind,
         arguments={"window_id": window_id, **(arguments or {})},
         expected_window_id=window_id,
+        approval_token=approval_token,
+    )
+
+
+@mcp.tool()
+async def adapter_execute(
+    session_id: str,
+    observation_id: str,
+    adapter_id: str,
+    command: str,
+    arguments: dict[str, Any],
+    approval_token: str | None = None,
+) -> dict[str, Any]:
+    """Execute one declared adapter command through policy, approval, isolation, and audit."""
+    return await _execute_action(
+        session_id=session_id,
+        observation_id=observation_id,
+        kind=ActionKind.APP_COMMAND,
+        arguments={
+            "adapter_id": adapter_id,
+            "command": command,
+            "arguments": arguments,
+        },
         approval_token=approval_token,
     )
 
