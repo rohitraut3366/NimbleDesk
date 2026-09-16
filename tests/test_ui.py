@@ -412,11 +412,15 @@ def test_console_lists_and_approves_daemon_action(monkeypatch: MonkeyPatch) -> N
 
         async def call(
             self, method: str, params: dict[str, object] | None = None
-        ) -> dict[str, object]:
-            self.calls.append((method, params or {}))
-            if method == "approval_list":
-                return {"approvals": [{"approval_id": "approval-1"}]}
-            return {"approval_token": "secret-token"}
+            ) -> dict[str, object]:
+                self.calls.append((method, params or {}))
+                if method == "approval_list":
+                    return {"approvals": [{"approval_id": "approval-1"}]}
+                if method == "approval_approve_temporary":
+                    return {"rule_id": "rule-1", "remaining_uses": 20}
+                if method == "approval_rule_revoke":
+                    return {"status": "revoked"}
+                return {"approval_token": "secret-token"}
 
     daemon = FakeDaemonClient()
     monkeypatch.setattr(ui, "daemon_client", lambda: daemon)
@@ -424,12 +428,22 @@ def test_console_lists_and_approves_daemon_action(monkeypatch: MonkeyPatch) -> N
 
     listed = client.get("/api/approvals")
     approved = client.post("/api/approvals/approval-1/approve")
+    temporary = client.post("/api/approvals/approval-2/approve-temporary")
+    revoked = client.post("/api/approval-rules/rule-1/revoke")
 
     assert listed.json() == {"approvals": [{"approval_id": "approval-1"}]}
     assert approved.json() == {"status": "approve"}
+    assert temporary.json() == {
+        "status": "approve-temporary",
+        "rule_id": "rule-1",
+        "remaining_uses": 20,
+    }
+    assert revoked.json() == {"status": "revoked"}
     assert daemon.calls == [
         ("approval_list", {}),
         ("approval_approve", {"approval_id": "approval-1"}),
+        ("approval_approve_temporary", {"approval_id": "approval-2"}),
+        ("approval_rule_revoke", {"rule_id": "rule-1"}),
     ]
 
 

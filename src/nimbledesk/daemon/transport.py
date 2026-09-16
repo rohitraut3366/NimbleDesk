@@ -170,6 +170,15 @@ class DaemonTransport:
         if method == "approval_reject":
             self._runtime.reject_approval(str(params["approval_id"]))
             return {"status": "rejected"}
+        if method == "approval_approve_temporary":
+            return self._runtime.approve_temporary(
+                str(params["approval_id"]),
+                int(params.get("duration_seconds", 600)),
+                int(params.get("maximum_uses", 20)),
+            )
+        if method == "approval_rule_revoke":
+            self._runtime.revoke_approval_rule(str(params["rule_id"]))
+            return {"status": "revoked"}
         if method == "approval_list":
             return {
                 "approvals": [
@@ -192,7 +201,8 @@ class DaemonTransport:
                         ),
                     }
                     for pending in self._runtime.list_approvals()
-                ]
+                ],
+                "temporary_rules": list(self._runtime.approval_rules()),
             }
         if method == "approval_status":
             decision = self._runtime.approval_status(str(params["approval_id"]))
@@ -201,6 +211,7 @@ class DaemonTransport:
                 "status": decision.status,
                 "expires_at": decision.expires_at,
                 "approval_token": decision.token,
+                "rule_id": decision.rule_id,
             }
         raise ValueError(f"unknown method: {method}")
 

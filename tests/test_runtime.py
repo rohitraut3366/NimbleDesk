@@ -183,6 +183,9 @@ def test_clipboard_and_launch_flow_through_policy_approval_and_audit(
     )
     pending = runtime.execute(write)
     assert pending.status is ActionStatus.CONFIRMATION_REQUIRED
+    assert pending.approval_id is not None
+    with pytest.raises(ValueError, match="clipboard writes require exact approval"):
+        runtime.approve_temporary(pending.approval_id, 300, 2)
     token = approvals.approve(str(pending.approval_id))
     written = runtime.execute(write.model_copy(update={"approval_token": token}))
     read = runtime.execute(
@@ -474,6 +477,56 @@ def test_application_command_approval_is_exact_and_single_use() -> None:
     assert runtime.approval_status(pending.approval_id).status == "consumed"
     assert runtime.execute(approved_action).status is ActionStatus.CONFIRMATION_REQUIRED
     assert len(backend.executed_actions) == 1
+
+
+def test_temporary_approval_is_scoped_bounded_and_revocable() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("adapter test", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = ActionRequest(
+        session_id=session.session_id,
+        source_observation_id=observation.observation_id,
+        expected_application_id="fixture.app",
+        expected_window_id="fixture-window",
+        kind=ActionKind.APP_COMMAND,
+        arguments={
+            "adapter_id": "video",
+            "command": "set_color",
+            "arguments": {"look": "warm"},
+        },
+    )
+    pending = runtime.execute(action)
+    assert pending.approval_id is not None
+    rule = runtime.approve_temporary(pending.approval_id, 300, 2)
+
+    first = runtime.execute(action)
+    second = runtime.execute(
+        action.model_copy(
+            update={
+                "action_id": "second-scoped-action",
+                "arguments": {
+                    **action.arguments,
+                    "arguments": {"look": "cool"},
+                },
+            }
+        )
+    )
+    third = runtime.execute(action.model_copy(update={"action_id": "third-scoped-action"}))
+
+    assert first.status is ActionStatus.COMPLETED
+    assert second.status is ActionStatus.COMPLETED
+    assert third.status is ActionStatus.CONFIRMATION_REQUIRED
+    assert len(backend.executed_actions) == 2
+    assert runtime.approval_rules() == ()
+    assert rule["description"] == (
+        "app_command, application=fixture.app, window=fixture-window, "
+        "adapter=video, command=set_color"
+    )
+    assert third.approval_id is not None
+    replacement = runtime.approve_temporary(third.approval_id, 300, 2)
+    runtime.revoke_approval_rule(str(replacement["rule_id"]))
+    fourth = runtime.execute(action.model_copy(update={"action_id": "fourth-scoped-action"}))
+    assert fourth.status is ActionStatus.CONFIRMATION_REQUIRED
 
 
 def test_duplicate_pending_application_command_reuses_queue_item() -> None:

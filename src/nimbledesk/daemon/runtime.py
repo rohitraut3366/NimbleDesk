@@ -279,6 +279,35 @@ class DesktopRuntime:
     def reject_approval(self, approval_id: str) -> None:
         self._approvals.reject(approval_id)
 
+    def approve_temporary(
+        self, approval_id: str, duration_seconds: int, maximum_uses: int
+    ) -> dict[str, object]:
+        rule = self._approvals.approve_temporary(
+            approval_id, duration_seconds, maximum_uses
+        )
+        return {
+            "rule_id": rule.rule_id,
+            "session_id": rule.session_id,
+            "description": rule.description,
+            "expires_at": rule.expires_at,
+            "remaining_uses": rule.remaining_uses,
+        }
+
+    def approval_rules(self) -> tuple[dict[str, object], ...]:
+        return tuple(
+            {
+                "rule_id": rule.rule_id,
+                "session_id": rule.session_id,
+                "description": rule.description,
+                "expires_at": rule.expires_at,
+                "remaining_uses": rule.remaining_uses,
+            }
+            for rule in self._approvals.list_rules()
+        )
+
+    def revoke_approval_rule(self, rule_id: str) -> None:
+        self._approvals.revoke_rule(rule_id)
+
     def list_approvals(self) -> tuple[PendingApproval, ...]:
         return self._approvals.list_pending()
 

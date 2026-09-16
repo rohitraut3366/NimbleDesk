@@ -747,15 +747,32 @@ async def intelligence_readiness(request: Request) -> JSONResponse:
 
 async def decide_approval(request: Request) -> JSONResponse:
     decision = request.path_params["decision"]
-    if decision not in {"approve", "reject"}:
+    if decision not in {"approve", "approve-temporary", "reject"}:
         return JSONResponse({"error": "unknown approval decision"}, status_code=404)
     try:
+        method = (
+            "approval_approve_temporary"
+            if decision == "approve-temporary"
+            else f"approval_{decision}"
+        )
         result = await daemon_client().call(
-            f"approval_{decision}", {"approval_id": request.path_params["approval_id"]}
+            method, {"approval_id": request.path_params["approval_id"]}
         )
     except Exception as error:
         return JSONResponse({"error": str(error)}, status_code=400)
-    return JSONResponse({"status": decision} if decision == "approve" else result)
+    if decision == "approve-temporary":
+        return JSONResponse({"status": decision, **result})
+    return JSONResponse({"status": decision})
+
+
+async def revoke_approval_rule(request: Request) -> JSONResponse:
+    try:
+        result = await daemon_client().call(
+            "approval_rule_revoke", {"rule_id": request.path_params["rule_id"]}
+        )
+    except Exception as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return JSONResponse(result)
 
 
 def _artifact_paths(state: PersistedJob) -> dict[str, Path]:
@@ -910,6 +927,11 @@ app = Starlette(
         Route("/api/intelligence", intelligence_readiness, methods=["GET"]),
         Route(
             "/api/approvals/{approval_id}/{decision}", decide_approval, methods=["POST"]
+        ),
+        Route(
+            "/api/approval-rules/{rule_id}/revoke",
+            revoke_approval_rule,
+            methods=["POST"],
         ),
     ],
 )
@@ -1221,7 +1243,7 @@ async function refresh(){const response=await fetch('/api/jobs');const data=awai
       `<button class="cancel" onclick="cancelJob('${h(job.job_id)}')">Cancel</button>`:''}
     ${jobOutputs(job)}</article>`).join('');}
 async function refreshApprovals(){const response=await fetch('/api/approvals');const data=await response.json();
-  approvals.innerHTML=data.approvals?.length?`<h2>Actions awaiting your approval</h2>`+
+  const pending=data.approvals?.length?`<h2>Actions awaiting your approval</h2>`+
     data.approvals.map(item=>{const action=item.action;const adapter=action.arguments?.adapter_id||'application';
       const command=action.arguments?.command||action.kind;
       const reviewArguments=action.kind==='app_command'?action.arguments?.arguments||{}:action.arguments||{};
@@ -1235,7 +1257,14 @@ async function refreshApprovals(){const response=await fetch('/api/approvals');c
       ${evidenceImage}
       <pre><code>${h(JSON.stringify(reviewArguments,null,2))}</code></pre>
       <button onclick="decideApproval('${h(item.approval_id)}','approve')">Approve exact action</button>
-      <button onclick="decideApproval('${h(item.approval_id)}','reject')">Reject</button></article>`;}).join(''):'';}
+      ${action.kind==='write_clipboard'?'':`<button onclick="decideApproval('${h(item.approval_id)}',
+        'approve-temporary')">Approve scope for 10 minutes</button>`}
+      <button onclick="decideApproval('${h(item.approval_id)}','reject')">Reject</button></article>`;}).join(''):'';
+  const rules=(data.temporary_rules||[]).map(rule=>`<article><strong>Temporary approval</strong>
+    <p>${h(rule.description)} · ${h(rule.remaining_uses)} uses remain · expires ${
+      h(new Date(rule.expires_at*1000).toLocaleTimeString())}</p>
+    <button onclick="revokeApprovalRule('${h(rule.rule_id)}')">Revoke</button></article>`).join('');
+  approvals.innerHTML=pending+(rules?`<h2>Active temporary approvals</h2>${rules}`:'');}
 async function refreshHealth(){const response=await fetch('/api/health');const data=await response.json();
   const capabilities=(data.capabilities||[]).join(', ')||'none';health.innerHTML=`<article>
     <strong>Desktop runtime: ${h(data.status)}</strong><p>Backend: ${h(data.backend||'unavailable')} ·
@@ -1247,6 +1276,9 @@ async function refreshIntelligence(){const response=await fetch('/api/intelligen
 async function decideApproval(approvalId,decision){const response=await fetch(
   `/api/approvals/${approvalId}/${decision}`,{method:'POST',headers:{'content-type':'application/json'}});
   const result=await response.json();if(!response.ok){alert(result.error);return;}refreshApprovals();}
+async function revokeApprovalRule(ruleId){const response=await fetch(
+  `/api/approval-rules/${ruleId}/revoke`,{method:'POST'});const result=await response.json();
+  if(!response.ok){alert(result.error);return;}refreshApprovals();}
 async function cancelJob(jobId){await fetch(`/api/jobs/${jobId}/cancel`,{method:'POST'});refresh();}
 async function selectVariant(jobId,variantId){const response=await fetch(
   `/api/jobs/${jobId}/variants/${variantId}/select`,{method:'POST',headers:{'content-type':'application/json'},
