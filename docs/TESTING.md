@@ -23,6 +23,8 @@ Studio tests cover session creation and state controls; runtime tests prove glob
 releases input and invalidates pending and already granted approval authority.
 Approval tests verify that the pending record freezes a bounded screenshot from the action's exact
 observation and that Studio displays its image, observation ID, dimensions, and content hash.
+Recovery tests verify that daemon startup invalidates stale runtime authority and releases input,
+and that failed, timed-out, or cancelled backend actions force key/button release.
 Gateway tests verify bounded server-side UI search, internal condition waits, adapter discovery,
 session discovery, and redacted audit summaries. Audit tests reopen the log across a simulated
 daemon restart and detect content or chain tampering.

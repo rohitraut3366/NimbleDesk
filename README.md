@@ -576,6 +576,11 @@ Semantic, OCR, and visual clicks opt into one bounded stale-state recovery by de
 
 Application adapters are disabled until a manifest and its Python package are installed. Pending actions appear in NimbleDesk Studio when it uses the same `NIMBLEDESK_CONNECTION_FILE` as the daemon. See [docs/ADAPTERS.md](docs/ADAPTERS.md) for the manifest, worker contract, path grants, approval flow, and isolation limits.
 
+Before opening its authenticated RPC listener, the daemon clears stale sessions, observations,
+approvals, content-index handles, and common pressed keys/buttons. Handled backend failures,
+timeouts, and cancellations force the same input release. Normal shutdown performs a global
+emergency stop before deleting the connection file.
+
 ## Use the real desktop
 
 ### Read-only screen access

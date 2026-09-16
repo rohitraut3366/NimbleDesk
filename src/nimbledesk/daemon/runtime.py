@@ -75,6 +75,14 @@ class DesktopRuntime:
             "ocr_available": Capability.OCR in capabilities,
         }
 
+    def recover_startup(self) -> None:
+        self._sessions.stop_all()
+        self._approvals.revoke_all()
+        self._observations.clear()
+        self._observation_history.clear()
+        self._content_indexes.clear()
+        self._backend.cancel_input()
+
     def start_session(self, reason: str, config: SessionConfig) -> Session:
         return self._sessions.start(reason, config)
 
@@ -495,7 +503,14 @@ class DesktopRuntime:
                 )
             result = self._backend.execute(execution_action)
         except (SessionError, ValueError, RuntimeError) as error:
+            self._backend.cancel_input()
             return self._finish(action, ActionStatus.FAILED, str(error), started_at)
+        if result.status in {
+            ActionStatus.FAILED,
+            ActionStatus.TIMED_OUT,
+            ActionStatus.CANCELLED,
+        }:
+            self._backend.cancel_input()
         if recovery_attempts:
             result = result.model_copy(
                 update={

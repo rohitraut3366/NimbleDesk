@@ -69,7 +69,7 @@ def build_runtime(runtime_dir: Path) -> DesktopRuntime:
         os.getenv("NIMBLEDESK_ADAPTER_DIR", str(Path.home() / ".nimbledesk" / "adapters"))
     )
     backend = AdapterDesktopBackend(backend, registry_for_host(adapter_directory))
-    return DesktopRuntime(
+    runtime = DesktopRuntime(
         backend=backend,
         sessions=SessionManager(),
         policy=ActionPolicy(),
@@ -77,12 +77,15 @@ def build_runtime(runtime_dir: Path) -> DesktopRuntime:
         audit=AuditLog(runtime_dir / "audit.jsonl"),
         ocr_provider=TesseractOcrProvider(),
     )
+    runtime.recover_startup()
+    return runtime
 
 
 async def run() -> None:
     runtime_dir = runtime_directory()
     secret = secrets.token_urlsafe(32)
-    transport = DaemonTransport(build_runtime(runtime_dir), secret)
+    runtime = build_runtime(runtime_dir)
+    transport = DaemonTransport(runtime, secret)
     server = await transport.start()
     socket = server.sockets[0]
     port = int(socket.getsockname()[1])
@@ -90,8 +93,12 @@ async def run() -> None:
         runtime_dir / "connection.json",
         ConnectionInfo(port=port, secret=secret),
     )
-    async with server:
-        await server.serve_forever()
+    try:
+        async with server:
+            await server.serve_forever()
+    finally:
+        runtime.emergency_stop()
+        (runtime_dir / "connection.json").unlink(missing_ok=True)
 
 
 def main() -> None:

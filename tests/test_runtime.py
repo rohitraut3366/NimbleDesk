@@ -64,6 +64,30 @@ def test_input_requires_enabled_session_and_fresh_observation() -> None:
     assert backend.executed_actions == []
 
 
+def test_startup_recovery_stops_sessions_and_releases_input() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("stale session", SessionConfig(input_enabled=True))
+
+    runtime.recover_startup()
+
+    assert runtime.session_status(session.session_id).state is SessionState.STOPPED
+    assert backend.input_cancelled is True
+
+
+def test_backend_failure_forces_input_release() -> None:
+    runtime, backend = make_runtime()
+    session = runtime.start_session("failure fixture", SessionConfig(input_enabled=True))
+    observation = runtime.observe(session.session_id)
+    action = click_request(session.session_id, observation.observation_id).model_copy(
+        update={"target": CoordinateTarget(point=Point(x=-1, y=-1))}
+    )
+
+    result = runtime.execute(action)
+
+    assert result.status is ActionStatus.FAILED
+    assert backend.input_cancelled is True
+
+
 def test_stale_observation_is_rejected() -> None:
     runtime, backend = make_runtime()
     session = runtime.start_session("fixture test", SessionConfig(input_enabled=True))

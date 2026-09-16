@@ -42,10 +42,11 @@ def test_native_backend_uses_macos_system_io(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
     selected: list[str] = []
+    native_backend = SimulatorBackend()
 
     def macos_backend() -> SimulatorBackend:
         selected.append("macos")
-        return SimulatorBackend()
+        return native_backend
 
     monkeypatch.setenv("NIMBLEDESK_BACKEND", "native")
     monkeypatch.setenv("NIMBLEDESK_ADAPTER_DIR", str(tmp_path / "adapters"))
@@ -65,6 +66,7 @@ def test_native_backend_uses_macos_system_io(
     runtime = server.build_runtime(tmp_path)
 
     assert selected == ["macos"]
+    assert native_backend.input_cancelled is True
     assert runtime.health()["backend"] == "adapters+native:unavailable+simulator"
 
 
