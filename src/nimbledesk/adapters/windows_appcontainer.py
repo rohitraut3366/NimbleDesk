@@ -12,7 +12,7 @@ from types import ModuleType
 from typing import Any, BinaryIO
 
 from nimbledesk.adapters.windows_process import (
-    WindowsRestrictedProcess,
+    WindowsManagedProcess,
     _configure_job,
     _windows_modules,
 )
@@ -72,7 +72,7 @@ class PROCESS_INFORMATION(ctypes.Structure):
     ]
 
 
-class WindowsAppContainerProcess(WindowsRestrictedProcess):
+class WindowsAppContainerProcess(WindowsManagedProcess):
     def __init__(
         self,
         process_handle: Any,
@@ -80,9 +80,12 @@ class WindowsAppContainerProcess(WindowsRestrictedProcess):
         null_input: BinaryIO,
         modules: dict[str, ModuleType],
         command: list[str],
+        process_id: int,
         cleanup: Callable[[], None],
     ) -> None:
-        super().__init__(process_handle, job_handle, null_input, modules, command)
+        super().__init__(
+            process_handle, job_handle, null_input, modules, command, process_id
+        )
         self._appcontainer_cleanup = cleanup
 
     def close(self) -> None:
@@ -313,6 +316,7 @@ def start_windows_appcontainer_process(
             null_input,
             modules,
             command,
+            int(process_information.dwProcessId),
             cleanup_profile,
         )
     except Exception:

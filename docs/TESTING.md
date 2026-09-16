@@ -222,8 +222,9 @@ render artifact after cancellation.
 The bundle contract also loads a deterministic Resolve scripting API fixture through the same
 external module boundary used by Resolve. It requires the frozen DaVinci worker to import and save
 a timeline, render output, reuse an identical plan, version a changed plan, apply editable color,
-and stop a cancelled render. This proves packaged adapter behavior but does not replace the physical
-Resolve 20.x release report.
+and stop a cancelled render. On Windows, the worker must start suspended and enter a kill-on-close
+normal-token Job Object before resume. This proves packaged adapter behavior but does not replace
+the physical Resolve 20.x release report.
 Use the target IDs and minimum corpus mix declared in [SUPPORT.md](SUPPORT.md). Pass
 `--corpus-id` and `--source-duration-seconds` to both `nimbledesk qualify events` and
 `nimbledesk qualify ranking`; the identifiers must match for reports derived from the same source.

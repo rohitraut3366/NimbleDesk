@@ -10,8 +10,51 @@ from typing import IO, Any, BinaryIO
 from nimbledesk.adapters.limits import MAXIMUM_WORKER_MEMORY_BYTES
 
 
-class WindowsRestrictedProcess:
-    """Small Popen-compatible wrapper around a restricted Windows worker."""
+class WindowsJobHandle:
+    def __init__(self, handle: Any, modules: dict[str, ModuleType]) -> None:
+        self._handle = handle
+        self._modules = modules
+
+    def close(self) -> None:
+        if self._handle is not None:
+            self._modules["win32api"].CloseHandle(self._handle)
+            self._handle = None
+
+    def __enter__(self) -> WindowsJobHandle:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
+
+
+def attach_process_to_windows_job(process: subprocess.Popen[Any]) -> WindowsJobHandle:
+    """Contain a normal-token process tree without restricting desktop-editor IPC."""
+
+    modules = _windows_modules()
+    win32api = modules["win32api"]
+    win32con = modules["win32con"]
+    win32job = modules["win32job"]
+    job_handle = win32job.CreateJobObject(None, None)
+    process_handle = None
+    try:
+        _configure_job(job_handle, modules, active_process_limit=None)
+        process_handle = win32api.OpenProcess(
+            win32con.PROCESS_SET_QUOTA | win32con.PROCESS_TERMINATE,
+            False,
+            process.pid,
+        )
+        win32job.AssignProcessToJobObject(job_handle, process_handle)
+        return WindowsJobHandle(job_handle, modules)
+    except Exception:
+        win32api.CloseHandle(job_handle)
+        raise
+    finally:
+        if process_handle is not None:
+            win32api.CloseHandle(process_handle)
+
+
+class WindowsManagedProcess:
+    """Small Popen-compatible wrapper around a Job Object worker."""
 
     stdin: IO[bytes] | None = None
 
@@ -22,12 +65,14 @@ class WindowsRestrictedProcess:
         null_input: BinaryIO,
         modules: dict[str, ModuleType],
         command: list[str],
+        process_id: int,
     ) -> None:
         self._process_handle = process_handle
         self._job_handle = job_handle
         self._null_input = null_input
         self._modules = modules
         self._command = command
+        self.pid = process_id
         self.returncode: int | None = None
 
     def poll(self) -> int | None:
@@ -81,7 +126,7 @@ def start_windows_restricted_process(
     stderr_file: BinaryIO,
     environment: dict[str, str],
     cwd: Path,
-) -> WindowsRestrictedProcess:
+) -> WindowsManagedProcess:
     modules = _windows_modules()
     win32api = modules["win32api"]
     win32con = modules["win32con"]
@@ -119,7 +164,7 @@ def start_windows_restricted_process(
         startup.hStdInput = input_handle
         startup.hStdOutput = output_handle
         startup.hStdError = error_handle
-        process_handle, thread_handle, _process_id, _thread_id = win32process.CreateProcessAsUser(
+        process_handle, thread_handle, process_id, _thread_id = win32process.CreateProcessAsUser(
             restricted_token,
             None,
             subprocess.list2cmdline(command),
@@ -139,8 +184,8 @@ def start_windows_restricted_process(
         win32process.ResumeThread(thread_handle)
         win32api.CloseHandle(thread_handle)
         thread_handle = None
-        return WindowsRestrictedProcess(
-            process_handle, job_handle, null_input, modules, command
+        return WindowsManagedProcess(
+            process_handle, job_handle, null_input, modules, command, int(process_id)
         )
     except Exception:
         if process_handle is not None:
@@ -156,6 +201,68 @@ def start_windows_restricted_process(
         win32api.CloseHandle(current_token)
         if restricted_token is not None:
             win32api.CloseHandle(restricted_token)
+
+
+def start_windows_job_process(
+    command: list[str],
+    *,
+    stdout_file: BinaryIO,
+    stderr_file: BinaryIO,
+    environment: dict[str, str],
+    cwd: Path,
+) -> WindowsManagedProcess:
+    """Start a normal-token worker suspended, contain it, and then resume it."""
+
+    modules = _windows_modules()
+    win32api = modules["win32api"]
+    win32con = modules["win32con"]
+    win32job = modules["win32job"]
+    win32process = modules["win32process"]
+    windows_msvcrt = importlib.import_module("msvcrt")
+    null_input = open(os.devnull, "rb")  # noqa: SIM115 - owned by returned process
+    for file in (null_input, stdout_file, stderr_file):
+        os.set_inheritable(file.fileno(), True)
+    startup = win32process.STARTUPINFO()
+    startup.dwFlags |= win32con.STARTF_USESTDHANDLES
+    startup.hStdInput = windows_msvcrt.get_osfhandle(null_input.fileno())
+    startup.hStdOutput = windows_msvcrt.get_osfhandle(stdout_file.fileno())
+    startup.hStdError = windows_msvcrt.get_osfhandle(stderr_file.fileno())
+    process_handle = None
+    thread_handle = None
+    job_handle = None
+    try:
+        process_handle, thread_handle, process_id, _thread_id = win32process.CreateProcess(
+            None,
+            subprocess.list2cmdline(command),
+            None,
+            None,
+            True,
+            win32con.CREATE_NO_WINDOW
+            | win32con.CREATE_SUSPENDED
+            | win32con.CREATE_UNICODE_ENVIRONMENT,
+            environment,
+            str(cwd),
+            startup,
+        )
+        job_handle = win32job.CreateJobObject(None, None)
+        _configure_job(job_handle, modules, active_process_limit=None)
+        win32job.AssignProcessToJobObject(job_handle, process_handle)
+        win32process.ResumeThread(thread_handle)
+        win32api.CloseHandle(thread_handle)
+        thread_handle = None
+        return WindowsManagedProcess(
+            process_handle, job_handle, null_input, modules, command, int(process_id)
+        )
+    except Exception:
+        if process_handle is not None:
+            win32api.TerminateProcess(process_handle, 1)
+            win32api.CloseHandle(process_handle)
+        if thread_handle is not None:
+            win32api.CloseHandle(thread_handle)
+        if job_handle is not None:
+            win32api.CloseHandle(job_handle)
+        null_input.close()
+        raise
 
 
 def _windows_modules() -> dict[str, ModuleType]:
@@ -176,19 +283,22 @@ def _configure_job(
     job_handle: Any,
     modules: dict[str, ModuleType],
     *,
-    active_process_limit: int,
+    active_process_limit: int | None,
 ) -> None:
     win32job = modules["win32job"]
     limits = win32job.QueryInformationJobObject(
         job_handle, win32job.JobObjectExtendedLimitInformation
     )
     limits["BasicLimitInformation"]["LimitFlags"] |= (
-        win32job.JOB_OBJECT_LIMIT_ACTIVE_PROCESS
-        | win32job.JOB_OBJECT_LIMIT_JOB_MEMORY
+        win32job.JOB_OBJECT_LIMIT_JOB_MEMORY
         | win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         | win32job.JOB_OBJECT_LIMIT_PROCESS_MEMORY
     )
-    limits["BasicLimitInformation"]["ActiveProcessLimit"] = active_process_limit
+    if active_process_limit is not None:
+        limits["BasicLimitInformation"]["LimitFlags"] |= (
+            win32job.JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+        )
+        limits["BasicLimitInformation"]["ActiveProcessLimit"] = active_process_limit
     limits["ProcessMemoryLimit"] = MAXIMUM_WORKER_MEMORY_BYTES
     limits["JobMemoryLimit"] = MAXIMUM_WORKER_MEMORY_BYTES
     win32job.SetInformationJobObject(
