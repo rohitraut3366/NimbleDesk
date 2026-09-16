@@ -4,15 +4,21 @@ import json
 import os
 import platform
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 from collections.abc import Callable
+from contextlib import suppress
+from importlib import import_module
 from pathlib import Path
-from typing import IO, Protocol
+from typing import IO, Any, Protocol
 
+from nimbledesk.adapters.limits import MAXIMUM_WORKER_MEMORY_BYTES
 from nimbledesk.adapters.models import AdapterInvocation, AdapterManifest, AdapterResult
+
+psutil: Any = import_module("psutil")
 
 MAXIMUM_RESPONSE_BYTES = 1_000_000
 MAXIMUM_STDERR_BYTES = 65_536
@@ -61,6 +67,9 @@ class IsolatedAdapterRunner:
         }
         environment["PYTHONNOUSERSITE"] = "1"
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment["NIMBLEDESK_ADAPTER_TIMEOUT_SECONDS"] = str(
+            specification.timeout_seconds
+        )
         payload = invocation.model_dump_json().encode("utf-8")
         with (
             tempfile.TemporaryDirectory(prefix="nimbledesk-adapter-") as scratch_name,
@@ -139,6 +148,7 @@ class IsolatedAdapterRunner:
                     stderr=stderr_file,
                     env=environment,
                     cwd=scratch,
+                    start_new_session=os.name == "posix",
                 )
                 assert process.stdin is not None
                 process.stdin.write(payload)
@@ -146,22 +156,27 @@ class IsolatedAdapterRunner:
             deadline = time.monotonic() + specification.timeout_seconds
             while process.poll() is None:
                 if cancelled and cancelled():
-                    process.terminate()
+                    _terminate_process(process)
                     self._wait_or_kill(process)
                     raise AdapterError("adapter execution was cancelled")
                 if time.monotonic() >= deadline:
-                    process.terminate()
+                    _terminate_process(process)
                     self._wait_or_kill(process)
                     raise AdapterError("adapter execution timed out")
                 if os.fstat(stdout_file.fileno()).st_size > MAXIMUM_RESPONSE_BYTES:
-                    process.terminate()
+                    _terminate_process(process)
                     self._wait_or_kill(process)
                     raise AdapterError("adapter response exceeded the one-megabyte limit")
                 if os.fstat(stderr_file.fileno()).st_size > MAXIMUM_STDERR_BYTES:
-                    process.terminate()
+                    _terminate_process(process)
                     self._wait_or_kill(process)
                     raise AdapterError("adapter stderr exceeded the 64-kilobyte limit")
+                if _process_tree_memory_bytes(process) > MAXIMUM_WORKER_MEMORY_BYTES:
+                    _terminate_process(process)
+                    self._wait_or_kill(process)
+                    raise AdapterError("adapter exceeded the 512 MiB memory limit")
                 time.sleep(0.02)
+            _kill_process_group(process)
             stdout_file.seek(0)
             stderr_file.seek(0)
             stdout = stdout_file.read(MAXIMUM_RESPONSE_BYTES + 1)
@@ -199,7 +214,7 @@ class IsolatedAdapterRunner:
         try:
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
-            process.kill()
+            _kill_process(process)
             process.wait()
         finally:
             _close_process(process)
@@ -357,6 +372,49 @@ def _close_process(process: AdapterProcess) -> None:
     close = getattr(process, "close", None)
     if close is not None:
         close()
+
+
+def _terminate_process(process: AdapterProcess) -> None:
+    process_id = getattr(process, "pid", None)
+    if os.name == "posix" and isinstance(process_id, int):
+        try:
+            os.killpg(process_id, signal.SIGTERM)
+            return
+        except ProcessLookupError:
+            return
+    process.terminate()
+
+
+def _kill_process(process: AdapterProcess) -> None:
+    process_id = getattr(process, "pid", None)
+    if os.name == "posix" and isinstance(process_id, int):
+        try:
+            os.killpg(process_id, signal.SIGKILL)
+            return
+        except ProcessLookupError:
+            return
+    process.kill()
+
+
+def _kill_process_group(process: AdapterProcess) -> None:
+    if process.poll() is None:
+        return
+    process_id = getattr(process, "pid", None)
+    if os.name == "posix" and isinstance(process_id, int):
+        with suppress(ProcessLookupError):
+            os.killpg(process_id, signal.SIGKILL)
+
+
+def _process_tree_memory_bytes(process: AdapterProcess) -> int:
+    process_id = getattr(process, "pid", None)
+    if not isinstance(process_id, int):
+        return 0
+    try:
+        root = psutil.Process(process_id)
+        processes = (root, *root.children(recursive=True))
+        return sum(candidate.memory_info().rss for candidate in processes)
+    except (psutil.Error, ProcessLookupError):
+        return 0
 
 
 def _macos_sandbox_profile(

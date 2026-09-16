@@ -7,7 +7,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import IO, Any, BinaryIO
 
-MAXIMUM_WORKER_MEMORY_BYTES = 512 * 1024 * 1024
+from nimbledesk.adapters.limits import MAXIMUM_WORKER_MEMORY_BYTES
 
 
 class WindowsRestrictedProcess:

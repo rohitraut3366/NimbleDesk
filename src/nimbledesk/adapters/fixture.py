@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import subprocess
+import sys
 from time import sleep
 from typing import Any
 
@@ -14,9 +15,27 @@ def handle(command: str, arguments: dict[str, Any]) -> dict[str, Any]:
         return {"content": "x" * 1_100_000}
     if command == "windows_security":
         return _windows_security_state()
+    if command == "spawn_child":
+        return _attempt_child_process()
     if command != "inspect":
         raise ValueError("unsupported fixture command")
     return {"received": arguments}
+
+
+def _attempt_child_process() -> dict[str, Any]:
+    child_process_created = False
+    try:
+        child = subprocess.Popen(
+            [sys.executable, "-c", "pass"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        pass
+    else:
+        child_process_created = True
+        child.wait(timeout=5)
+    return {"child_process_created": child_process_created}
 
 
 def _windows_security_state() -> dict[str, Any]:

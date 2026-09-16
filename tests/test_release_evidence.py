@@ -16,6 +16,13 @@ from nimbledesk.testing.qualification import (
 from nimbledesk.testing.release_evidence import (
     DAVINCI_TARGETS,
     FIXTURE_TARGETS,
+    INSTALLER_CASES,
+    INSTALLER_TARGETS,
+    ISOLATION_CASES,
+    ISOLATION_TARGETS,
+    AdapterIsolationReport,
+    InstallerLifecycleReport,
+    PhysicalEvidenceCase,
     ReleaseEvidenceManifest,
     evaluate_release_evidence,
     write_example_manifest,
@@ -25,6 +32,8 @@ from nimbledesk.testing.release_evidence import (
 def test_release_evidence_accepts_complete_target_and_corpus_matrix(tmp_path: Path) -> None:
     fixture_paths: dict[str, Path] = {}
     endurance_paths: dict[str, Path] = {}
+    isolation_paths: dict[str, Path] = {}
+    installer_paths: dict[str, Path] = {}
     for target in FIXTURE_TARGETS:
         platform_name, desktop, session = _identity(target)
         fixture_paths[target] = _write(
@@ -69,6 +78,42 @@ def test_release_evidence_accepts_complete_target_and_corpus_matrix(tmp_path: Pa
                 p95_observation_latency_ms=30,
                 backend="native:qualified",
                 capabilities=("screen_capture", "pointer", "keyboard"),
+                passed=True,
+            ),
+        )
+        isolation_paths[target] = _write(
+            tmp_path / "isolation" / f"{target}.json",
+            AdapterIsolationReport(
+                target_id=target,
+                platform=platform_name,
+                platform_release="qualified-release",
+                adapter_id="nimbledesk.malicious-fixture",
+                malicious_fixture_sha256="a" * 64,
+                cases=tuple(
+                    PhysicalEvidenceCase(name=name, passed=True)
+                    for name in ISOLATION_CASES
+                ),
+                passed=True,
+            ),
+        )
+        installer_paths[target] = _write(
+            tmp_path / "installers" / f"{target}.json",
+            InstallerLifecycleReport(
+                target_id=target,
+                platform=platform_name,
+                platform_release="qualified-release",
+                release_version="1.0.0",
+                artifact_name=f"nimbledesk-{target}",
+                artifact_sha256=("b" * 63) + str(len(installer_paths)),
+                signed_release_key_id="production-2026",
+                signed_release_verified=True,
+                native_signature_verified=(
+                    True if platform_name in {"Darwin", "Windows"} else None
+                ),
+                cases=tuple(
+                    PhysicalEvidenceCase(name=name, passed=True)
+                    for name in INSTALLER_CASES
+                ),
                 passed=True,
             ),
         )
@@ -145,6 +190,8 @@ def test_release_evidence_accepts_complete_target_and_corpus_matrix(tmp_path: Pa
         fixture_reports=fixture_paths,
         davinci_reports=davinci_paths,
         endurance_reports=endurance_paths,
+        isolation_reports=isolation_paths,
+        installer_reports=installer_paths,
         event_reports=tuple(event_paths),
         ranking_reports=tuple(ranking_paths),
         corpus_kinds={
@@ -168,6 +215,8 @@ def test_release_evidence_rejects_missing_reports_and_corpus_mix(tmp_path: Path)
             fixture_reports={},
             davinci_reports={},
             endurance_reports={},
+            isolation_reports={},
+            installer_reports={},
             event_reports=(),
             ranking_reports=(),
             corpus_kinds={},
@@ -192,6 +241,8 @@ def test_release_example_contains_every_required_target(tmp_path: Path) -> None:
     assert set(manifest.fixture_reports) == set(FIXTURE_TARGETS)
     assert set(manifest.davinci_reports) == set(DAVINCI_TARGETS)
     assert set(manifest.endurance_reports) == set(FIXTURE_TARGETS)
+    assert set(manifest.isolation_reports) == set(ISOLATION_TARGETS)
+    assert set(manifest.installer_reports) == set(INSTALLER_TARGETS)
 
 
 def _write(path: Path, report: BaseModel) -> Path:

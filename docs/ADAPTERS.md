@@ -30,6 +30,12 @@ NimbleDesk executable without exposing unrelated Python or user directories.
 
 The entrypoint receives `command: str` and `arguments: dict` and returns a JSON-compatible dictionary. It runs in a separate worker process with a minimal environment, no user-site packages, a temporary working directory, a deadline, cancellation, one-megabyte stdout, and 64-kilobyte stderr limits enforced while the process runs. Duplicate JSON keys, unknown fields, malformed output, oversized output, crashes, and hangs fail the action without crashing the daemon. Declare every file argument in `path_arguments`; the runtime rejects symbolic-link components and paths outside the session's canonical `granted_paths` before starting the worker.
 
+Every worker has a 512 MiB aggregate memory ceiling. The parent samples the complete process tree;
+Linux also applies an irreversible address-space limit inside the worker. POSIX workers start in a
+dedicated process group, lower CPU, file-size, open-file, and process-count limits before importing
+adapter code, and terminate the complete group on completion, cancellation, timeout, or failure.
+This prevents a returned or cancelled adapter from leaving descendants behind.
+
 Bundled Windows workers run in a unique, ephemeral AppContainer. NimbleDesk temporarily grants its
 SID read access to the bundle, adapter package, and session paths, and read/write access only to the
 worker scratch directory and declared writable arguments. The AppContainer receives no network

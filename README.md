@@ -855,6 +855,19 @@ uv run nimbledesk-qualify endurance \
   --output evidence/endurance.json
 ```
 
+After collecting every target report, generate and evaluate the one fail-closed release manifest:
+
+```bash
+nimbledesk qualify release-example --output release-evidence/manifest.json
+nimbledesk qualify release \
+  --manifest release-evidence/manifest.json \
+  --output release-evidence/report.json
+```
+
+The manifest covers physical desktop and endurance runs, Resolve 20.x, paired media corpora,
+malicious-adapter isolation, native package signatures, signed updates, rollback, uninstall, data
+retention, and explicit purge. Every installer report must refer to the same version and Ed25519 key.
+
 ## Configuration reference
 
 | Environment variable | Default | Purpose |

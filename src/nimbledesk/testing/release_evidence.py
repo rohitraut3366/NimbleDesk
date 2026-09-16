@@ -22,6 +22,35 @@ FIXTURE_TARGETS = (
     "kde-plasma-6-wayland",
 )
 DAVINCI_TARGETS = ("macos-arm64", "windows-11-x64", "ubuntu-24.04-gnome-x11")
+ISOLATION_TARGETS = FIXTURE_TARGETS
+INSTALLER_TARGETS = FIXTURE_TARGETS
+
+ISOLATION_CASES = frozenset(
+    {
+        "undeclared_read_denied",
+        "undeclared_write_denied",
+        "declared_read_allowed",
+        "declared_write_allowed",
+        "network_denied_by_default",
+        "network_allowed_when_declared",
+        "child_process_denied",
+        "memory_limit_enforced",
+        "timeout_cancellation",
+        "daemon_survived",
+    }
+)
+INSTALLER_CASES = frozenset(
+    {
+        "clean_install",
+        "service_start",
+        "authenticated_smoke",
+        "signed_update",
+        "rollback",
+        "uninstall",
+        "user_data_retained",
+        "explicit_purge",
+    }
+)
 
 
 class ReleaseEvidenceModel(BaseModel):
@@ -39,10 +68,45 @@ class QualityThresholds(ReleaseEvidenceModel):
     minimum_total_corpus_hours: Annotated[float, Field(ge=1)] = 8
 
 
+class PhysicalEvidenceCase(ReleaseEvidenceModel):
+    name: str
+    passed: bool
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+
+
+class AdapterIsolationReport(ReleaseEvidenceModel):
+    report_version: str = "1.0.0"
+    target_id: str
+    platform: str
+    platform_release: str
+    adapter_id: str
+    malicious_fixture_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cases: tuple[PhysicalEvidenceCase, ...]
+    passed: bool
+
+
+class InstallerLifecycleReport(ReleaseEvidenceModel):
+    report_version: str = "1.0.0"
+    target_id: str
+    platform: str
+    platform_release: str
+    release_version: str
+    artifact_name: str
+    artifact_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    signed_release_key_id: str
+    signed_release_verified: bool
+    native_signature_verified: bool | None = None
+    cases: tuple[PhysicalEvidenceCase, ...]
+    passed: bool
+
+
 class ReleaseEvidenceManifest(ReleaseEvidenceModel):
     fixture_reports: dict[str, Path]
     davinci_reports: dict[str, Path]
     endurance_reports: dict[str, Path]
+    isolation_reports: dict[str, Path]
+    installer_reports: dict[str, Path]
     event_reports: tuple[Path, ...]
     ranking_reports: tuple[Path, ...]
     corpus_kinds: dict[str, Literal["gameplay", "speech_or_general"]]
@@ -94,6 +158,31 @@ def evaluate_release_evidence(
         )
         if endurance_report is not None:
             checks.append(_validate_endurance(target, endurance_report))
+    for target in ISOLATION_TARGETS:
+        isolation_report = _load_target_report(
+            "isolation",
+            target,
+            manifest.isolation_reports,
+            base_directory,
+            AdapterIsolationReport,
+            checks,
+        )
+        if isolation_report is not None:
+            checks.append(_validate_isolation(target, isolation_report))
+    installer_reports: list[InstallerLifecycleReport] = []
+    for target in INSTALLER_TARGETS:
+        installer_report = _load_target_report(
+            "installer",
+            target,
+            manifest.installer_reports,
+            base_directory,
+            InstallerLifecycleReport,
+            checks,
+        )
+        if installer_report is not None:
+            installer_reports.append(installer_report)
+            checks.append(_validate_installer(target, installer_report))
+    checks.append(_validate_installer_matrix(tuple(installer_reports)))
     events = _load_report_sequence(
         "events", manifest.event_reports, base_directory, EventBenchmarkReport, checks
     )
@@ -240,6 +329,82 @@ def _validate_endurance(target: str, report: EnduranceReport) -> ReleaseEvidence
     )
 
 
+def _validate_isolation(
+    target: str, report: AdapterIsolationReport
+) -> ReleaseEvidenceCheck:
+    expected_platform, _desktop, _session = _fixture_identity(target)
+    passed_cases = {case.name for case in report.cases if case.passed}
+    passed = bool(
+        report.passed
+        and report.target_id == target
+        and report.platform == expected_platform
+        and passed_cases >= ISOLATION_CASES
+    )
+    return ReleaseEvidenceCheck(
+        name=f"isolation:{target}",
+        passed=passed,
+        evidence={
+            "platform": report.platform,
+            "platform_release": report.platform_release,
+            "adapter_id": report.adapter_id,
+            "malicious_fixture_sha256": report.malicious_fixture_sha256,
+            "passed_cases": sorted(passed_cases),
+        },
+        error=None if passed else "physical malicious-adapter isolation requirements failed",
+    )
+
+
+def _validate_installer(
+    target: str, report: InstallerLifecycleReport
+) -> ReleaseEvidenceCheck:
+    expected_platform, _desktop, _session = _fixture_identity(target)
+    passed_cases = {case.name for case in report.cases if case.passed}
+    native_signature_required = expected_platform in {"Darwin", "Windows"}
+    passed = bool(
+        report.passed
+        and report.target_id == target
+        and report.platform == expected_platform
+        and report.signed_release_verified
+        and (not native_signature_required or report.native_signature_verified is True)
+        and passed_cases >= INSTALLER_CASES
+    )
+    return ReleaseEvidenceCheck(
+        name=f"installer:{target}",
+        passed=passed,
+        evidence={
+            "platform": report.platform,
+            "platform_release": report.platform_release,
+            "release_version": report.release_version,
+            "artifact_name": report.artifact_name,
+            "artifact_sha256": report.artifact_sha256,
+            "signed_release_key_id": report.signed_release_key_id,
+            "signed_release_verified": report.signed_release_verified,
+            "native_signature_verified": report.native_signature_verified,
+            "passed_cases": sorted(passed_cases),
+        },
+        error=None if passed else "signed installer lifecycle requirements failed",
+    )
+
+
+def _validate_installer_matrix(
+    reports: tuple[InstallerLifecycleReport, ...]
+) -> ReleaseEvidenceCheck:
+    versions = {report.release_version for report in reports}
+    key_ids = {report.signed_release_key_id for report in reports}
+    targets = {report.target_id for report in reports}
+    passed = bool(
+        targets == set(INSTALLER_TARGETS) and len(versions) == 1 and len(key_ids) == 1
+    )
+    return ReleaseEvidenceCheck(
+        name="installer:matrix",
+        passed=passed,
+        evidence={
+            "targets": sorted(targets),
+            "release_versions": sorted(versions),
+            "signed_release_key_ids": sorted(key_ids),
+        },
+        error=None if passed else "installer reports must cover one release and signing key",
+    )
 def _validate_corpora(
     events: tuple[EventBenchmarkReport, ...],
     rankings: tuple[RankingBenchmarkReport, ...],
@@ -358,6 +523,12 @@ def write_example_manifest(output: Path) -> None:
         "davinci_reports": {target: f"davinci/{target}.json" for target in DAVINCI_TARGETS},
         "endurance_reports": {
             target: f"endurance/{target}.json" for target in FIXTURE_TARGETS
+        },
+        "isolation_reports": {
+            target: f"isolation/{target}.json" for target in ISOLATION_TARGETS
+        },
+        "installer_reports": {
+            target: f"installers/{target}.json" for target in INSTALLER_TARGETS
         },
         "event_reports": ["corpora/gameplay-events.json", "corpora/general-events.json"],
         "ranking_reports": ["corpora/gameplay-ranking.json", "corpora/general-ranking.json"],

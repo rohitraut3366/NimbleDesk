@@ -47,6 +47,7 @@ def _manifest() -> AdapterManifest:
             ),
             "huge": AdapterCommand(risk="observe", read_only=True),
             "windows_security": AdapterCommand(risk="observe", read_only=True),
+            "spawn_child": AdapterCommand(risk="observe", read_only=True),
         },
     )
 
@@ -103,6 +104,13 @@ def test_adapter_timeout_terminates_worker() -> None:
             "sleep",
             {"seconds": 5},
         )
+
+
+def test_adapter_worker_cannot_create_child_processes() -> None:
+    result = IsolatedAdapterRunner().execute(_manifest(), "spawn_child", {})
+
+    assert result.success
+    assert result.result["child_process_created"] is False
 
 
 def test_adapter_rejects_oversized_worker_result() -> None:

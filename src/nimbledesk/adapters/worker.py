@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from nimbledesk.adapters.limits import apply_worker_limits
 from nimbledesk.adapters.models import AdapterInvocation, AdapterResult
 
 Handler = Callable[[str, dict[str, Any]], dict[str, Any]]
@@ -17,6 +18,8 @@ def main() -> None:
     if len(sys.argv) != 2 or ":" not in sys.argv[1]:
         raise SystemExit("adapter worker requires module:function entrypoint")
     module_name, function_name = sys.argv[1].split(":", 1)
+    timeout_seconds = float(os.getenv("NIMBLEDESK_ADAPTER_TIMEOUT_SECONDS", "30"))
+    apply_worker_limits(timeout_seconds)
     package_path = os.getenv("NIMBLEDESK_ADAPTER_PACKAGE")
     if package_path:
         sys.path.insert(0, package_path)

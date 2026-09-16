@@ -194,7 +194,13 @@ nimbledesk qualify release \
 The command exits nonzero for missing targets, mismatched OS/desktop/session identity, a Resolve
 version outside 20.x, an endurance run shorter than eight hours or without capture and input,
 unpaired corpus reports, less than eight hours of source material, a missing required corpus kind,
-or metrics below the thresholds stored in the manifest.
+metrics below the thresholds stored in the manifest, missing malicious-adapter cases, unsigned
+native installers, incomplete install/update/rollback/uninstall cases, or installer reports that
+do not describe the same release version and signing key. Isolation reports must include the ten
+case names emitted by the physical malicious-adapter procedure; installer reports must include the
+eight lifecycle case names in the generated manifest contract. macOS and Windows reports require
+both the Ed25519 release signature and the platform-native package signature; Linux requires the
+signed release manifest.
 
 ## 5. Media intelligence and creative quality
 
