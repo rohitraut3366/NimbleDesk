@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from nimbledesk.creative.models import ContentKind, CreativeBrief
+from nimbledesk.creative.transcription import TranscriptionProviderConfig
 from nimbledesk.creative.vision import VisionProviderConfig
 
 
@@ -39,6 +40,7 @@ class AutomaticIntelligenceSelection(BaseModel):
     vision_provider: Path | None
     music_catalog: Path | None
     sound_catalog: Path | None
+    transcription_provider: Path | None = None
     report: AutomaticIntelligenceReport
 
 
@@ -52,6 +54,7 @@ def resolve_automatic_intelligence(
     vision_provider: Path | None,
     music_catalog: Path | None,
     sound_catalog: Path | None,
+    transcription_provider: Path | None = None,
     environment: Mapping[str, str] | None = None,
 ) -> AutomaticIntelligenceSelection:
     values = os.environ if environment is None else environment
@@ -77,12 +80,59 @@ def resolve_automatic_intelligence(
         )
 
     resolved_transcription = transcribe
-    if transcribe:
+    resolved_transcription_provider = transcription_provider
+    configured_transcription_provider = values.get(
+        "NIMBLEDESK_TRANSCRIPTION_PROVIDER", ""
+    ).strip()
+    if transcription_provider is not None:
+        resolved_transcription = False
+        capabilities.append(
+            _capability(
+                "transcription", "provided", "using the supplied provider configuration"
+            )
+        )
+    elif transcribe:
         capabilities.append(_capability("transcription", "provided", "enabled explicitly"))
     elif not enabled:
         capabilities.append(
             _capability("transcription", "not_applicable", "automatic mode is off")
         )
+    elif configured_transcription_provider:
+        candidate = Path(configured_transcription_provider).expanduser().resolve()
+        try:
+            config = TranscriptionProviderConfig.model_validate_json(
+                candidate.read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as error:
+            capabilities.append(
+                _capability(
+                    "transcription",
+                    "unavailable",
+                    f"configured provider is invalid: {error}",
+                )
+            )
+        else:
+            if (
+                config.execution_location == "remote"
+                and not brief.data_policy.allow_remote_audio
+            ):
+                capabilities.append(
+                    _capability(
+                        "transcription",
+                        "blocked_by_policy",
+                        "the configured provider is remote and the brief does not allow "
+                        "remote audio",
+                    )
+                )
+            else:
+                resolved_transcription_provider = candidate
+                capabilities.append(
+                    _capability(
+                        "transcription",
+                        "enabled",
+                        f"using the configured {config.execution_location} provider",
+                    )
+                )
     elif _module_available("faster_whisper") or shutil.which("whisper"):
         resolved_transcription = True
         capabilities.append(
@@ -162,6 +212,7 @@ def resolve_automatic_intelligence(
         vision_provider=resolved_vision,
         music_catalog=resolved_music,
         sound_catalog=resolved_sound,
+        transcription_provider=resolved_transcription_provider,
         report=AutomaticIntelligenceReport(enabled=enabled, capabilities=tuple(capabilities)),
     )
 

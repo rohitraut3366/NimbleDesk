@@ -341,8 +341,7 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
             "1",
             "--events",
             str(events),
-            "--transcription-provider",
-            str(transcription_provider),
+            "--automatic",
             "--vision-provider",
             str(vision_provider),
             "--music-catalog",
@@ -352,6 +351,10 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
         ],
         capture_output=True,
         check=False,
+        env={
+            **os.environ,
+            "NIMBLEDESK_TRANSCRIPTION_PROVIDER": str(transcription_provider),
+        },
         timeout=180,
     )
     if creation.returncode != 0:

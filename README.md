@@ -158,7 +158,8 @@ The request contains `request_version`, the absolute `source_path`, `source_name
 `language`. The response contains `segments` in the same format as `transcript.json`, optional
 `detected_language`, and optional `usage` fields for `audio_seconds`, `provider_input_tokens`, and
 `provider_output_tokens`. A remote provider is rejected unless the brief explicitly enables
-`data_policy.allow_remote_audio`.
+`data_policy.allow_remote_audio`. Set `NIMBLEDESK_TRANSCRIPTION_PROVIDER` to the configuration path
+to make `--automatic` and Studio discover it for future jobs.
 
 ### Model-pluggable semantic vision
 

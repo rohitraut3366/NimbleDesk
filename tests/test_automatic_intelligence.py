@@ -8,6 +8,7 @@ from pytest import MonkeyPatch
 from nimbledesk.creative import automatic
 from nimbledesk.creative.automatic import resolve_automatic_intelligence
 from nimbledesk.creative.models import CreativeBrief
+from nimbledesk.creative.transcription import TranscriptionProviderConfig
 from nimbledesk.creative.vision import VisionProviderConfig
 
 
@@ -74,6 +75,70 @@ def test_automatic_mode_does_not_send_frames_without_remote_permission(tmp_path:
     )
     assert vision.status == "blocked_by_policy"
     assert not (tmp_path / "output" / "analysis" / "automatic").exists()
+
+
+def test_automatic_mode_discovers_configured_transcription_provider(tmp_path: Path) -> None:
+    provider = tmp_path / "transcription-provider.json"
+    provider.write_text(
+        TranscriptionProviderConfig(
+            provider_id="local-speech",
+            model="speech-model",
+            command=("provider", "{request}", "{response}"),
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+
+    selection = resolve_automatic_intelligence(
+        CreativeBrief(),
+        tmp_path / "output",
+        enabled=True,
+        game_ocr=False,
+        transcribe=False,
+        vision_provider=None,
+        music_catalog=None,
+        sound_catalog=None,
+        environment={"NIMBLEDESK_TRANSCRIPTION_PROVIDER": str(provider)},
+    )
+
+    assert selection.transcription_provider == provider.resolve()
+    assert not selection.transcribe
+    transcription = next(
+        item for item in selection.report.capabilities if item.capability == "transcription"
+    )
+    assert transcription.status == "enabled"
+
+
+def test_automatic_mode_blocks_remote_transcription_without_audio_permission(
+    tmp_path: Path,
+) -> None:
+    provider = tmp_path / "transcription-provider.json"
+    provider.write_text(
+        TranscriptionProviderConfig(
+            provider_id="remote-speech",
+            model="speech-model",
+            command=("provider", "{request}", "{response}"),
+            execution_location="remote",
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+
+    selection = resolve_automatic_intelligence(
+        CreativeBrief(),
+        tmp_path / "output",
+        enabled=True,
+        game_ocr=False,
+        transcribe=False,
+        vision_provider=None,
+        music_catalog=None,
+        sound_catalog=None,
+        environment={"NIMBLEDESK_TRANSCRIPTION_PROVIDER": str(provider)},
+    )
+
+    assert selection.transcription_provider is None
+    transcription = next(
+        item for item in selection.report.capabilities if item.capability == "transcription"
+    )
+    assert transcription.status == "blocked_by_policy"
 
 
 def test_explicit_inputs_override_automatic_discovery(tmp_path: Path) -> None:

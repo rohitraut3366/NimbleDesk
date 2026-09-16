@@ -120,6 +120,7 @@ class CreationWorkflow:
             vision_provider=vision_provider,
             music_catalog=music_catalog,
             sound_catalog=sound_catalog,
+            transcription_provider=transcription_provider,
         )
         automatic_intelligence_path = output_directory / "automatic_intelligence.json"
         automatic_report = automatic.report
@@ -129,6 +130,7 @@ class CreationWorkflow:
         vision_provider = automatic.vision_provider
         music_catalog = automatic.music_catalog
         sound_catalog = automatic.sound_catalog
+        transcription_provider = automatic.transcription_provider
         report("detecting events", 0.05)
         events = list(load_events(supplied_events))
         if automatic_game_ocr:
