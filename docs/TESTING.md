@@ -176,7 +176,20 @@ AppContainer boundary rather than the source-development restricted-token fallba
   --output evidence\windows-adapter-contract.json
 ```
 
-The same contract runs automatically during every Windows bundle build.
+Run the common malicious-adapter contract from the shipped executable on every target. It verifies
+undeclared read/write denial, declared read/write access, default-denied and explicitly declared
+network access, child-process denial, the 512 MiB process-tree memory ceiling, timeout cleanup, and
+worker-host survival:
+
+```bash
+nimbledesk adapter-isolation-contract \
+  --target-id macos-arm64 \
+  --output evidence/isolation-macos-arm64.json
+```
+
+Use the matching target ID from `SUPPORT.md`. On Windows, retain both this common report and the
+standalone AppContainer report. The AppContainer contract also runs during every Windows bundle
+build.
 Use the target IDs and minimum corpus mix declared in [SUPPORT.md](SUPPORT.md). Pass
 `--corpus-id` and `--source-duration-seconds` to both `nimbledesk qualify events` and
 `nimbledesk qualify ranking`; the identifiers must match for reports derived from the same source.

@@ -36,7 +36,7 @@ ISOLATION_CASES = frozenset(
         "child_process_denied",
         "memory_limit_enforced",
         "timeout_cancellation",
-        "daemon_survived",
+        "worker_host_survived",
     }
 )
 INSTALLER_CASES = frozenset(

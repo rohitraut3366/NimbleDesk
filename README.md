@@ -835,6 +835,19 @@ On Windows, retain the standalone bundle's AppContainer isolation report:
   --output evidence\windows-adapter-contract.json
 ```
 
+Run the cross-platform malicious-adapter contract from each shipped executable and retain its
+report for the unified release gate:
+
+```bash
+nimbledesk adapter-isolation-contract \
+  --target-id macos-arm64 \
+  --output evidence/isolation-macos-arm64.json
+```
+
+The contract checks declared and undeclared filesystem access, opt-in network access, child-process
+denial, the aggregate 512 MiB memory ceiling, timeout cleanup, and worker-host survival. Replace the
+target ID with the exact platform target declared in [docs/SUPPORT.md](docs/SUPPORT.md).
+
 Measure event recognition against a labeled corpus with the release qualification command:
 
 ```bash

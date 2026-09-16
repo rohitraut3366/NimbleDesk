@@ -321,10 +321,15 @@ def test_macos_sandbox_profile_limits_reads_and_network(tmp_path: Path) -> None:
     granted = tmp_path / "granted"
     writable = granted / "output"
     scratch = tmp_path / "scratch"
+    writable.mkdir(parents=True)
+    scratch.mkdir()
     profile = _macos_sandbox_profile((granted,), (writable,), scratch, False)
 
     assert f'(subpath "{_sandbox_path(granted)}")' in profile
-    assert f'(allow file-write* (subpath "{_sandbox_path(writable)}"))' in profile
+    assert (
+        f'(allow file-write* (literal "{_sandbox_path(writable)}") '
+        f'(subpath "{_sandbox_path(writable)}"))'
+    ) in profile
     assert "(allow network*)" not in profile
 
 

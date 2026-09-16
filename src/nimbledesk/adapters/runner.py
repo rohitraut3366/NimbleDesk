@@ -448,10 +448,8 @@ def _macos_sandbox_profile(
         f'(allow file-read* file-map-executable (subpath "{_sandbox_path(path)}"))'
         for path in readable
     )
-    lines.append(f'(allow file-write* (subpath "{_sandbox_path(scratch)}"))')
-    lines.extend(
-        f'(allow file-write* (subpath "{_sandbox_path(path)}"))' for path in writable_paths
-    )
+    lines.append(_macos_write_rule(scratch))
+    lines.extend(_macos_write_rule(path) for path in writable_paths)
     if network_access:
         lines.append("(allow network*)")
     return "\n".join(lines) + "\n"
@@ -459,6 +457,13 @@ def _macos_sandbox_profile(
 
 def _sandbox_path(path: Path) -> str:
     return str(path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _macos_write_rule(path: Path) -> str:
+    escaped = _sandbox_path(path)
+    if path.is_dir():
+        return f'(allow file-write* (literal "{escaped}") (subpath "{escaped}"))'
+    return f'(allow file-write* (literal "{escaped}"))'
 
 
 def _linux_runtime_paths() -> tuple[Path, ...]:
