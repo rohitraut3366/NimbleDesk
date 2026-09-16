@@ -124,7 +124,14 @@ def test_studio_client_javascript_parses(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
 
 
-def test_console_serves_creation_form_and_rejects_missing_source(tmp_path: Path) -> None:
+def test_console_serves_creation_form_and_rejects_missing_source(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    class MissingSourceDaemon:
+        async def call(self, method: str, params: object = None) -> dict[str, object]:
+            raise FileNotFoundError("source video does not exist")
+
+    monkeypatch.setattr(ui, "daemon_client", MissingSourceDaemon)
     client = TestClient(app, base_url="http://127.0.0.1")
 
     page = client.get("/")
@@ -197,9 +204,16 @@ def test_console_accepts_complete_creative_brief(
 ) -> None:
     source = tmp_path / "source.mp4"
     source.write_bytes(b"fixture")
-    service = JobService(tmp_path / "jobs")
-    monkeypatch.setattr(service._executor, "submit", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(ui, "JOB_SERVICE", service)
+
+    class EchoJobDaemon:
+        async def call(
+            self, method: str, params: dict[str, object] | None = None
+        ) -> dict[str, object]:
+            assert method == "job_submit"
+            assert params is not None
+            return {"job_id": "job-1", "request": params["request"]}
+
+    monkeypatch.setattr(ui, "daemon_client", EchoJobDaemon)
 
     response = TestClient(app, base_url="http://127.0.0.1").post(
         "/api/jobs",
@@ -237,8 +251,6 @@ def test_console_accepts_complete_creative_brief(
             },
         },
     )
-    service.close()
-
     assert response.status_code == 202
     brief = response.json()["request"]["brief"]
     assert brief["mandatory_moments"][0]["label"] == "Clutch"
@@ -310,7 +322,21 @@ def test_console_serves_only_registered_generated_artifacts(
         updated_at=2,
     )
     service._jobs[state.job_id] = JobRecord(state=state)
-    monkeypatch.setattr(ui, "JOB_SERVICE", service)
+    job_response = service.get("photo-1")
+    assert job_response is not None
+
+    class ArtifactDaemon:
+        async def call(
+            self, method: str, params: dict[str, object] | None = None
+        ) -> dict[str, object]:
+            if method == "job_get":
+                return job_response.response()
+            assert params is not None
+            if method == "job_artifact" and params["artifact_name"] == "contact-sheet":
+                return {"path": str(contact_sheet), "size_bytes": contact_sheet.stat().st_size}
+            raise ValueError("unknown job artifact")
+
+    monkeypatch.setattr(ui, "daemon_client", ArtifactDaemon)
     client = TestClient(app, base_url="http://127.0.0.1")
 
     listed = client.get("/api/jobs/photo-1")
@@ -549,6 +575,30 @@ def test_job_service_marks_running_job_interrupted_after_restart(tmp_path: Path)
     assert recovered is not None
     assert recovered.state.status == "interrupted"
     assert "resume from cached analysis" in recovered.state.stage
+
+
+def test_job_service_marks_queued_work_interrupted_on_daemon_shutdown(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"fixture")
+    service = JobService(tmp_path / "jobs")
+    monkeypatch.setattr(service._executor, "submit", lambda *_args, **_kwargs: None)
+    job = service.submit(
+        CreateJobRequest(
+            source=source,
+            output_directory=tmp_path / "output",
+            brief=CreativeBrief(title="Shutdown fixture"),
+        )
+    )
+
+    service.close(cancel_running=True)
+
+    persisted = PersistedJob.model_validate_json(
+        (tmp_path / "jobs" / f"{job.state.job_id}.json").read_text(encoding="utf-8")
+    )
+    assert persisted.status == "interrupted"
+    assert persisted.stage == "interrupted during daemon shutdown"
 
 
 def test_job_service_builds_and_persists_validated_revision(

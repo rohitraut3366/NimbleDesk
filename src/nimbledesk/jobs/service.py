@@ -244,8 +244,32 @@ class JobService:
             )
         return [job.response() for job in jobs]
 
-    def close(self) -> None:
+    def close(self, *, cancel_running: bool = False) -> None:
+        if cancel_running:
+            with self._lock:
+                job_ids = tuple(self._jobs)
+            for job_id in job_ids:
+                self.cancel(job_id)
         self._executor.shutdown(wait=True, cancel_futures=True)
+        if cancel_running:
+            with self._lock:
+                jobs = tuple(self._jobs.values())
+            for job in jobs:
+                with job.lock:
+                    if job.state.status not in {
+                        "cancelled",
+                        "completed",
+                        "failed",
+                        "interrupted",
+                    }:
+                        job.state.status = "interrupted"
+                        job.state.stage = "interrupted during daemon shutdown"
+                        job.state.updated_at = time.time()
+                        interrupted = True
+                    else:
+                        interrupted = False
+                if interrupted:
+                    self._save(job)
 
     def cancel(self, job_id: str) -> JobRecord | None:
         job = self.get(job_id)
@@ -584,6 +608,3 @@ def _automatic_capabilities(state: PersistedJob) -> list[dict[str, object]]:
     except Exception:
         return []
     return [capability.model_dump(mode="json") for capability in report.capabilities]
-
-
-JOB_SERVICE = JobService()

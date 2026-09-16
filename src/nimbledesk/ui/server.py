@@ -23,17 +23,12 @@ from nimbledesk.creative.automatic import resolve_automatic_intelligence
 from nimbledesk.creative.models import CreativeBrief
 from nimbledesk.creative.style import StyleProfile, StyleProfileStore, resolve_brief
 from nimbledesk.jobs.service import (
-    JOB_SERVICE,
     CreateJobRequest,
     PhotoJobRequest,
     ReviseJobRequest,
     RevisionSubmission,
     VariantSelectionRequest,
 )
-from nimbledesk.jobs.service import (
-    artifact_paths as _artifact_paths,
-)
-from nimbledesk.media.photos import PhotoManifest
 
 STYLE_PROFILE_STORE = StyleProfileStore()
 
@@ -88,41 +83,56 @@ async def create_job(request: Request) -> JSONResponse:
                 raw.get("brief", {}), STYLE_PROFILE_STORE.load(profile_id)
             ).model_dump(mode="json")
         payload = CreateJobRequest.model_validate(raw)
-        job = JOB_SERVICE.submit(payload)
+        job = await daemon_client().call(
+            "job_submit",
+            {"kind": "create", "request": payload.model_dump(mode="json")},
+        )
     except Exception as error:
         return JSONResponse({"error": str(error)}, status_code=400)
-    return JSONResponse(job.response(), status_code=202)
+    return JSONResponse(job, status_code=202)
 
 
 async def create_photo_job(request: Request) -> JSONResponse:
     try:
         payload = PhotoJobRequest.model_validate(await request.json())
-        job = JOB_SERVICE.submit_photo(payload)
+        job = await daemon_client().call(
+            "job_submit",
+            {"kind": "photo", "request": payload.model_dump(mode="json")},
+        )
     except Exception as error:
         return JSONResponse({"error": str(error)}, status_code=400)
-    return JSONResponse(job.response(), status_code=202)
+    return JSONResponse(job, status_code=202)
 
 
 async def list_jobs(request: Request) -> JSONResponse:
-    return JSONResponse({"jobs": JOB_SERVICE.list()})
+    try:
+        return JSONResponse(await daemon_client().call("job_list"))
+    except Exception as error:
+        return JSONResponse({"jobs": [], "daemon_error": str(error)}, status_code=503)
 
 
 async def get_job(request: Request) -> JSONResponse:
-    job = JOB_SERVICE.get(request.path_params["job_id"])
-    if job is None:
+    try:
+        job = await daemon_client().call(
+            "job_get", {"job_id": request.path_params["job_id"]}
+        )
+    except Exception:
         return JSONResponse({"error": "unknown job"}, status_code=404)
-    return JSONResponse(job.response())
+    return JSONResponse(job)
 
 
 async def get_artifact(request: Request) -> Response:
-    job = JOB_SERVICE.get(request.path_params["job_id"])
-    if job is None:
-        return JSONResponse({"error": "unknown job"}, status_code=404)
-    with job.lock:
-        artifacts = _artifact_paths(job.state)
     artifact_name = request.path_params["artifact_name"]
-    path = artifacts.get(artifact_name)
-    if path is None or not path.is_file():
+    try:
+        artifact = await daemon_client().call(
+            "job_artifact",
+            {
+                "job_id": request.path_params["job_id"],
+                "artifact_name": artifact_name,
+            },
+        )
+        path = Path(str(artifact["path"]))
+    except Exception:
         return JSONResponse({"error": "unknown artifact"}, status_code=404)
     media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return FileResponse(
@@ -133,68 +143,84 @@ async def get_artifact(request: Request) -> Response:
 
 
 async def cancel_job(request: Request) -> JSONResponse:
-    job = JOB_SERVICE.cancel(request.path_params["job_id"])
-    if job is None:
+    try:
+        job = await daemon_client().call(
+            "job_cancel", {"job_id": request.path_params["job_id"]}
+        )
+    except Exception:
         return JSONResponse({"error": "unknown job"}, status_code=404)
-    return JSONResponse(job.response())
+    return JSONResponse(job)
 
 
 async def revise_job(request: Request) -> JSONResponse:
-    parent = JOB_SERVICE.get(request.path_params["job_id"])
-    if parent is None:
+    try:
+        parent = await daemon_client().call(
+            "job_get", {"job_id": request.path_params["job_id"]}
+        )
+    except Exception:
         return JSONResponse({"error": "unknown job"}, status_code=404)
-    with parent.lock:
-        if parent.state.status != "completed" or parent.state.result is None:
-            return JSONResponse(
-                {"error": "only a completed job can be revised"}, status_code=409
-            )
-        result = parent.state.result
-        if isinstance(result, PhotoManifest):
-            return JSONResponse({"error": "photo jobs do not contain edit plans"}, status_code=409)
-        plan_path = result.plan_path
-        output_root = result.output_directory
+    result = parent.get("result")
+    if parent.get("status") != "completed" or not isinstance(result, dict):
+        return JSONResponse(
+            {"error": "only a completed job can be revised"}, status_code=409
+        )
+    plan_value = result.get("plan_path")
+    output_value = result.get("output_directory")
+    if not isinstance(plan_value, str) or not isinstance(output_value, str):
+        return JSONResponse({"error": "photo jobs do not contain edit plans"}, status_code=409)
+    plan_path = Path(plan_value)
+    output_root = Path(output_value)
     try:
         payload = RevisionSubmission.model_validate(await request.json())
         revision_id = f"revision-{int(time.time())}-{uuid4().hex[:8]}"
-        revision = JOB_SERVICE.submit_revision(
-            parent.state.job_id,
-            ReviseJobRequest(
-                plan=plan_path,
-                output_directory=output_root / "revisions" / revision_id,
-                changes=payload.changes,
-                ffmpeg_render=payload.ffmpeg_render,
-                davinci=payload.davinci,
-                davinci_render=payload.davinci_render,
-            ),
+        revision_request = ReviseJobRequest(
+            plan=plan_path,
+            output_directory=output_root / "revisions" / revision_id,
+            changes=payload.changes,
+            ffmpeg_render=payload.ffmpeg_render,
+            davinci=payload.davinci,
+            davinci_render=payload.davinci_render,
+        )
+        revision = await daemon_client().call(
+            "job_submit",
+            {
+                "kind": "revision",
+                "parent_job_id": request.path_params["job_id"],
+                "request": revision_request.model_dump(mode="json"),
+            },
         )
     except Exception as error:
         return JSONResponse({"error": str(error)}, status_code=400)
-    return JSONResponse(revision.response(), status_code=202)
+    return JSONResponse(revision, status_code=202)
 
 
 async def select_variant(request: Request) -> JSONResponse:
-    job = JOB_SERVICE.get(request.path_params["job_id"])
-    if job is None:
-        return JSONResponse({"error": "unknown job"}, status_code=404)
     try:
         payload = VariantSelectionRequest.model_validate(await request.json())
-        selected = JOB_SERVICE.select_variant(
-            job, request.path_params["variant_id"], payload
+        job = await daemon_client().call(
+            "job_get", {"job_id": request.path_params["job_id"]}
         )
-        with job.lock:
-            parent_request = job.state.request
-            profile_id = (
-                parent_request.style_profile_id
-                if isinstance(parent_request, CreateJobRequest)
-                else None
-            )
+        selected = await daemon_client().call(
+            "job_variant_select",
+            {
+                "job_id": request.path_params["job_id"],
+                "variant_id": request.path_params["variant_id"],
+                "request": payload.model_dump(mode="json"),
+            },
+        )
+        parent_request = job.get("request")
+        profile_id = (
+            parent_request.get("style_profile_id")
+            if isinstance(parent_request, dict)
+            else None
+        )
         if profile_id:
             STYLE_PROFILE_STORE.record_feedback(
                 profile_id, request.path_params["variant_id"]
             )
     except Exception as error:
         return JSONResponse({"error": str(error)}, status_code=400)
-    return JSONResponse(selected.response(), status_code=202)
+    return JSONResponse(selected, status_code=202)
 
 
 async def list_style_profiles(request: Request) -> JSONResponse:

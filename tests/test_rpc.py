@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +15,7 @@ from nimbledesk.daemon.policy import ActionPolicy
 from nimbledesk.daemon.runtime import DesktopRuntime
 from nimbledesk.daemon.sessions import SessionManager
 from nimbledesk.daemon.transport import DaemonTransport, _strict_json_object
+from nimbledesk.jobs.service import JobService
 from nimbledesk.protocol.rpc import (
     ConnectionInfo,
     RequestAuthenticator,
@@ -164,3 +166,59 @@ async def test_client_reports_authentication_failure() -> None:
             await client.call("health")
 
     await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_creative_jobs_reconnect_through_daemon_owned_rpc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"fixture")
+    jobs = JobService(tmp_path / "jobs")
+    monkeypatch.setattr(jobs._executor, "submit", lambda *_args, **_kwargs: None)
+    runtime = DesktopRuntime(
+        SimulatorBackend(),
+        SessionManager(),
+        ActionPolicy(),
+        ApprovalManager(),
+        AuditLog(),
+        jobs=jobs,
+    )
+    secret = "job-secret-with-at-least-forty-three-characters"
+    server = await DaemonTransport(runtime, secret).start()
+    connection = ConnectionInfo(port=int(server.sockets[0].getsockname()[1]), secret=secret)
+    submitter = DaemonClient(connection)
+    reconnecting_client = DaemonClient(connection)
+
+    async with server:
+        session = await submitter.call(
+            "session_start",
+            {
+                "reason": "creative RPC fixture",
+                "config": {"granted_paths": [str(tmp_path)]},
+            },
+        )
+        submitted = await submitter.call(
+            "job_submit",
+            {
+                "session_id": session["session_id"],
+                "kind": "create",
+                "request": {
+                    "source": str(source),
+                    "output_directory": str(tmp_path / "output"),
+                    "brief": {"title": "RPC fixture"},
+                    "ffmpeg_render": False,
+                },
+            },
+        )
+        reconnected = await reconnecting_client.call(
+            "job_get",
+            {"session_id": session["session_id"], "job_id": submitted["job_id"]},
+        )
+        listed = await reconnecting_client.call("job_list")
+
+    jobs.close()
+    assert reconnected["job_id"] == submitted["job_id"]
+    assert reconnected["session_id"] == session["session_id"]
+    assert listed["jobs"][0]["job_id"] == submitted["job_id"]
+    assert (tmp_path / "jobs" / f"{submitted['job_id']}.json").is_file()

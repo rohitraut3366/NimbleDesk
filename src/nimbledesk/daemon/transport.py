@@ -173,6 +173,44 @@ class DaemonTransport:
                 str(params["result_id"]),
                 int(params.get("maximum_tokens", 2_000)),
             )
+        if method == "job_submit":
+            raw_request = params.get("request")
+            if not isinstance(raw_request, dict):
+                raise ValueError("job request must be an object")
+            return self._runtime.submit_job(
+                str(params["kind"]),
+                raw_request,
+                str(params["session_id"]) if params.get("session_id") else None,
+                str(params["parent_job_id"]) if params.get("parent_job_id") else None,
+            )
+        if method == "job_get":
+            return self._runtime.job_response(
+                str(params["job_id"]),
+                str(params["session_id"]) if params.get("session_id") else None,
+            )
+        if method == "job_list":
+            return {"jobs": self._runtime.list_jobs()}
+        if method == "job_cancel":
+            return self._runtime.cancel_job(
+                str(params["job_id"]),
+                str(params["session_id"]) if params.get("session_id") else None,
+            )
+        if method == "job_variant_select":
+            selection = params.get("request")
+            if not isinstance(selection, dict):
+                raise ValueError("variant selection request must be an object")
+            return self._runtime.select_job_variant(
+                str(params["job_id"]),
+                str(params["variant_id"]),
+                selection,
+                str(params["session_id"]) if params.get("session_id") else None,
+            )
+        if method == "job_artifact":
+            return self._runtime.job_artifact(
+                str(params["job_id"]),
+                str(params["artifact_name"]),
+                str(params["session_id"]) if params.get("session_id") else None,
+            )
         if method == "action_execute":
             action_result = self._runtime.execute(ActionRequest.model_validate(params["action"]))
             return action_result.model_dump(mode="json")

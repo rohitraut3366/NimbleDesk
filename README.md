@@ -2,7 +2,7 @@
 
 NimbleDesk is a local, model-agnostic runtime for AI models that need to see and operate desktop applications. It also includes command-line workflows for finding highlights in long videos and selecting, correcting, and arranging photos.
 
-The current release combines portable PyAutoGUI capture/input with native semantic accessibility through macOS AX, Windows UI Automation, or Linux AT-SPI. Portable Linux capture and input currently require X11. NimbleDesk separates the model-facing MCP server from the privileged desktop daemon, requires explicit input authority, rejects actions based on stale observations, and records attempted actions in a redacted audit log.
+The current release combines portable PyAutoGUI capture/input with native semantic accessibility through macOS AX, Windows UI Automation, or Linux AT-SPI. Portable Linux capture and input currently require X11. NimbleDesk separates the model-facing MCP server from the privileged desktop daemon, requires explicit input authority, rejects actions based on stale observations, and records attempted actions in a redacted audit log. The daemon also owns the persistent creative-job service, so Studio and MCP reconnect to one authoritative queue and never start competing workers for the same job store.
 
 ## What works today
 

@@ -23,14 +23,11 @@ from nimbledesk.creative.sound import load_sound_catalog, plan_sound_cues
 from nimbledesk.creative.style import resolve_brief
 from nimbledesk.creative.validation import validate_edit_plan
 from nimbledesk.creative.verify import verify_render
-from nimbledesk.creative.workflow import CreationResult
 from nimbledesk.gateway.budget import compact_observation, estimate_text_tokens
 from nimbledesk.jobs.service import (
-    JOB_SERVICE,
     CreateJobRequest,
     PhotoJobRequest,
     ReviseJobRequest,
-    RevisionResult,
 )
 from nimbledesk.media.ffmpeg import probe_media
 from nimbledesk.protocol.models import (
@@ -476,7 +473,7 @@ async def edit_plan_execute(
 @mcp.tool()
 async def media_analysis_status(session_id: str, job_id: str) -> dict[str, Any]:
     """Return compact progress and artifact metadata for one persistent creative job."""
-    return _creative_job(session_id, job_id)
+    return await _creative_job(session_id, job_id)
 
 
 @mcp.tool()
@@ -539,7 +536,7 @@ async def media_analysis_start(
 @mcp.tool()
 async def variants_compare(session_id: str, job_id: str) -> dict[str, Any]:
     """Return the bounded watchability metrics and tradeoffs for a creative job's variants."""
-    result = _creative_job(session_id, job_id)
+    result = await _creative_job(session_id, job_id)
     return {
         "job_id": job_id,
         "status": result["status"],
@@ -554,7 +551,7 @@ async def highlights_rank(
     """Return bounded evidence-backed highlight candidates from a completed analysis job."""
     if not 1 <= maximum_results <= 100:
         raise ValueError("highlight result limit must be between 1 and 100")
-    manifest = _highlight_manifest(session_id, job_id)
+    manifest = await _highlight_manifest(session_id, job_id)
     candidates = manifest.get("candidates", [])
     return {
         "job_id": job_id,
@@ -571,7 +568,7 @@ async def clip_set_generate(
     """Return the bounded rendered clip set produced by a completed analysis job."""
     if not 1 <= maximum_results <= 100:
         raise ValueError("clip result limit must be between 1 and 100")
-    manifest = _highlight_manifest(session_id, job_id)
+    manifest = await _highlight_manifest(session_id, job_id)
     clips = manifest.get("clips", [])
     return {
         "job_id": job_id,
@@ -777,7 +774,7 @@ async def render_validate(
 @mcp.tool()
 async def media_analysis_get(session_id: str, job_id: str) -> dict[str, Any]:
     """Return a completed creative job's compact results, variants, and artifacts."""
-    result = _creative_job(session_id, job_id)
+    result = await _creative_job(session_id, job_id)
     if result["status"] not in {"completed", "failed", "cancelled", "interrupted"}:
         raise ValueError("creative job is still running")
     return result
@@ -786,11 +783,11 @@ async def media_analysis_get(session_id: str, job_id: str) -> dict[str, Any]:
 @mcp.tool()
 async def media_analysis_cancel(session_id: str, job_id: str) -> dict[str, Any]:
     """Cancel one session-owned creative job and its active child process."""
-    _creative_job(session_id, job_id)
-    job = JOB_SERVICE.cancel(job_id)
-    if job is None:
-        raise ValueError("unknown creative job")
-    return _compact_job(job.response())
+    await _creative_job(session_id, job_id)
+    response = await client().call(
+        "job_cancel", {"session_id": session_id, "job_id": job_id}
+    )
+    return _compact_job(response)
 
 
 @mcp.tool()
@@ -803,30 +800,35 @@ async def edit_revision_apply(
     render_in_davinci: bool = False,
 ) -> dict[str, Any]:
     """Create a persistent, validated revision from a completed creative job."""
-    parent = JOB_SERVICE.get(job_id)
-    if parent is None or parent.state.session_id != session_id:
-        raise ValueError("unknown creative job")
-    with parent.lock:
-        result = parent.state.result
-        if parent.state.status != "completed" or not isinstance(
-            result, (CreationResult, RevisionResult)
-        ):
-            raise ValueError("only a completed video creation can be revised")
-        plan_path = result.plan_path
-        output_root = result.output_directory
-    revision = JOB_SERVICE.submit_revision(
-        job_id,
-        ReviseJobRequest(
-            plan=plan_path,
-            output_directory=output_root / "revisions" / f"mcp-{os.urandom(8).hex()}",
-            changes=changes,
-            ffmpeg_render=render,
-            davinci=execute_davinci or render_in_davinci,
-            davinci_render=render_in_davinci,
-        ),
-        session_id=session_id,
+    parent = await _job_response(session_id, job_id)
+    result = parent.get("result")
+    if parent.get("status") != "completed" or not isinstance(result, dict):
+        raise ValueError("only a completed video creation can be revised")
+    plan_path = result.get("plan_path")
+    output_root = result.get("output_directory")
+    if not isinstance(plan_path, str) or not isinstance(output_root, str):
+        raise ValueError("completed job does not contain an editable plan")
+    request = ReviseJobRequest(
+        plan=Path(plan_path),
+        output_directory=Path(output_root)
+        / "revisions"
+        / f"mcp-{os.urandom(8).hex()}",
+        changes=changes,
+        ffmpeg_render=render,
+        davinci=execute_davinci or render_in_davinci,
+        davinci_render=render_in_davinci,
     )
-    return _compact_job(revision.response())
+    await _authorize_paths(session_id, [str(request.plan), str(request.output_directory)])
+    revision = await client().call(
+        "job_submit",
+        {
+            "session_id": session_id,
+            "kind": "revision",
+            "parent_job_id": job_id,
+            "request": request.model_dump(mode="json"),
+        },
+    )
+    return _compact_job(revision)
 
 
 @mcp.tool()
@@ -852,20 +854,25 @@ async def photo_creation_start(
 ) -> dict[str, Any]:
     """Start a persistent photo selection, correction, and social-asset job."""
     await _authorize_paths(session_id, [source, output_directory])
-    job = JOB_SERVICE.submit_photo(
-        PhotoJobRequest(
-            source=Path(source),
-            output_directory=Path(output_directory),
-            title=title,
-            platform=platform,
-            count=count,
-            create_slideshow=create_slideshow,
-            create_social_assets=create_social_assets,
-            create_animated_gif=create_animated_gif,
-        ),
-        session_id=session_id,
+    request = PhotoJobRequest(
+        source=Path(source),
+        output_directory=Path(output_directory),
+        title=title,
+        platform=platform,
+        count=count,
+        create_slideshow=create_slideshow,
+        create_social_assets=create_social_assets,
+        create_animated_gif=create_animated_gif,
     )
-    return _compact_job(job.response())
+    job = await client().call(
+        "job_submit",
+        {
+            "session_id": session_id,
+            "kind": "photo",
+            "request": request.model_dump(mode="json"),
+        },
+    )
+    return _compact_job(job)
 
 
 @mcp.tool()
@@ -1463,24 +1470,29 @@ async def _start_creation_job(
         if path is not None
     )
     await _authorize_paths(session_id, paths)
-    job = JOB_SERVICE.submit(
-        CreateJobRequest(
-            source=Path(source),
-            output_directory=Path(output_directory),
-            brief=brief,
-            automatic_intelligence=automatic_intelligence,
-            game_ocr=game_ocr,
-            vision_provider=Path(vision_provider) if vision_provider else None,
-            transcribe=transcribe,
-            music_catalog=Path(music_catalog) if music_catalog else None,
-            sound_catalog=Path(sound_catalog) if sound_catalog else None,
-            ffmpeg_render=render,
-            davinci=execute_davinci or render_in_davinci,
-            davinci_render=render_in_davinci,
-        ),
-        session_id=session_id,
+    request = CreateJobRequest(
+        source=Path(source),
+        output_directory=Path(output_directory),
+        brief=brief,
+        automatic_intelligence=automatic_intelligence,
+        game_ocr=game_ocr,
+        vision_provider=Path(vision_provider) if vision_provider else None,
+        transcribe=transcribe,
+        music_catalog=Path(music_catalog) if music_catalog else None,
+        sound_catalog=Path(sound_catalog) if sound_catalog else None,
+        ffmpeg_render=render,
+        davinci=execute_davinci or render_in_davinci,
+        davinci_render=render_in_davinci,
     )
-    return _compact_job(job.response())
+    job = await client().call(
+        "job_submit",
+        {
+            "session_id": session_id,
+            "kind": "create",
+            "request": request.model_dump(mode="json"),
+        },
+    )
+    return _compact_job(job)
 
 
 async def _authorize_paths(session_id: str, paths: list[str]) -> None:
@@ -1509,29 +1521,25 @@ def _write_model(model: EditPlan, path: Path) -> None:
     temporary.replace(path)
 
 
-def _creative_job(session_id: str, job_id: str) -> dict[str, Any]:
-    job = JOB_SERVICE.get(job_id)
-    if job is None:
-        raise ValueError("unknown creative job")
-    with job.lock:
-        if job.state.session_id != session_id:
-            raise ValueError("unknown creative job")
-    return _compact_job(job.response())
+async def _job_response(session_id: str, job_id: str) -> dict[str, Any]:
+    return await client().call(
+        "job_get", {"session_id": session_id, "job_id": job_id}
+    )
 
 
-def _highlight_manifest(session_id: str, job_id: str) -> dict[str, Any]:
-    job = JOB_SERVICE.get(job_id)
-    if job is None:
-        raise ValueError("unknown creative job")
-    with job.lock:
-        result = job.state.result
-        if (
-            job.state.session_id != session_id
-            or job.state.status != "completed"
-            or not isinstance(result, CreationResult)
-        ):
-            raise ValueError("completed session-owned analysis job is required")
-        path = result.output_directory / "analysis" / "highlights.json"
+async def _creative_job(session_id: str, job_id: str) -> dict[str, Any]:
+    return _compact_job(await _job_response(session_id, job_id))
+
+
+async def _highlight_manifest(session_id: str, job_id: str) -> dict[str, Any]:
+    job = await _job_response(session_id, job_id)
+    result = job.get("result")
+    if job.get("status") != "completed" or not isinstance(result, dict):
+        raise ValueError("completed session-owned analysis job is required")
+    output_directory = result.get("output_directory")
+    if not isinstance(output_directory, str):
+        raise ValueError("completed analysis job has no output directory")
+    path = Path(output_directory) / "analysis" / "highlights.json"
     if not path.is_file():
         raise ValueError("highlight manifest is unavailable")
     payload = json.loads(path.read_text(encoding="utf-8"))

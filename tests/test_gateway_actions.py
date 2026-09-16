@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-import threading
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -79,11 +77,15 @@ async def test_gateway_exposes_generic_action_and_target_resolution(
 async def test_gateway_starts_compact_session_scoped_creative_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    recording_client = RecordingClient()
+    class CreativeJobClient(RecordingClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    class FakeJob:
-        def response(self) -> dict[str, Any]:
-            return {
+        async def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+            self.calls.append((method, params))
+            if method == "job_submit":
+                return {
                 "job_id": "job",
                 "session_id": "session",
                 "status": "queued",
@@ -95,19 +97,10 @@ async def test_gateway_starts_compact_session_scoped_creative_job(
                 "variant_options": [],
                 "automatic_capabilities": [],
             }
+            return {"authorized": True}
 
-    class FakeJobService:
-        request: Any = None
-        session_id: str | None = None
-
-        def submit(self, request: Any, session_id: str | None = None) -> FakeJob:
-            self.request = request
-            self.session_id = session_id
-            return FakeJob()
-
-    jobs = FakeJobService()
+    recording_client = CreativeJobClient()
     monkeypatch.setattr(gateway, "client", lambda: recording_client)
-    monkeypatch.setattr(gateway, "JOB_SERVICE", jobs)
 
     result = await gateway.edit_plan_generate(
         "session",
@@ -116,13 +109,15 @@ async def test_gateway_starts_compact_session_scoped_creative_job(
         gateway.CreativeBrief(title="Highlights"),
     )
 
-    assert recording_client.method == "paths_authorize"
-    assert recording_client.params["paths"] == [
+    assert recording_client.calls[0][0] == "paths_authorize"
+    assert recording_client.calls[0][1]["paths"] == [
         "/project/source.mp4",
         "/project/output",
     ]
-    assert jobs.session_id == "session"
-    assert jobs.request.ffmpeg_render is False
+    assert recording_client.calls[1][0] == "job_submit"
+    submitted = recording_client.calls[1][1]
+    assert submitted["session_id"] == "session"
+    assert submitted["request"]["ffmpeg_render"] is False
     assert "request" not in result
     assert "result" not in result
 
@@ -236,15 +231,17 @@ async def test_gateway_returns_bounded_highlights_and_rendered_clips(
         ),
         encoding="utf-8",
     )
-    result = gateway.CreationResult.model_construct(output_directory=tmp_path)
-    job = SimpleNamespace(
-        lock=threading.Lock(),
-        state=SimpleNamespace(
-            session_id="session", status="completed", result=result
-        ),
-    )
-    service = SimpleNamespace(get=lambda job_id: job if job_id == "job" else None)
-    monkeypatch.setattr(gateway, "JOB_SERVICE", service)
+    class CompletedJobClient(RecordingClient):
+        async def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+            assert method == "job_get"
+            return {
+                "job_id": "job",
+                "session_id": "session",
+                "status": "completed",
+                "result": {"output_directory": str(tmp_path)},
+            }
+
+    monkeypatch.setattr(gateway, "client", CompletedJobClient)
 
     highlights = await gateway.highlights_rank("session", "job", 1)
     clips = await gateway.clip_set_generate("session", "job", 1)

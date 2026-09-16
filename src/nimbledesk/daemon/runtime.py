@@ -17,6 +17,15 @@ from nimbledesk.daemon.approvals import (
 from nimbledesk.daemon.audit import AuditLog
 from nimbledesk.daemon.policy import ActionPolicy
 from nimbledesk.daemon.sessions import SessionError, SessionManager
+from nimbledesk.jobs.service import (
+    CreateJobRequest,
+    JobRecord,
+    JobService,
+    PhotoJobRequest,
+    ReviseJobRequest,
+    VariantSelectionRequest,
+    artifact_paths,
+)
 from nimbledesk.perception.ocr import OcrProvider
 from nimbledesk.ports import AdapterCatalogBackend, DesktopBackend
 from nimbledesk.protocol.models import (
@@ -53,6 +62,7 @@ class DesktopRuntime:
         approvals: ApprovalManager,
         audit: AuditLog,
         ocr_provider: OcrProvider | None = None,
+        jobs: JobService | None = None,
     ) -> None:
         self._backend = backend
         self._sessions = sessions
@@ -60,6 +70,7 @@ class DesktopRuntime:
         self._approvals = approvals
         self._audit = audit
         self._ocr_provider = ocr_provider
+        self._jobs = jobs
         self._observations: dict[str, DesktopObservation] = {}
         self._observation_history: dict[str, dict[str, DesktopObservation]] = {}
         self._content_indexes: dict[tuple[str, str], ContentIndex] = {}
@@ -112,6 +123,119 @@ class DesktopRuntime:
         self._observation_history.clear()
         self._content_indexes.clear()
         return sessions
+
+    def shutdown(self) -> tuple[Session, ...]:
+        sessions = self.emergency_stop()
+        if self._jobs is not None:
+            self._jobs.close(cancel_running=True)
+        return sessions
+
+    def submit_job(
+        self,
+        kind: str,
+        request: dict[str, object],
+        session_id: str | None = None,
+        parent_job_id: str | None = None,
+    ) -> dict[str, object]:
+        jobs = self._job_service()
+        if session_id is not None:
+            self._active_session(session_id)
+        if kind == "create":
+            creation = CreateJobRequest.model_validate(request)
+            self._authorize_job_request(session_id, creation)
+            return jobs.submit(creation, session_id=session_id).response()
+        if kind == "photo":
+            photo = PhotoJobRequest.model_validate(request)
+            self._authorize_job_request(session_id, photo)
+            return jobs.submit_photo(photo, session_id=session_id).response()
+        if kind == "revision":
+            if parent_job_id is None:
+                raise ValueError("revision jobs require a parent job ID")
+            parent = self._owned_job(session_id, parent_job_id)
+            revision = ReviseJobRequest.model_validate(request)
+            self._authorize_job_request(session_id, revision)
+            return jobs.submit_revision(
+                parent.state.job_id, revision, session_id=session_id
+            ).response()
+        raise ValueError(f"unknown job kind: {kind}")
+
+    def job_response(
+        self, job_id: str, session_id: str | None = None
+    ) -> dict[str, object]:
+        return self._owned_job(session_id, job_id).response()
+
+    def list_jobs(self) -> list[dict[str, object]]:
+        return self._job_service().list()
+
+    def cancel_job(
+        self, job_id: str, session_id: str | None = None
+    ) -> dict[str, object]:
+        self._owned_job(session_id, job_id)
+        job = self._job_service().cancel(job_id)
+        if job is None:
+            raise ValueError("unknown creative job")
+        return job.response()
+
+    def select_job_variant(
+        self,
+        job_id: str,
+        variant_id: str,
+        request: dict[str, object],
+        session_id: str | None = None,
+    ) -> dict[str, object]:
+        job = self._owned_job(session_id, job_id)
+        selection = VariantSelectionRequest.model_validate(request)
+        return self._job_service().select_variant(job, variant_id, selection).response()
+
+    def job_artifact(
+        self, job_id: str, artifact_name: str, session_id: str | None = None
+    ) -> dict[str, object]:
+        job = self._owned_job(session_id, job_id)
+        with job.lock:
+            path = artifact_paths(job.state).get(artifact_name)
+        if path is None:
+            raise ValueError("unknown job artifact")
+        return {"path": str(path), "size_bytes": path.stat().st_size}
+
+    def _job_service(self) -> JobService:
+        if self._jobs is None:
+            raise RuntimeError("creative job service is unavailable")
+        return self._jobs
+
+    def _owned_job(self, session_id: str | None, job_id: str) -> JobRecord:
+        job = self._job_service().get(job_id)
+        if job is None:
+            raise ValueError("unknown creative job")
+        with job.lock:
+            if session_id is not None and job.state.session_id != session_id:
+                raise ValueError("unknown creative job")
+        return job
+
+    def _authorize_job_request(
+        self,
+        session_id: str | None,
+        request: CreateJobRequest | ReviseJobRequest | PhotoJobRequest,
+    ) -> None:
+        if session_id is None:
+            return
+        if isinstance(request, (CreateJobRequest, PhotoJobRequest)):
+            paths = [request.source, request.output_directory]
+        else:
+            paths = [request.plan, request.output_directory]
+        if isinstance(request, CreateJobRequest):
+            paths.extend(
+                path
+                for path in (
+                    request.events,
+                    request.game_pack,
+                    request.vision_provider,
+                    request.transcript,
+                    request.music_catalog,
+                    request.sound_catalog,
+                )
+                if path is not None
+            )
+        self.authorize_paths(session_id, tuple(paths))
 
     def adapter_descriptions(self) -> tuple[dict[str, object], ...]:
         if not isinstance(self._backend, AdapterCatalogBackend):

@@ -1,7 +1,6 @@
 """Persistent creative job models and execution service."""
 
 from nimbledesk.jobs.service import (
-    JOB_SERVICE,
     CreateJobRequest,
     JobRecord,
     JobService,
@@ -16,7 +15,6 @@ from nimbledesk.jobs.service import (
 
 __all__ = [
     "CreateJobRequest",
-    "JOB_SERVICE",
     "JobRecord",
     "JobService",
     "PersistedJob",
