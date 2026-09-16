@@ -27,3 +27,7 @@
 - Never expose a generic shell through the desktop protocol.
 - Give third-party adapter workers only declared filesystem paths and opt-in network capabilities;
   remove temporary Windows AppContainer ACL entries after every invocation.
+- Keep clipboard access behind independent host and session gates, bound read size, redact its
+  content from audit records, and require exact approval for every write.
+- Launch only an application identifier in the session allowlist and require an exact approval for
+  each launch.

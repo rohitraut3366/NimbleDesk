@@ -30,6 +30,7 @@ class FakeSystemController:
             Capability.POINTER: PermissionState.GRANTED,
             Capability.KEYBOARD: PermissionState.GRANTED,
             Capability.WINDOWS: PermissionState.GRANTED,
+            Capability.CLIPBOARD: PermissionState.GRANTED,
         }
 
     def displays(self) -> tuple[Display, ...]:
@@ -77,6 +78,16 @@ class FakeSystemController:
 
     def focus_window(self, window_id: str) -> None:
         self.calls.append(("focus", window_id))
+
+    def read_clipboard(self) -> str:
+        self.calls.append(("clipboard-read",))
+        return "fixture clipboard"
+
+    def write_clipboard(self, text: str) -> None:
+        self.calls.append(("clipboard-write", text))
+
+    def launch_application(self, application_id: str) -> None:
+        self.calls.append(("launch", application_id))
 
 
 def test_native_io_reports_mixed_scale_displays_and_captures_region() -> None:
@@ -164,3 +175,40 @@ def test_native_io_rejects_cross_display_capture() -> None:
         assert "one display" in str(error)
     else:
         raise AssertionError("cross-display capture must fail")
+
+
+def test_native_io_bounds_clipboard_and_launches_application() -> None:
+    controller = FakeSystemController()
+    backend = SystemIOBackend(controller)
+
+    clipboard = backend.execute(
+        ActionRequest(
+            session_id="session",
+            kind=ActionKind.READ_CLIPBOARD,
+            arguments={"maximum_characters": 7},
+        )
+    )
+    written = backend.execute(
+        ActionRequest(
+            session_id="session",
+            kind=ActionKind.WRITE_CLIPBOARD,
+            arguments={"text": "new value"},
+        )
+    )
+    launched = backend.execute(
+        ActionRequest(
+            session_id="session",
+            kind=ActionKind.LAUNCH_APPLICATION,
+            arguments={"application_id": "com.example.Editor"},
+        )
+    )
+
+    assert clipboard.data["text"] == "fixture"
+    assert clipboard.data["truncated"] is True
+    assert written.data["characters"] == 9
+    assert launched.status is ActionStatus.COMPLETED
+    assert controller.calls == [
+        ("clipboard-read",),
+        ("clipboard-write", "new value"),
+        ("launch", "com.example.Editor"),
+    ]

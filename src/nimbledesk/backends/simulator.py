@@ -34,6 +34,8 @@ class SimulatorBackend:
         self.executed_actions: list[ActionRequest] = []
         self.input_cancelled = False
         self._observation_id: str | None = None
+        self.clipboard_text = ""
+        self.launched_applications: list[str] = []
 
     @property
     def backend_id(self) -> str:
@@ -48,6 +50,7 @@ class SimulatorBackend:
                 Capability.KEYBOARD,
                 Capability.WINDOWS,
                 Capability.ACCESSIBILITY,
+                Capability.CLIPBOARD,
             }
         )
 
@@ -106,6 +109,42 @@ class SimulatorBackend:
 
     def execute(self, request: ActionRequest) -> ActionResult:
         started_at = time()
+        if request.kind is ActionKind.READ_CLIPBOARD:
+            maximum = int(request.arguments.get("maximum_characters", 10_000))
+            text = self.clipboard_text[:maximum]
+            self.executed_actions.append(request)
+            return self._result(
+                request,
+                ActionStatus.COMPLETED,
+                "Clipboard read by simulator",
+                started_at,
+                {
+                    "text": text,
+                    "characters": len(text),
+                    "truncated": len(self.clipboard_text) > maximum,
+                },
+            )
+        if request.kind is ActionKind.WRITE_CLIPBOARD:
+            self.clipboard_text = str(request.arguments["text"])
+            self.executed_actions.append(request)
+            return self._result(
+                request,
+                ActionStatus.COMPLETED,
+                "Clipboard written by simulator",
+                started_at,
+                {"characters": len(self.clipboard_text)},
+            )
+        if request.kind is ActionKind.LAUNCH_APPLICATION:
+            application_id = str(request.arguments["application_id"])
+            self.launched_applications.append(application_id)
+            self.executed_actions.append(request)
+            return self._result(
+                request,
+                ActionStatus.COMPLETED,
+                "Application launched by simulator",
+                started_at,
+                {"application_id": application_id},
+            )
         if isinstance(request.target, ElementTarget):
             if request.target.observation_id != self._observation_id:
                 return self._result(
@@ -163,6 +202,7 @@ class SimulatorBackend:
         status: ActionStatus,
         message: str,
         started_at: float,
+        data: dict[str, object] | None = None,
     ) -> ActionResult:
         return ActionResult(
             action_id=request.action_id,
@@ -170,5 +210,5 @@ class SimulatorBackend:
             message=message,
             started_at=started_at,
             finished_at=time(),
-            data={"backend": "simulator"},
+            data={"backend": "simulator", **(data or {})},
         )

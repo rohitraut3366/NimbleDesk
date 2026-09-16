@@ -181,3 +181,39 @@ async def test_gateway_passes_media_grants_and_bounded_search(
     assert recording_client.method == "media_index_search"
     assert recording_client.params["maximum_results"] == 5
     assert recording_client.params["maximum_tokens"] == 512
+
+
+@pytest.mark.asyncio
+async def test_gateway_exposes_bounded_clipboard_and_allowlisted_launch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recording_client = RecordingClient()
+    monkeypatch.setattr(gateway, "client", lambda: recording_client)
+
+    await gateway.session_start(
+        "edit",
+        input_enabled=True,
+        clipboard_enabled=True,
+        allowed_applications=["com.example.Editor"],
+    )
+    assert recording_client.params["config"]["clipboard_enabled"] is True
+
+    await gateway.read_clipboard("session", "observation", maximum_characters=512)
+    assert recording_client.params["action"]["kind"] == "read_clipboard"
+    assert recording_client.params["action"]["arguments"] == {
+        "maximum_characters": 512
+    }
+
+    await gateway.write_clipboard(
+        "session", "observation", "edit title", approval_token="write-token"
+    )
+    assert recording_client.params["action"]["approval_token"] == "write-token"
+
+    await gateway.launch_application(
+        "session",
+        "observation",
+        "com.example.Editor",
+        approval_token="launch-token",
+    )
+    assert recording_client.params["action"]["kind"] == "launch_application"
+    assert recording_client.params["action"]["approval_token"] == "launch-token"

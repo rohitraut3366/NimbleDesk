@@ -91,6 +91,71 @@ def test_valid_click_executes_and_is_audited(tmp_path: Path) -> None:
     assert len(record["entry_hash"]) == 64
 
 
+def test_clipboard_and_launch_flow_through_policy_approval_and_audit(
+    tmp_path: Path,
+) -> None:
+    audit_path = tmp_path / "audit.jsonl"
+    backend = SimulatorBackend()
+    approvals = ApprovalManager()
+    runtime = DesktopRuntime(
+        backend=backend,
+        sessions=SessionManager(),
+        policy=ActionPolicy(
+            host_input_enabled=True,
+            host_clipboard_enabled=True,
+        ),
+        approvals=approvals,
+        audit=AuditLog(audit_path),
+    )
+    session = runtime.start_session(
+        "edit",
+        SessionConfig(
+            input_enabled=True,
+            clipboard_enabled=True,
+            allowed_applications=frozenset({"com.example.Editor"}),
+        ),
+    )
+    observation = runtime.observe(session.session_id)
+    write = ActionRequest(
+        session_id=session.session_id,
+        source_observation_id=observation.observation_id,
+        kind=ActionKind.WRITE_CLIPBOARD,
+        arguments={"text": "private clipboard"},
+    )
+    pending = runtime.execute(write)
+    assert pending.status is ActionStatus.CONFIRMATION_REQUIRED
+    token = approvals.approve(str(pending.approval_id))
+    written = runtime.execute(write.model_copy(update={"approval_token": token}))
+    read = runtime.execute(
+        ActionRequest(
+            session_id=session.session_id,
+            source_observation_id=observation.observation_id,
+            kind=ActionKind.READ_CLIPBOARD,
+            arguments={"maximum_characters": 7},
+        )
+    )
+    launch = ActionRequest(
+        session_id=session.session_id,
+        source_observation_id=observation.observation_id,
+        kind=ActionKind.LAUNCH_APPLICATION,
+        arguments={"application_id": "com.example.Editor"},
+    )
+    launch_pending = runtime.execute(launch)
+    launch_token = approvals.approve(str(launch_pending.approval_id))
+    launched = runtime.execute(
+        launch.model_copy(update={"approval_token": launch_token})
+    )
+
+    assert written.status is ActionStatus.COMPLETED
+    assert read.data["text"] == "private"
+    assert read.data["truncated"] is True
+    assert launched.status is ActionStatus.COMPLETED
+    assert backend.launched_applications == ["com.example.Editor"]
+    audit_text = audit_path.read_text(encoding="utf-8")
+    assert "private clipboard" not in audit_text
+    assert "\"text\": \"[REDACTED]\"" in audit_text
+
+
 def test_semantic_element_click_is_observation_bound() -> None:
     runtime, backend = make_runtime()
     session = runtime.start_session("semantic fixture", SessionConfig(input_enabled=True))

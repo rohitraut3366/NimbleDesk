@@ -65,3 +65,32 @@ def test_core_graphics_image_conversion_honors_row_stride() -> None:
     assert isinstance(converted, Image.Image)
     assert converted.getpixel((0, 0)) == (255, 0, 0)
     assert converted.getpixel((1, 0)) == (0, 255, 0)
+
+
+def test_macos_clipboard_uses_native_pasteboard() -> None:
+    class Pasteboard:
+        value = "existing"
+
+        @classmethod
+        def generalPasteboard(cls) -> Pasteboard:
+            return cls()
+
+        def stringForType_(self, _type: str) -> str:
+            return self.value
+
+        def clearContents(self) -> None:
+            self.value = ""
+
+        def writeObjects_(self, values: list[str]) -> bool:
+            type(self).value = values[0]
+            return True
+
+    class AppKit:
+        NSPasteboard = Pasteboard
+        NSPasteboardTypeString = "public.utf8-plain-text"
+
+    controller = MacOSController(app_kit=AppKit())
+
+    assert controller.read_clipboard() == "existing"
+    controller.write_clipboard("updated")
+    assert controller.read_clipboard() == "updated"

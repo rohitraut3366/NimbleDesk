@@ -45,6 +45,16 @@ class FakeWindowsAPI:
     def focus_window(self, handle: int) -> None:
         self.calls.append(("focus", handle))
 
+    def read_clipboard(self) -> str:
+        self.calls.append(("clipboard-read",))
+        return "windows clipboard"
+
+    def write_clipboard(self, text: str) -> None:
+        self.calls.append(("clipboard-write", text))
+
+    def launch_application(self, application_id: str) -> None:
+        self.calls.append(("launch", application_id))
+
 
 def test_windows_layout_preserves_adjacency_across_mixed_dpi() -> None:
     displays = _layout_displays(FakeWindowsAPI().displays())
@@ -89,6 +99,7 @@ def test_windows_controller_reports_native_capabilities() -> None:
         Capability.POINTER: PermissionState.GRANTED,
         Capability.KEYBOARD: PermissionState.GRANTED,
         Capability.WINDOWS: PermissionState.GRANTED,
+        Capability.CLIPBOARD: PermissionState.GRANTED,
     }
 
 

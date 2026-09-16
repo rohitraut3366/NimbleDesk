@@ -53,6 +53,7 @@ class MacOSController:
         input_granted = bool(
             application_services and application_services.AXIsProcessTrusted()
         )
+        clipboard_available = self._load_app_kit() is not None
         return {
             Capability.SCREEN_CAPTURE: (
                 PermissionState.GRANTED if screen_granted else PermissionState.DENIED
@@ -64,6 +65,11 @@ class MacOSController:
                 PermissionState.GRANTED if input_granted else PermissionState.DENIED
             ),
             Capability.WINDOWS: PermissionState.GRANTED,
+            Capability.CLIPBOARD: (
+                PermissionState.GRANTED
+                if clipboard_available
+                else PermissionState.UNAVAILABLE
+            ),
         }
 
     def displays(self) -> tuple[Display, ...]:
@@ -156,6 +162,54 @@ class MacOSController:
         )
         if application is None or not application.activateWithOptions_(1 << 1):
             raise RuntimeError("macOS refused to activate the target application")
+
+    def read_clipboard(self) -> str:
+        app_kit = self._require_app_kit()
+        pasteboard = app_kit.NSPasteboard.generalPasteboard()
+        value = pasteboard.stringForType_(app_kit.NSPasteboardTypeString)
+        return str(value) if value is not None else ""
+
+    def write_clipboard(self, text: str) -> None:
+        app_kit = self._require_app_kit()
+        pasteboard = app_kit.NSPasteboard.generalPasteboard()
+        pasteboard.clearContents()
+        if not pasteboard.writeObjects_([text]):
+            raise RuntimeError("macOS pasteboard rejected the text")
+
+    def launch_application(self, application_id: str) -> None:
+        app_kit = self._require_app_kit()
+        workspace = app_kit.NSWorkspace.sharedWorkspace()
+        running = next(
+            (
+                application
+                for application in workspace.runningApplications()
+                if str(application.bundleIdentifier() or "") == application_id
+            ),
+            None,
+        )
+        if running is not None:
+            if not running.activateWithOptions_(1 << 1):
+                raise RuntimeError("macOS refused to activate the application")
+            return
+        url = workspace.URLForApplicationWithBundleIdentifier_(application_id)
+        if url is None:
+            raise ValueError("no installed macOS application matches the bundle identifier")
+        completed = threading.Event()
+        result: dict[str, Any] = {}
+
+        def launched(application: Any, error: Any) -> None:
+            result["application"] = application
+            result["error"] = error
+            completed.set()
+
+        configuration = app_kit.NSWorkspaceOpenConfiguration.configuration()
+        workspace.openApplicationAtURL_configuration_completionHandler_(
+            url, configuration, launched
+        )
+        if not completed.wait(15):
+            raise RuntimeError("macOS application launch timed out")
+        if result.get("error") is not None or result.get("application") is None:
+            raise RuntimeError(f"macOS application launch failed: {result.get('error')}")
 
     def _post_mouse(self, point: Point, button: str, pressed: bool) -> None:
         quartz = self._require_quartz()
@@ -288,6 +342,12 @@ class MacOSController:
         if self._app_kit is None and importlib.util.find_spec("AppKit"):
             self._app_kit = importlib.import_module("AppKit")
         return self._app_kit
+
+    def _require_app_kit(self) -> Any:
+        app_kit = self._load_app_kit()
+        if app_kit is None:
+            raise RuntimeError("pyobjc-framework-Cocoa is unavailable")
+        return app_kit
 
     def _load_application_services(self) -> Any | None:
         if self._application_services is None and importlib.util.find_spec(

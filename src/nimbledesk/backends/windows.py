@@ -3,6 +3,8 @@ from __future__ import annotations
 import ctypes
 import platform
 from ctypes import wintypes
+from pathlib import Path
+from time import sleep
 from typing import Any, Protocol
 
 from PIL import Image
@@ -27,6 +29,8 @@ MONITORINFOF_PRIMARY = 0x0001
 SRCCOPY = 0x00CC0020
 CAPTUREBLT = 0x40000000
 WHEEL_DELTA = 120
+CF_UNICODETEXT = 13
+GMEM_MOVEABLE = 0x0002
 
 
 class WindowsDesktopAPI(Protocol):
@@ -47,6 +51,12 @@ class WindowsDesktopAPI(Protocol):
     def type_text(self, text: str) -> None: ...
 
     def focus_window(self, handle: int) -> None: ...
+
+    def read_clipboard(self) -> str: ...
+
+    def write_clipboard(self, text: str) -> None: ...
+
+    def launch_application(self, application_id: str) -> None: ...
 
 
 class WindowsNativeBackend(SystemIOBackend):
@@ -72,6 +82,7 @@ class WindowsController:
             Capability.POINTER: permission,
             Capability.KEYBOARD: permission,
             Capability.WINDOWS: permission,
+            Capability.CLIPBOARD: permission,
         }
 
     def displays(self) -> tuple[Display, ...]:
@@ -115,6 +126,15 @@ class WindowsController:
         except (IndexError, ValueError) as error:
             raise ValueError("Windows UIA window ID does not contain a native handle") from error
         self._require_api().focus_window(handle)
+
+    def read_clipboard(self) -> str:
+        return self._require_api().read_clipboard()
+
+    def write_clipboard(self, text: str) -> None:
+        self._require_api().write_clipboard(text)
+
+    def launch_application(self, application_id: str) -> None:
+        self._require_api().launch_application(application_id)
 
     def _require_api(self) -> WindowsDesktopAPI:
         if self._api is None:
@@ -260,6 +280,8 @@ class Win32DesktopAPI:
         self._user32 = windows_dll("user32", use_last_error=True)
         self._gdi32 = windows_dll("gdi32", use_last_error=True)
         self._shcore = windows_dll("shcore", use_last_error=True)
+        self._kernel32 = windows_dll("kernel32", use_last_error=True)
+        self._shell32 = windows_dll("shell32", use_last_error=True)
         self._callback_type: Any = ctypes.__dict__["WINFUNCTYPE"](
             wintypes.BOOL,
             wintypes.HANDLE,
@@ -441,6 +463,69 @@ class Win32DesktopAPI:
                 "or on a secure desktop"
             )
 
+    def read_clipboard(self) -> str:
+        self._open_clipboard()
+        try:
+            if not self._user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
+                return ""
+            handle = self._user32.GetClipboardData(CF_UNICODETEXT)
+            if not handle:
+                raise _windows_error()
+            pointer = self._kernel32.GlobalLock(handle)
+            if not pointer:
+                raise _windows_error()
+            try:
+                byte_count = int(self._kernel32.GlobalSize(handle))
+                maximum_units = min(100_001, max(0, byte_count // 2))
+                return ctypes.wstring_at(pointer, maximum_units).split("\0", 1)[0]
+            finally:
+                self._kernel32.GlobalUnlock(handle)
+        finally:
+            self._user32.CloseClipboard()
+
+    def write_clipboard(self, text: str) -> None:
+        encoded = (text + "\0").encode("utf-16-le")
+        self._open_clipboard()
+        memory = None
+        try:
+            if not self._user32.EmptyClipboard():
+                raise _windows_error()
+            memory = self._kernel32.GlobalAlloc(GMEM_MOVEABLE, len(encoded))
+            if not memory:
+                raise _windows_error()
+            pointer = self._kernel32.GlobalLock(memory)
+            if not pointer:
+                raise _windows_error()
+            try:
+                ctypes.memmove(pointer, encoded, len(encoded))
+            finally:
+                self._kernel32.GlobalUnlock(memory)
+            if not self._user32.SetClipboardData(CF_UNICODETEXT, memory):
+                raise _windows_error()
+            memory = None
+        finally:
+            if memory:
+                self._kernel32.GlobalFree(memory)
+            self._user32.CloseClipboard()
+
+    def launch_application(self, application_id: str) -> None:
+        candidate = Path(application_id)
+        target = (
+            str(candidate.resolve())
+            if candidate.is_absolute() and candidate.is_file()
+            else f"shell:AppsFolder\\{application_id}"
+        )
+        result = self._shell32.ShellExecuteW(None, "open", target, None, None, 1)
+        if int(result) <= 32:
+            raise RuntimeError(f"Windows application launch failed with code {int(result)}")
+
+    def _open_clipboard(self) -> None:
+        for _ in range(10):
+            if self._user32.OpenClipboard(None):
+                return
+            sleep(0.02)
+        raise RuntimeError("Windows clipboard is busy")
+
     def _monitor_scale(self, handle: Any) -> float:
         horizontal = wintypes.UINT()
         vertical = wintypes.UINT()
@@ -507,6 +592,16 @@ class Win32DesktopAPI:
         self._user32.IsWindow.restype = wintypes.BOOL
         self._user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
         self._user32.SetForegroundWindow.restype = wintypes.BOOL
+        self._user32.OpenClipboard.argtypes = (wintypes.HWND,)
+        self._user32.OpenClipboard.restype = wintypes.BOOL
+        self._user32.CloseClipboard.restype = wintypes.BOOL
+        self._user32.EmptyClipboard.restype = wintypes.BOOL
+        self._user32.IsClipboardFormatAvailable.argtypes = (wintypes.UINT,)
+        self._user32.IsClipboardFormatAvailable.restype = wintypes.BOOL
+        self._user32.GetClipboardData.argtypes = (wintypes.UINT,)
+        self._user32.GetClipboardData.restype = wintypes.HANDLE
+        self._user32.SetClipboardData.argtypes = (wintypes.UINT, wintypes.HANDLE)
+        self._user32.SetClipboardData.restype = wintypes.HANDLE
         self._gdi32.CreateCompatibleDC.argtypes = (wintypes.HDC,)
         self._gdi32.CreateCompatibleDC.restype = wintypes.HDC
         self._gdi32.CreateCompatibleBitmap.argtypes = (
@@ -550,6 +645,25 @@ class Win32DesktopAPI:
             ctypes.POINTER(wintypes.UINT),
         )
         self._shcore.GetDpiForMonitor.restype = ctypes.c_long
+        self._kernel32.GlobalAlloc.argtypes = (wintypes.UINT, ctypes.c_size_t)
+        self._kernel32.GlobalAlloc.restype = wintypes.HANDLE
+        self._kernel32.GlobalLock.argtypes = (wintypes.HANDLE,)
+        self._kernel32.GlobalLock.restype = wintypes.LPVOID
+        self._kernel32.GlobalUnlock.argtypes = (wintypes.HANDLE,)
+        self._kernel32.GlobalUnlock.restype = wintypes.BOOL
+        self._kernel32.GlobalSize.argtypes = (wintypes.HANDLE,)
+        self._kernel32.GlobalSize.restype = ctypes.c_size_t
+        self._kernel32.GlobalFree.argtypes = (wintypes.HANDLE,)
+        self._kernel32.GlobalFree.restype = wintypes.HANDLE
+        self._shell32.ShellExecuteW.argtypes = (
+            wintypes.HWND,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            ctypes.c_int,
+        )
+        self._shell32.ShellExecuteW.restype = wintypes.HANDLE
 
 
 class _ignore_os_error:

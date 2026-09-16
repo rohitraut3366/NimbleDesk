@@ -46,6 +46,7 @@ async def health() -> dict[str, Any]:
 async def session_start(
     reason: str,
     input_enabled: bool = False,
+    clipboard_enabled: bool = False,
     allowed_applications: list[str] | None = None,
     granted_paths: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -56,6 +57,7 @@ async def session_start(
             "reason": reason,
             "config": {
                 "input_enabled": input_enabled,
+                "clipboard_enabled": clipboard_enabled,
                 "allowed_applications": allowed_applications or [],
                 "granted_paths": granted_paths or [],
             },
@@ -452,6 +454,72 @@ async def hotkey(
 
 
 @mcp.tool()
+async def focus_window(
+    session_id: str,
+    observation_id: str,
+    window_id: str,
+    expected_application_id: str | None = None,
+) -> dict[str, Any]:
+    """Focus a native window from the latest observation."""
+    return await _execute_action(
+        session_id=session_id,
+        observation_id=observation_id,
+        kind=ActionKind.FOCUS_WINDOW,
+        expected_application_id=expected_application_id,
+        arguments={"window_id": window_id},
+    )
+
+
+@mcp.tool()
+async def read_clipboard(
+    session_id: str,
+    observation_id: str,
+    maximum_characters: int = 10_000,
+) -> dict[str, Any]:
+    """Read bounded text from the clipboard when host and session access are enabled."""
+    return await _execute_action(
+        session_id=session_id,
+        observation_id=observation_id,
+        kind=ActionKind.READ_CLIPBOARD,
+        arguments={"maximum_characters": maximum_characters},
+    )
+
+
+@mcp.tool()
+async def write_clipboard(
+    session_id: str,
+    observation_id: str,
+    text: str,
+    approval_token: str | None = None,
+) -> dict[str, Any]:
+    """Write clipboard text after an exact-action approval."""
+    return await _execute_action(
+        session_id=session_id,
+        observation_id=observation_id,
+        kind=ActionKind.WRITE_CLIPBOARD,
+        arguments={"text": text},
+        approval_token=approval_token,
+    )
+
+
+@mcp.tool()
+async def launch_application(
+    session_id: str,
+    observation_id: str,
+    application_id: str,
+    approval_token: str | None = None,
+) -> dict[str, Any]:
+    """Launch an allowlisted bundle, executable, or AppUserModel ID after approval."""
+    return await _execute_action(
+        session_id=session_id,
+        observation_id=observation_id,
+        kind=ActionKind.LAUNCH_APPLICATION,
+        arguments={"application_id": application_id},
+        approval_token=approval_token,
+    )
+
+
+@mcp.tool()
 async def wait(session_id: str, seconds: float) -> dict[str, Any]:
     """Wait up to ten seconds for an application or animation to settle."""
     return await _execute_action(
@@ -484,7 +552,7 @@ async def application_command(
 
 @mcp.tool()
 async def approval_status(approval_id: str) -> dict[str, Any]:
-    """Check whether a human approved or rejected a pending application command."""
+    """Check whether a human approved or rejected a pending exact action."""
     return await client().call("approval_status", {"approval_id": approval_id})
 
 
@@ -524,6 +592,7 @@ async def _execute_action(
     expected_application_id: str | None = None,
     expected_window_id: str | None = None,
     recovery: RecoveryOptions | None = None,
+    approval_token: str | None = None,
 ) -> dict[str, Any]:
     action = ActionRequest(
         session_id=session_id,
@@ -534,6 +603,7 @@ async def _execute_action(
         target=target,
         arguments=arguments,
         recovery=recovery or RecoveryOptions(),
+        approval_token=approval_token,
     )
     return await client().call("action_execute", {"action": action.model_dump(mode="json")})
 

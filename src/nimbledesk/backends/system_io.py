@@ -49,6 +49,12 @@ class SystemIOController(Protocol):
 
     def focus_window(self, window_id: str) -> None: ...
 
+    def read_clipboard(self) -> str: ...
+
+    def write_clipboard(self, text: str) -> None: ...
+
+    def launch_application(self, application_id: str) -> None: ...
+
 
 class SystemIOBackend:
     """Shared action contract for native macOS and Windows I/O controllers."""
@@ -122,10 +128,16 @@ class SystemIOBackend:
                 started_at,
             )
         try:
-            self._execute(request)
+            action_data = self._execute(request)
         except (KeyError, RuntimeError, TypeError, ValueError) as error:
             return self._result(request, ActionStatus.FAILED, str(error), started_at)
-        return self._result(request, ActionStatus.COMPLETED, "Native action executed", started_at)
+        return self._result(
+            request,
+            ActionStatus.COMPLETED,
+            "Native action executed",
+            started_at,
+            action_data,
+        )
 
     def cancel_input(self) -> None:
         point = self._controller.cursor()
@@ -134,33 +146,53 @@ class SystemIOBackend:
         for button in ("left", "middle", "right"):
             self._controller.pointer_button(point, button, False)
 
-    def _execute(self, request: ActionRequest) -> None:
+    def _execute(self, request: ActionRequest) -> dict[str, object]:
         if request.kind is ActionKind.WAIT:
             sleep(_float_argument(request, "seconds", 0, 0, 10))
-            return
+            return {}
         if request.kind is ActionKind.FOCUS_WINDOW:
             self._controller.focus_window(_window_id(request))
-            return
+            return {}
+        if request.kind is ActionKind.READ_CLIPBOARD:
+            maximum = int(_float_argument(request, "maximum_characters", 10_000, 1, 100_000))
+            text = self._controller.read_clipboard()
+            return {
+                "text": text[:maximum],
+                "characters": min(len(text), maximum),
+                "truncated": len(text) > maximum,
+            }
+        if request.kind is ActionKind.WRITE_CLIPBOARD:
+            clipboard_value = request.arguments.get("text")
+            if not isinstance(clipboard_value, str) or not 1 <= len(clipboard_value) <= 100_000:
+                raise ValueError("clipboard text must contain between 1 and 100000 characters")
+            self._controller.write_clipboard(clipboard_value)
+            return {"characters": len(clipboard_value)}
+        if request.kind is ActionKind.LAUNCH_APPLICATION:
+            application_id = request.arguments.get("application_id")
+            if not isinstance(application_id, str) or not application_id:
+                raise ValueError("application ID is required")
+            self._controller.launch_application(application_id)
+            return {"application_id": application_id}
         if request.kind is ActionKind.SCROLL:
             vertical = _float_argument(request, "amount", 0, -100, 100)
             horizontal = _float_argument(request, "horizontal", 0, -100, 100)
             if vertical == 0 and horizontal == 0:
                 raise ValueError("scroll amount cannot be zero")
             self._controller.scroll(horizontal, vertical)
-            return
+            return {}
         if request.kind is ActionKind.TYPE_TEXT:
-            text = request.arguments.get("text")
-            if not isinstance(text, str) or not 1 <= len(text) <= 10_000:
+            typing_value = request.arguments.get("text")
+            if not isinstance(typing_value, str) or not 1 <= len(typing_value) <= 10_000:
                 raise ValueError("text must contain between 1 and 10000 characters")
-            self._controller.type_text(text)
-            return
+            self._controller.type_text(typing_value)
+            return {}
         if request.kind is ActionKind.PRESS_KEY:
             key = _key_argument(request)
             presses = int(_float_argument(request, "presses", 1, 1, 20))
             for _ in range(presses):
                 self._controller.key(key, True)
                 self._controller.key(key, False)
-            return
+            return {}
         if request.kind is ActionKind.HOTKEY:
             raw_keys = request.arguments.get("keys")
             if not isinstance(raw_keys, list) or not 2 <= len(raw_keys) <= 5:
@@ -172,7 +204,7 @@ class SystemIOBackend:
                 self._controller.key(key, True)
             for key in reversed(keys):
                 self._controller.key(key, False)
-            return
+            return {}
         if request.kind not in {ActionKind.MOVE_POINTER, ActionKind.CLICK, ActionKind.DRAG}:
             raise ValueError(f"native I/O backend does not support {request.kind}")
         if not isinstance(request.target, CoordinateTarget):
@@ -202,6 +234,7 @@ class SystemIOBackend:
                     if click + 1 < clicks:
                         sleep(interval)
         self._cursor = point
+        return {}
 
     def _move(self, start: Point, target: Point, duration: float) -> None:
         if duration <= 0:
@@ -259,6 +292,7 @@ class SystemIOBackend:
         status: ActionStatus,
         message: str,
         started_at: float,
+        action_data: dict[str, object] | None = None,
     ) -> ActionResult:
         return ActionResult(
             action_id=request.action_id,
@@ -266,7 +300,7 @@ class SystemIOBackend:
             message=message,
             started_at=started_at,
             finished_at=time(),
-            data={"backend": self.backend_id},
+            data={"backend": self.backend_id, **(action_data or {})},
         )
 
 
@@ -276,6 +310,10 @@ def _required_capability(kind: ActionKind) -> Capability | None:
     if kind in {ActionKind.TYPE_TEXT, ActionKind.PRESS_KEY, ActionKind.HOTKEY}:
         return Capability.KEYBOARD
     if kind is ActionKind.FOCUS_WINDOW:
+        return Capability.WINDOWS
+    if kind in {ActionKind.READ_CLIPBOARD, ActionKind.WRITE_CLIPBOARD}:
+        return Capability.CLIPBOARD
+    if kind is ActionKind.LAUNCH_APPLICATION:
         return Capability.WINDOWS
     return None
 

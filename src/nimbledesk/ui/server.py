@@ -1135,9 +1135,11 @@ async function refresh(){const response=await fetch('/api/jobs');const data=awai
 async function refreshApprovals(){const response=await fetch('/api/approvals');const data=await response.json();
   approvals.innerHTML=data.approvals?.length?`<h2>Actions awaiting your approval</h2>`+
     data.approvals.map(item=>{const action=item.action;const adapter=action.arguments?.adapter_id||'application';
-      const command=action.arguments?.command||action.kind;return `<article><strong>${h(adapter)}</strong> · ${h(command)}
+      const command=action.arguments?.command||action.kind;
+      const reviewArguments=action.kind==='app_command'?action.arguments?.arguments||{}:action.arguments||{};
+      return `<article><strong>${h(adapter)}</strong> · ${h(command)}
       <p>Expires ${h(new Date(item.expires_at*1000).toLocaleTimeString())}</p>
-      <pre><code>${h(JSON.stringify(action.arguments?.arguments||{},null,2))}</code></pre>
+      <pre><code>${h(JSON.stringify(reviewArguments,null,2))}</code></pre>
       <button onclick="decideApproval('${h(item.approval_id)}','approve')">Approve exact action</button>
       <button onclick="decideApproval('${h(item.approval_id)}','reject')">Reject</button></article>`;}).join(''):'';}
 async function refreshHealth(){const response=await fetch('/api/health');const data=await response.json();

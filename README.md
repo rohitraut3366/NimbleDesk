@@ -486,7 +486,7 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 ### Recommended model workflow
 
 1. Call `health`.
-2. Call `session_start` with a clear reason. Set `input_enabled` to `true` only when input is intended. Add only the project or analysis directories needed by media tools to `granted_paths`.
+2. Call `session_start` with a clear reason. Set `input_enabled` to `true` only when input is intended. Enable `clipboard_enabled` only for a workflow that needs clipboard text, and allowlist every application that may be launched. Add only the project or analysis directories needed by media tools to `granted_paths`.
 3. Call `desktop_observe` and retain its `observation_id`, active application, focused window, semantic elements, and display bounds.
 4. Call `take_screenshot` with that observation. Prefer a crop when the relevant region is known.
 5. Prefer `click_element` when the observation contains the intended accessible control. Use `click_text` for visible labels in inaccessible applications. For a model-detected visual box, call `capture_region_signature` immediately before `click_visual`. Use raw coordinates only when none of these targets apply. Include expected application and window IDs when available.
@@ -498,7 +498,7 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | Tool | Required arguments | Optional arguments and behavior |
 | --- | --- | --- |
 | `health` | None | Checks daemon availability. |
-| `session_start` | `reason` | `input_enabled=false`; `allowed_applications=[]`. Sessions default to 1,000 actions and one hour. |
+| `session_start` | `reason` | `input_enabled=false`; `clipboard_enabled=false`; `allowed_applications=[]`. Sessions default to 1,000 actions and one hour. |
 | `desktop_observe` | `session_id` | `max_estimated_text_tokens=2000` (128–100,000); `max_windows=10` (0–200); `max_elements=100` (0–2,000). Reports truncation separately for windows and elements. |
 | `media_index_open` | `session_id`, `index_path` | Opens a content index only within the session's explicit `granted_paths`; returns a session-scoped, content-derived handle without exposing the source path. |
 | `media_index_search` | `session_id`, `index_id`, `query` | Searches labels, transcript text, event types, and evidence. `maximum_results=20`; `maximum_tokens=2000`; returns stable result IDs and explicit usage/truncation. |
@@ -515,6 +515,10 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `type_text` | `session_id`, `observation_id`, `text` | `interval=0.02`; expected application/window IDs. Text is redacted from the audit record. |
 | `press_key` | `session_id`, `observation_id`, `key` | `presses=1`; `interval=0.1`; accepts PyAutoGUI names such as `enter`, `tab`, `escape`, `backspace`, and `f5`. |
 | `hotkey` | `session_id`, `observation_id`, `keys` | Example: `["command", "s"]` on macOS or `["ctrl", "s"]` elsewhere. |
+| `focus_window` | `session_id`, `observation_id`, `window_id` | Activates a native window returned by the latest observation; accepts an expected application ID. |
+| `read_clipboard` | `session_id`, `observation_id` | Requires both clipboard gates. Returns at most `maximum_characters=10000` with explicit truncation. Clipboard text is redacted from audit records. |
+| `write_clipboard` | `session_id`, `observation_id`, `text` | Requires both clipboard gates and exact-action approval; pass the approval token on the repeated call. |
+| `launch_application` | `session_id`, `observation_id`, `application_id` | Requires an exact match in the session application allowlist and exact-action approval. Uses a macOS bundle ID or Windows executable/AppUserModel ID. |
 | `wait` | `session_id`, `seconds` | Waits for an interface or animation to settle; maximum 10 seconds per call. |
 | `application_command` | `session_id`, `observation_id`, `adapter_id`, `command`, `arguments` | Executes an installed subprocess adapter after exact-action approval; pass the returned token as `approval_token` on the repeated call. |
 | `approval_status` | `approval_id` | Polls a human decision. An approved response contains the short-lived token; consumed, rejected, invalidated, and expired approvals cannot authorize work. |
@@ -559,6 +563,11 @@ uv run nimbledesk-daemon
 ```
 
 The model then calls `session_start` with `input_enabled=true`. If either gate is false, input actions are rejected.
+
+Clipboard access has another host gate and is disabled by default. Start the daemon with
+`NIMBLEDESK_ENABLE_CLIPBOARD=1`, then set both `input_enabled=true` and
+`clipboard_enabled=true` for that session. Reads are bounded; writes and application launches
+always appear in Studio for exact-action approval.
 
 The optional smoke test moves the pointer by 10 logical pixels and restores it. It never clicks or types:
 
@@ -776,6 +785,7 @@ uv run nimbledesk-qualify endurance \
 | --- | --- | --- |
 | `NIMBLEDESK_BACKEND` | `simulator` | Select `simulator`, `portable`, or `native`. macOS native mode uses ScreenCaptureKit/Core Graphics, CGEvent, AX, and Retina geometry. Windows native mode uses per-monitor DPI geometry, Win32 capture, SendInput, UIA, and explicit UIPI errors. Linux Wayland uses the XDG ScreenCast/RemoteDesktop portals. Unknown values fail at startup. |
 | `NIMBLEDESK_ENABLE_INPUT` | Disabled | Host input gate. Truthy values are `1`, `true`, `yes`, or `on`, ignoring case. |
+| `NIMBLEDESK_ENABLE_CLIPBOARD` | Disabled | Additional host gate for native clipboard reads and writes. The session must also set `clipboard_enabled=true`. |
 | `NIMBLEDESK_RUNTIME_DIR` | `~/.nimbledesk/runtime` | Directory for `connection.json` and `audit.jsonl`. |
 | `NIMBLEDESK_CONNECTION_FILE` | `~/.nimbledesk/runtime/connection.json` | Connection file read by `nimbledesk-mcp`. |
 | `NIMBLEDESK_JOB_DIR` | `~/.nimbledesk/jobs` | Durable local creation-console job records. |

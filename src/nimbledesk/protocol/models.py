@@ -50,6 +50,9 @@ class ActionKind(StrEnum):
     PRESS_KEY = "press_key"
     HOTKEY = "hotkey"
     FOCUS_WINDOW = "focus_window"
+    READ_CLIPBOARD = "read_clipboard"
+    WRITE_CLIPBOARD = "write_clipboard"
+    LAUNCH_APPLICATION = "launch_application"
     WAIT = "wait"
     APP_COMMAND = "app_command"
 
@@ -262,6 +265,7 @@ class ActionResult(ProtocolModel):
 
 class SessionConfig(ProtocolModel):
     input_enabled: bool = False
+    clipboard_enabled: bool = False
     allowed_applications: frozenset[str] = frozenset()
     granted_paths: tuple[str, ...] = ()
     max_actions: Annotated[int, Field(ge=1, le=100_000)] = 1_000

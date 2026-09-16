@@ -146,7 +146,13 @@ class WaylandPortalBackend:
 
     def execute(self, request: ActionRequest) -> ActionResult:
         started_at = time()
-        if request.kind in {ActionKind.FOCUS_WINDOW, ActionKind.APP_COMMAND}:
+        if request.kind in {
+            ActionKind.FOCUS_WINDOW,
+            ActionKind.APP_COMMAND,
+            ActionKind.READ_CLIPBOARD,
+            ActionKind.WRITE_CLIPBOARD,
+            ActionKind.LAUNCH_APPLICATION,
+        }:
             return self._result(
                 request,
                 ActionStatus.CAPABILITY_UNAVAILABLE,
