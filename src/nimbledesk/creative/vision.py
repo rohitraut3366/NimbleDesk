@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 from PIL import Image, ImageDraw
 from pydantic import BaseModel, ConfigDict, Field
 
-from nimbledesk.adapters.limits import MAXIMUM_WORKER_MEMORY_BYTES
+from nimbledesk.adapters.command_runner import run_isolated_command
 from nimbledesk.media.models import TimelineEvent
 from nimbledesk.media.process import CancellationCheck, run_cancellable
 
@@ -29,6 +29,9 @@ class VisionProviderConfig(VisionModel):
     timeout_seconds: Annotated[float, Field(ge=5, le=3600)] = 300
     minimum_confidence: Annotated[float, Field(ge=0, le=1)] = 0.65
     execution_location: Literal["local", "remote"] = "local"
+    network_access: bool = False
+    environment_variables: tuple[str, ...] = ()
+    code_paths: tuple[Path, ...] = ()
 
 
 class VisionSheet(VisionModel):
@@ -127,11 +130,15 @@ def analyze_with_vision_provider(
     request_path.write_text(request.model_dump_json(indent=2), encoding="utf-8")
     command = _provider_command(config.command, request_path, response_path)
     try:
-        completed = run_cancellable(
+        completed = run_isolated_command(
             command,
+            readable_paths=(output_directory,),
+            writable_paths=(output_directory,),
+            network_access=config.network_access or config.execution_location == "remote",
             cancelled=cancelled,
             timeout_seconds=config.timeout_seconds,
-            maximum_memory_bytes=MAXIMUM_WORKER_MEMORY_BYTES,
+            environment_variables=config.environment_variables,
+            code_paths=config.code_paths,
         )
     except TimeoutError as error:
         raise VisionAnalysisError("semantic vision provider timed out") from error

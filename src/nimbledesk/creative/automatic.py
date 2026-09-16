@@ -280,6 +280,12 @@ def _write_vision_provider(
         model=model,
         command=command,
         execution_location=execution_location,
+        network_access=True,
+        environment_variables=(
+            "NIMBLEDESK_VISION_ENDPOINT",
+            "NIMBLEDESK_VISION_MODEL",
+            "NIMBLEDESK_VISION_API_KEY",
+        ),
     )
     path.write_text(config.model_dump_json(indent=2) + "\n", encoding="utf-8")
     return path

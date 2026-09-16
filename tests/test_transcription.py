@@ -103,6 +103,7 @@ def test_model_agnostic_provider_produces_provenanced_transcript(tmp_path: Path)
             provider_id="fixture-transcriber",
             model="fixture-model",
             command=(sys.executable, str(worker), "{request}", "{response}"),
+            code_paths=(worker,),
         ).model_dump_json(),
         encoding="utf-8",
     )

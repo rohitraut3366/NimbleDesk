@@ -37,6 +37,7 @@ json.dump({'events': [
                 "provider_id": "fixture-vision",
                 "model": "fixture-model",
                 "command": [sys.executable, str(worker), "{request}", "{response}"],
+                "code_paths": [str(worker)],
                 "sample_interval_seconds": 4,
                 "maximum_frames": 48,
                 "timeout_seconds": 30,

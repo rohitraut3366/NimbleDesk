@@ -145,7 +145,10 @@ time-aligned segments:
   "model": "my-speech-model",
   "command": ["/path/to/provider", "{request}", "{response}"],
   "timeout_seconds": 3600,
-  "execution_location": "local"
+  "execution_location": "local",
+  "network_access": false,
+  "environment_variables": [],
+  "code_paths": ["/path/to/provider", "/path/to/provider-runtime"]
 }
 ```
 
@@ -159,7 +162,11 @@ The request contains `request_version`, the absolute `source_path`, `source_name
 `detected_language`, and optional `usage` fields for `audio_seconds`, `provider_input_tokens`, and
 `provider_output_tokens`. A remote provider is rejected unless the brief explicitly enables
 `data_policy.allow_remote_audio`. Set `NIMBLEDESK_TRANSCRIPTION_PROVIDER` to the configuration path
-to make `--automatic` and Studio discover it for future jobs.
+to make `--automatic` and Studio discover it for future jobs. Provider environments contain only
+basic runtime variables plus names explicitly listed in `environment_variables`; secret values stay
+outside the configuration file. Remote execution enables network access, while local providers can
+request it explicitly for a loopback model endpoint. `code_paths` must declare the provider program,
+libraries, and interpreter runtime it needs; these paths are read-only inside the sandbox.
 
 ### Model-pluggable semantic vision
 
@@ -204,9 +211,10 @@ low-detail bounded contact sheets, accepts only structured events, and never wri
 
 NimbleDesk extracts at most the configured number of 640-pixel samples and packs twelve timestamped frames into each contact sheet. The worker receives the request JSON path and response JSON path as separate arguments without a shell. It must write `{"events":[{"time_seconds":12,"event_type":"grenade_kill","label":"Grenade double kill","confidence":0.91,"evidence":"throw, explosion, and two elimination markers"}]}`. Responses are schema-validated, limited to one megabyte, filtered by confidence, merged with OCR and supplied events, and retained with provenance. This bounded contact-sheet protocol keeps image-token use predictable and lets local models, hosted APIs, or future providers implement the same contract.
 
-Vision and transcription commands run in their own process sessions with deadlines, cancellation,
-aggregate 512 MiB process-tree memory limits, and descendant cleanup. A timed-out, cancelled, or
-over-limit provider cannot leave its helper processes running after the job stops.
+Vision and transcription commands run in a declared-path sandbox with network denied by default,
+deadlines, cancellation, aggregate 512 MiB process-tree memory limits, and descendant cleanup. A
+provider cannot read unrelated user files, and a timed-out, cancelled, or over-limit provider cannot
+leave its helper processes running after the job stops.
 
 ### Persistent long-form analysis
 

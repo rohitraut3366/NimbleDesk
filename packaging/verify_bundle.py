@@ -145,6 +145,7 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
     source = root / "source.mp4"
     music = root / "music.wav"
     sound = root / "whoosh.wav"
+    provider_runtime = Path(sys.executable).resolve().parents[1]
     fixture_commands = (
         [
             ffmpeg,
@@ -195,9 +196,17 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
         subprocess.run(command, capture_output=True, check=True, timeout=60)
 
     transcription_worker = root / "transcription-provider.py"
+    provider_private_file = root / "provider-private.txt"
+    provider_private_file.write_text("must remain unreadable", encoding="utf-8")
     transcription_worker.write_text(
         "import json\n"
         "import sys\n"
+        "blocked = False\n"
+        "try:\n"
+        "    open(sys.argv[3], encoding='utf-8').read()\n"
+        "except OSError:\n"
+        "    blocked = True\n"
+        "assert blocked, 'provider read an undeclared file'\n"
         "request = json.load(open(sys.argv[1], encoding='utf-8'))\n"
         "assert request['source_name'] == 'source.mp4'\n"
         "json.dump({'segments': ["
@@ -222,7 +231,9 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
                     str(transcription_worker),
                     "{request}",
                     "{response}",
+                    str(provider_private_file),
                 ],
+                "code_paths": [str(transcription_worker), str(provider_runtime)],
                 "timeout_seconds": 30,
                 "execution_location": "local",
             }
@@ -309,6 +320,7 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
                     "{request}",
                     "{response}",
                 ],
+                "code_paths": [str(vision_worker), str(provider_runtime)],
                 "sample_interval_seconds": 1,
                 "maximum_frames": 4,
                 "timeout_seconds": 30,
