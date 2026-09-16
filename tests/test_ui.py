@@ -49,6 +49,24 @@ def test_studio_enables_automatic_intelligence_by_default(tmp_path: Path) -> Non
     assert request.automatic_intelligence
 
 
+def test_studio_uses_configured_runtime_connection_file(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: list[tuple[Path, str]] = []
+    runtime = tmp_path / "custom-runtime"
+    monkeypatch.delenv("NIMBLEDESK_CONNECTION_FILE", raising=False)
+    monkeypatch.setenv("NIMBLEDESK_RUNTIME_DIR", str(runtime))
+    monkeypatch.setattr(
+        ui.DaemonClient,
+        "from_file",
+        lambda path, caller_id: captured.append((path, caller_id)) or object(),
+    )
+
+    ui.daemon_client()
+
+    assert captured == [(runtime / "connection.json", "studio-console")]
+
+
 def test_completed_job_exposes_automatic_decisions_and_artifact(tmp_path: Path) -> None:
     source = tmp_path / "source.mp4"
     source.write_bytes(b"fixture")

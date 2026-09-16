@@ -4,9 +4,16 @@ import json
 import os
 import platform
 import shutil
+import socket
 import subprocess
 import tempfile
+import time
+from contextlib import suppress
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import Request, urlopen
+
+import psutil
 
 
 def verify_bundle(executable: Path) -> None:
@@ -83,6 +90,7 @@ def verify_bundle(executable: Path) -> None:
             raise RuntimeError("bundled DaVinci worker returned an invalid failure contract")
 
         _verify_media_creation(executable, root)
+        _verify_studio_runtime(executable, root)
 
         isolation_report = root / "adapter-isolation-contract.json"
         isolation_contract = subprocess.run(
@@ -317,6 +325,141 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
         raise RuntimeError("bundled creative render did not pass verification")
     if not plan.get("captions") or not plan.get("music_cue") or not plan.get("sound_cues"):
         raise RuntimeError("bundled creative plan omitted captions, music, or sound design")
+
+
+def _verify_studio_runtime(executable: Path, root: Path) -> None:
+    runtime_directory = root / "studio-runtime"
+    runtime_directory.mkdir()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as port_socket:
+        port_socket.bind(("127.0.0.1", 0))
+        port = int(port_socket.getsockname()[1])
+    process = subprocess.Popen(
+        [str(executable), "start", "--host", "127.0.0.1", "--port", str(port)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env={
+            **os.environ,
+            "NIMBLEDESK_BACKEND": "simulator",
+            "NIMBLEDESK_RUNTIME_DIR": str(runtime_directory),
+            "NIMBLEDESK_SAFETY_CONSOLE": "0",
+        },
+    )
+    try:
+        base_url = f"http://127.0.0.1:{port}"
+        health: dict[str, object] | None = None
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                break
+            try:
+                status, _headers, body = _studio_request(base_url + "/api/health")
+                if status == 200:
+                    health = json.loads(body)
+                    break
+            except (OSError, URLError, json.JSONDecodeError):
+                pass
+            time.sleep(0.1)
+        if health is None:
+            _raise_studio_failure(process, "did not become ready")
+        if health.get("status") != "ok" or "simulator" not in str(health.get("backend")):
+            raise RuntimeError("bundled Studio did not connect to its simulator daemon")
+
+        status, headers, page = _studio_request(base_url + "/")
+        if status != 200 or "NimbleDesk Studio" not in page:
+            raise RuntimeError("bundled Studio did not serve its production page")
+        if (
+            headers.get("x-frame-options") != "DENY"
+            or "frame-ancestors 'none'" not in headers.get("content-security-policy", "")
+        ):
+            raise RuntimeError("bundled Studio omitted required browser security headers")
+
+        status, _headers, body = _studio_request(
+            base_url + "/api/sessions",
+            method="POST",
+            payload={"reason": "Frozen bundle contract", "config": {"input_enabled": False}},
+        )
+        session = json.loads(body)
+        session_id = session.get("session_id")
+        if status != 201 or not isinstance(session_id, str):
+            raise RuntimeError("bundled Studio could not create a desktop session")
+        status, _headers, body = _studio_request(
+            base_url + f"/api/sessions/{session_id}/paused", method="POST"
+        )
+        if status != 200 or json.loads(body).get("state") != "paused":
+            raise RuntimeError("bundled Studio could not pause its desktop session")
+        status, _headers, body = _studio_request(
+            base_url + "/api/emergency-stop", method="POST"
+        )
+        stop_result = json.loads(body)
+        if status != 200 or stop_result.get("stopped_sessions") != 1:
+            raise RuntimeError("bundled Studio emergency stop did not stop its session")
+        status, _headers, body = _studio_request(base_url + "/api/intelligence")
+        capabilities = json.loads(body).get("capabilities", [])
+        capability_names = {
+            item.get("capability") for item in capabilities if isinstance(item, dict)
+        }
+        if status != 200 or capability_names != {
+            "game_ocr",
+            "transcription",
+            "semantic_vision",
+            "music",
+            "sound",
+        }:
+            raise RuntimeError("bundled Studio omitted creative-intelligence readiness")
+    finally:
+        _stop_process_tree(process)
+    if (runtime_directory / "connection.json").exists():
+        raise RuntimeError("bundled Studio left stale daemon connection metadata")
+
+
+def _studio_request(
+    url: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, object] | None = None,
+) -> tuple[int, dict[str, str], str]:
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = Request(
+        url,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json"} if data is not None else {},
+    )
+    with urlopen(request, timeout=5) as response:
+        return (
+            int(response.status),
+            {key.casefold(): value for key, value in response.headers.items()},
+            response.read().decode("utf-8"),
+        )
+
+
+def _raise_studio_failure(process: subprocess.Popen[bytes], reason: str) -> None:
+    if process.poll() is None:
+        _stop_process_tree(process)
+    stdout, stderr = process.communicate(timeout=5)
+    detail = (stderr or stdout).decode("utf-8", errors="replace")[:8_192]
+    raise RuntimeError(f"bundled Studio {reason}: {detail}")
+
+
+def _stop_process_tree(process: subprocess.Popen[bytes]) -> None:
+    try:
+        children = psutil.Process(process.pid).children(recursive=True)
+    except psutil.Error:
+        children = []
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+    for child in children:
+        with suppress(psutil.Error):
+            child.terminate()
+    _gone, alive = psutil.wait_procs(children, timeout=5)
+    for child in alive:
+        with suppress(psutil.Error):
+            child.kill()
 
 
 if __name__ == "__main__":

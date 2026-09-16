@@ -4,6 +4,7 @@ import asyncio
 import os
 import platform
 import secrets
+import signal
 import subprocess
 import sys
 from contextlib import suppress
@@ -154,5 +155,13 @@ def _start_safety_console() -> subprocess.Popen[bytes] | None:
 
 
 def main() -> None:
-    with suppress(KeyboardInterrupt):
-        asyncio.run(run())
+    previous_handler = signal.signal(signal.SIGTERM, _request_shutdown)
+    try:
+        with suppress(KeyboardInterrupt):
+            asyncio.run(run())
+    finally:
+        signal.signal(signal.SIGTERM, previous_handler)
+
+
+def _request_shutdown(_signal_number: int, _frame: object) -> None:
+    raise KeyboardInterrupt

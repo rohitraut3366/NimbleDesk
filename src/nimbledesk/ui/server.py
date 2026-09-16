@@ -62,11 +62,13 @@ class LoopbackGuardMiddleware(BaseHTTPMiddleware):
 
 def daemon_client() -> DaemonClient:
     configured = os.getenv("NIMBLEDESK_CONNECTION_FILE")
-    connection_file = (
-        Path(configured)
-        if configured
-        else Path.home() / ".nimbledesk" / "runtime" / "connection.json"
-    )
+    configured_runtime = os.getenv("NIMBLEDESK_RUNTIME_DIR")
+    if configured:
+        connection_file = Path(configured)
+    elif configured_runtime:
+        connection_file = Path(configured_runtime) / "connection.json"
+    else:
+        connection_file = Path.home() / ".nimbledesk" / "runtime" / "connection.json"
     return DaemonClient.from_file(connection_file, caller_id="studio-console")
 
 

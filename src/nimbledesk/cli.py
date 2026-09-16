@@ -107,7 +107,13 @@ def _start(studio_arguments: list[str]) -> None:
     )
     daemon = subprocess.Popen(daemon_command)
     atexit.register(_stop_process, daemon)
-    connection_file = Path.home() / ".nimbledesk" / "runtime" / "connection.json"
+    configured_runtime = os.getenv("NIMBLEDESK_RUNTIME_DIR")
+    runtime_directory = (
+        Path(configured_runtime)
+        if configured_runtime
+        else Path.home() / ".nimbledesk" / "runtime"
+    )
+    connection_file = runtime_directory / "connection.json"
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         if daemon.poll() is not None:

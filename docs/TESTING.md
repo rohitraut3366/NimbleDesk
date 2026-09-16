@@ -194,6 +194,9 @@ before producing its archive, so a source-only pass cannot hide a packaged-worke
 It also generates deterministic video, transcript, event, licensed-music, and licensed-sound
 fixtures and requires the frozen executable to produce a verified portrait render, captions,
 creative plan, cue sheets, semantic index, and editable DaVinci timeline.
+Finally, it launches the frozen daemon and Studio with a simulator backend, verifies authenticated
+health and browser security headers, creates and pauses a desktop session, exercises the global
+emergency stop, checks creative-intelligence readiness, and confirms clean connection-file removal.
 Use the target IDs and minimum corpus mix declared in [SUPPORT.md](SUPPORT.md). Pass
 `--corpus-id` and `--source-duration-seconds` to both `nimbledesk qualify events` and
 `nimbledesk qualify ranking`; the identifiers must match for reports derived from the same source.
