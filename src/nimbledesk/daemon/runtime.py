@@ -8,7 +8,12 @@ from pathlib import Path
 from time import time
 
 from nimbledesk.analysis.models import ContentIndex
-from nimbledesk.daemon.approvals import ApprovalDecision, ApprovalManager, PendingApproval
+from nimbledesk.daemon.approvals import (
+    ApprovalDecision,
+    ApprovalEvidence,
+    ApprovalManager,
+    PendingApproval,
+)
 from nimbledesk.daemon.audit import AuditLog
 from nimbledesk.daemon.policy import ActionPolicy
 from nimbledesk.daemon.sessions import SessionError, SessionManager
@@ -439,7 +444,7 @@ class DesktopRuntime:
         if outcome.decision is PolicyDecision.DENY:
             return self._finish(action, ActionStatus.REJECTED, outcome.reason, started_at)
         if outcome.decision is PolicyDecision.REQUIRE_CONFIRMATION:
-            pending = self._approvals.request(action)
+            pending = self._approvals.request(action, self._approval_evidence(action))
             return self._finish(
                 action,
                 ActionStatus.CONFIRMATION_REQUIRED,
@@ -479,6 +484,31 @@ class DesktopRuntime:
             )
         self._audit.record(action, result)
         return result
+
+    def _approval_evidence(self, action: ActionRequest) -> ApprovalEvidence | None:
+        observation_id = action.source_observation_id
+        if observation_id is None:
+            return None
+        observation = self._observations.get(action.session_id)
+        if observation is None or observation.observation_id != observation_id:
+            return None
+        try:
+            capture = self._backend.capture(
+                observation_id,
+                options=CaptureOptions(
+                    image_format="jpeg", max_width=640, max_height=400, jpeg_quality=50
+                ),
+            )
+        except (ValueError, RuntimeError):
+            return None
+        return ApprovalEvidence(
+            observation_id=observation_id,
+            mime_type=capture.mime_type,
+            data_base64=capture.data_base64,
+            sha256=capture.sha256,
+            width=capture.width,
+            height=capture.height,
+        )
 
     def _recover_stale_action(
         self, action: ActionRequest

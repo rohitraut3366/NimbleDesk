@@ -21,6 +21,8 @@ Window-contract tests cover focus, move, resize, minimize, maximize, and approva
 the shared controller plus native macOS, Win32, X11, and explicit Wayland capability behavior.
 Studio tests cover session creation and state controls; runtime tests prove global emergency stop
 releases input and invalidates pending and already granted approval authority.
+Approval tests verify that the pending record freezes a bounded screenshot from the action's exact
+observation and that Studio displays its image, observation ID, dimensions, and content hash.
 Gateway tests verify bounded server-side UI search, internal condition waits, adapter discovery,
 session discovery, and redacted audit summaries. Audit tests reopen the log across a simulated
 daemon restart and detect content or chain tampering.

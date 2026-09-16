@@ -12,12 +12,23 @@ from nimbledesk.protocol.models import ActionRequest
 
 
 @dataclass(frozen=True)
+class ApprovalEvidence:
+    observation_id: str
+    mime_type: str
+    data_base64: str
+    sha256: str
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
 class PendingApproval:
     approval_id: str
     action_fingerprint: str
     action: ActionRequest
     created_at: float
     expires_at: float
+    evidence: ApprovalEvidence | None = None
 
 
 @dataclass(frozen=True)
@@ -45,7 +56,9 @@ class ApprovalManager:
         self._decisions: dict[str, ApprovalDecision] = {}
         self._lock = Lock()
 
-    def request(self, action: ActionRequest) -> PendingApproval:
+    def request(
+        self, action: ActionRequest, evidence: ApprovalEvidence | None = None
+    ) -> PendingApproval:
         now = self._clock()
         fingerprint = _fingerprint(action)
         with self._lock:
@@ -66,6 +79,7 @@ class ApprovalManager:
                 action=action.model_copy(update={"approval_token": None}),
                 created_at=now,
                 expires_at=now + self._ttl_seconds,
+                evidence=evidence,
             )
             self._pending[pending.approval_id] = pending
             return pending

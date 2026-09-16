@@ -178,6 +178,18 @@ class DaemonTransport:
                         "created_at": pending.created_at,
                         "expires_at": pending.expires_at,
                         "action": pending.action.model_dump(mode="json"),
+                        "evidence": (
+                            {
+                                "observation_id": pending.evidence.observation_id,
+                                "mime_type": pending.evidence.mime_type,
+                                "data_base64": pending.evidence.data_base64,
+                                "sha256": pending.evidence.sha256,
+                                "width": pending.evidence.width,
+                                "height": pending.evidence.height,
+                            }
+                            if pending.evidence
+                            else None
+                        ),
                     }
                     for pending in self._runtime.list_approvals()
                 ]

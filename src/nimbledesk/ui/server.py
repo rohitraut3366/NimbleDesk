@@ -1225,8 +1225,14 @@ async function refreshApprovals(){const response=await fetch('/api/approvals');c
     data.approvals.map(item=>{const action=item.action;const adapter=action.arguments?.adapter_id||'application';
       const command=action.arguments?.command||action.kind;
       const reviewArguments=action.kind==='app_command'?action.arguments?.arguments||{}:action.arguments||{};
+      const evidence=item.evidence;
+      const evidenceImage=evidence?.data_base64?`<img class="artifact-image" src="data:${
+        h(evidence.mime_type)};base64,${h(evidence.data_base64)}" alt="Action approval evidence">
+        <small>Observation ${h(evidence.observation_id)} · ${h(evidence.width)}×${h(evidence.height)} · SHA-256 ${
+          h(evidence.sha256)}</small>`:'';
       return `<article><strong>${h(adapter)}</strong> · ${h(command)}
       <p>Expires ${h(new Date(item.expires_at*1000).toLocaleTimeString())}</p>
+      ${evidenceImage}
       <pre><code>${h(JSON.stringify(reviewArguments,null,2))}</code></pre>
       <button onclick="decideApproval('${h(item.approval_id)}','approve')">Approve exact action</button>
       <button onclick="decideApproval('${h(item.approval_id)}','reject')">Reject</button></article>`;}).join(''):'';}

@@ -141,6 +141,7 @@ def test_console_serves_creation_form_and_rejects_missing_source(tmp_path: Path)
     assert "NimbleDesk Studio" in page.text
     assert "Review and revise" in page.text
     assert "Actions awaiting your approval" in page.text
+    assert "Action approval evidence" in page.text
     assert "Desktop control sessions" in page.text
     assert "Emergency stop all" in page.text
     approval_arguments_expression = (

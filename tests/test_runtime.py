@@ -459,6 +459,13 @@ def test_application_command_approval_is_exact_and_single_use() -> None:
     pending = runtime.execute(action)
     assert pending.status is ActionStatus.CONFIRMATION_REQUIRED
     assert pending.approval_id is not None
+    approval = runtime.list_approvals()[0]
+    assert approval.evidence is not None
+    assert approval.evidence.observation_id == observation.observation_id
+    assert approval.evidence.mime_type == "image/jpeg"
+    assert len(approval.evidence.sha256) == 64
+    assert approval.evidence.width <= 640
+    assert approval.evidence.height <= 400
 
     token = runtime.approve(pending.approval_id)
     assert runtime.approval_status(pending.approval_id).status == "approved"
