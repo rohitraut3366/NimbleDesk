@@ -83,6 +83,24 @@ class ActionPolicy:
             )
         return PolicyOutcome(PolicyDecision.ALLOW, "action allowed")
 
+    def summary(self) -> dict[str, object]:
+        return {
+            "host_input_enabled": self._host_input_enabled,
+            "host_clipboard_enabled": self._host_clipboard_enabled,
+            "exact_approval_actions": sorted(
+                action.value
+                for action in {
+                    ActionKind.APP_COMMAND,
+                    ActionKind.CLOSE_WINDOW,
+                    ActionKind.LAUNCH_APPLICATION,
+                    ActionKind.WRITE_CLIPBOARD,
+                }
+            ),
+            "observation_binding_required": True,
+            "session_application_allowlist_enforced": True,
+            "session_path_grants_enforced": True,
+        }
+
 
 def _environment_flag(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}

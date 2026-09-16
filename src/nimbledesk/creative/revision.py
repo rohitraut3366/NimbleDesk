@@ -61,6 +61,11 @@ def revise_edit_plan(plan: EditPlan, request: PlanRevisionRequest) -> PlanRevisi
     return PlanRevisionResult(plan=revised, changes=_diff(plan, revised))
 
 
+def compare_edit_plans(before: EditPlan, after: EditPlan) -> tuple[PlanChange, ...]:
+    """Return a deterministic field-level diff without modifying either plan."""
+    return _diff(before, after)
+
+
 def write_revision(result: PlanRevisionResult, plan_path: Path, diff_path: Path) -> None:
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     plan_path.write_text(result.plan.model_dump_json(indent=2), encoding="utf-8")

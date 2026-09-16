@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -146,6 +148,69 @@ async def test_gateway_exposes_bounded_moment_query_and_domain_packs(
         "generic-shooter",
         "general-editorial",
     }
+
+
+@pytest.mark.asyncio
+async def test_gateway_ranks_licensed_music_without_exposing_paths(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    track = tmp_path / "track.wav"
+    track.write_bytes(b"fixture")
+    catalog = tmp_path / "music.json"
+    catalog.write_text(
+        json.dumps(
+            [
+                {
+                    "path": "track.wav",
+                    "duration_seconds": 90,
+                    "title": "Action bed",
+                    "mood": ["exciting"],
+                    "bpm": 120,
+                    "energy": 0.85,
+                    "license": "user-owned commercial license",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(gateway, "client", RecordingClient)
+
+    result = await gateway.music_search(
+        "session",
+        str(catalog),
+        gateway.CreativeBrief(mood="exciting", pace="fast"),
+        60,
+    )
+
+    assert result["results"][0]["title"] == "Action bed"
+    assert result["results"][0]["license"] == "user-owned commercial license"
+    assert "path" not in result["results"][0]
+    assert (await gateway.music_brief_create(gateway.CreativeBrief(pace="fast")))[
+        "target_energy"
+    ] == 0.85
+
+
+@pytest.mark.asyncio
+async def test_gateway_resources_use_authenticated_bounded_runtime_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ResourceClient(RecordingClient):
+        async def call(
+            self, method: str, params: dict[str, Any] | None = None
+        ) -> dict[str, Any]:
+            self.method = method
+            self.params = params or {}
+            return {"method": method}
+
+    resource_client = ResourceClient()
+    monkeypatch.setattr(gateway, "client", lambda: resource_client)
+
+    policy = json.loads(await gateway.policy_resource())
+    audit = json.loads(await gateway.audit_resource("session"))
+
+    assert policy == {"method": "policy_get"}
+    assert audit == {"method": "audit_query"}
+    assert resource_client.params == {"session_id": "session", "limit": 20}
 
 
 @pytest.mark.asyncio

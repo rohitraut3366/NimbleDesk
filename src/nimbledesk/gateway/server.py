@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
+import json
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -11,11 +13,19 @@ from typing import Any, Literal
 from mcp.server.fastmcp import FastMCP, Image
 
 from nimbledesk.client import DaemonClient
+from nimbledesk.creative.cue_sheet import write_cue_sheet
 from nimbledesk.creative.gaming import DEFAULT_GAME_PACK
-from nimbledesk.creative.models import CreativeBrief, PlanRevisionRequest
+from nimbledesk.creative.models import CreativeBrief, EditPlan, PlanRevisionRequest
+from nimbledesk.creative.music import load_music_catalog, recommend_music
+from nimbledesk.creative.planner import plan_scene_music
+from nimbledesk.creative.revision import compare_edit_plans
+from nimbledesk.creative.sound import load_sound_catalog, plan_sound_cues
 from nimbledesk.creative.style import resolve_brief
+from nimbledesk.creative.validation import validate_edit_plan
+from nimbledesk.creative.verify import verify_render
 from nimbledesk.creative.workflow import CreationResult
 from nimbledesk.gateway.budget import compact_observation, estimate_text_tokens
+from nimbledesk.media.ffmpeg import probe_media
 from nimbledesk.protocol.models import (
     ActionKind,
     ActionRequest,
@@ -53,6 +63,38 @@ def client() -> DaemonClient:
 async def health() -> dict[str, Any]:
     """Check whether the local NimbleDesk daemon is available."""
     return await client().call("health")
+
+
+@mcp.resource("nimbledesk://capabilities")
+async def capability_resource() -> str:
+    """Current desktop backend and capability advertisement."""
+    return json.dumps(await client().call("health"), sort_keys=True)
+
+
+@mcp.resource("nimbledesk://sessions/{session_id}")
+async def session_resource(session_id: str) -> str:
+    """Current state and limits for one session."""
+    result = await client().call("session_status", {"session_id": session_id})
+    return json.dumps(result, sort_keys=True)
+
+
+@mcp.resource("nimbledesk://policy")
+async def policy_resource() -> str:
+    """Current host policy and approval requirements."""
+    return json.dumps(await client().call("policy_get"), sort_keys=True)
+
+
+@mcp.resource("nimbledesk://adapters")
+async def adapter_resource() -> str:
+    """Installed adapter command schemas and isolation declarations."""
+    return json.dumps(await client().call("adapters_list"), sort_keys=True)
+
+
+@mcp.resource("nimbledesk://sessions/{session_id}/audit")
+async def audit_resource(session_id: str) -> str:
+    """Recent redacted action history and audit-chain integrity."""
+    result = await client().call("audit_query", {"session_id": session_id, "limit": 20})
+    return json.dumps(result, sort_keys=True)
 
 
 @mcp.tool()
@@ -463,6 +505,154 @@ async def domain_pack_describe(pack_id: str) -> dict[str, Any]:
             "ranking": "fuses normalized motion, audio, events, diversity, and context",
         }
     raise ValueError("unknown domain pack")
+
+
+@mcp.tool()
+async def music_brief_create(brief: CreativeBrief) -> dict[str, Any]:
+    """Create inspectable music-search criteria from a creative brief."""
+    target_energy = {"calm": 0.3, "balanced": 0.6, "fast": 0.85}[brief.pace.value]
+    return {
+        "enabled": brief.music,
+        "mood_terms": sorted(
+            set(brief.music_style)
+            | {term for term in brief.mood.casefold().replace(",", " ").split() if term}
+        ),
+        "target_energy": target_energy,
+        "platform": brief.platform,
+        "instrumental_preferred": brief.captions,
+        "license_required": True,
+    }
+
+
+@mcp.tool()
+async def music_search(
+    session_id: str,
+    catalog_path: str,
+    brief: CreativeBrief,
+    required_duration_seconds: float,
+    maximum_results: int = 10,
+) -> dict[str, Any]:
+    """Rank licensed local music for mood, pace, duration, and platform."""
+    if not 1 <= maximum_results <= 50:
+        raise ValueError("music result limit must be between 1 and 50")
+    await _authorize_paths(session_id, [catalog_path])
+    assets = load_music_catalog(Path(catalog_path))
+    await _authorize_paths(session_id, [str(asset.path) for asset in assets])
+    remaining = assets
+    selected: list[dict[str, Any]] = []
+    excluded: frozenset[Path] = frozenset()
+    while remaining and len(selected) < maximum_results:
+        asset = recommend_music(
+            brief, assets, required_duration_seconds, excluded_paths=excluded
+        )
+        if asset is None:
+            break
+        selected.append(
+            {
+                "asset_id": hashlib.sha256(str(asset.path).encode()).hexdigest()[:24],
+                "title": asset.title,
+                "artist": asset.artist,
+                "duration_seconds": asset.duration_seconds,
+                "mood": asset.mood,
+                "bpm": asset.bpm,
+                "energy": asset.energy,
+                "instrumental": asset.instrumental,
+                "license": asset.license,
+                "attribution": asset.attribution,
+            }
+        )
+        excluded = excluded | {asset.path}
+        remaining = tuple(item for item in remaining if item.path not in excluded)
+    return {"results": selected, "available_assets": len(assets)}
+
+
+@mcp.tool()
+async def music_cues_generate(
+    session_id: str,
+    plan_path: str,
+    catalog_path: str,
+    output_plan_path: str,
+) -> dict[str, Any]:
+    """Generate scene-aware, beat-aligned licensed music cues and write a revised plan."""
+    plan = await _load_granted_plan(session_id, plan_path)
+    await _authorize_paths(session_id, [catalog_path, output_plan_path])
+    assets = load_music_catalog(Path(catalog_path))
+    await _authorize_paths(session_id, [str(asset.path) for asset in assets])
+    cues = plan_scene_music(plan.brief, assets, plan.segments, plan.duration_seconds)
+    updated = plan.model_copy(
+        update={"music_cue": cues[0] if cues else None, "music_cues": cues}
+    )
+    _write_model(updated, Path(output_plan_path))
+    return {
+        "output_plan_path": output_plan_path,
+        "cue_count": len(cues),
+        "cues": [cue.model_dump(mode="json") for cue in cues[:10]],
+    }
+
+
+@mcp.tool()
+async def sound_design_generate(
+    session_id: str,
+    plan_path: str,
+    catalog_path: str,
+    output_plan_path: str,
+) -> dict[str, Any]:
+    """Generate sparse licensed sound accents from segment role and evidence."""
+    plan = await _load_granted_plan(session_id, plan_path)
+    await _authorize_paths(session_id, [catalog_path, output_plan_path])
+    assets = load_sound_catalog(Path(catalog_path))
+    await _authorize_paths(session_id, [str(asset.path) for asset in assets])
+    cues = plan_sound_cues(plan.segments, assets, plan.brief.platform)
+    updated = plan.model_copy(update={"sound_cues": cues})
+    _write_model(updated, Path(output_plan_path))
+    return {"output_plan_path": output_plan_path, "cue_count": len(cues)}
+
+
+@mcp.tool()
+async def cue_sheet_export(
+    session_id: str, plan_path: str, output_directory: str
+) -> dict[str, Any]:
+    """Export JSON and CSV music/sound license provenance for one edit plan."""
+    plan = await _load_granted_plan(session_id, plan_path)
+    await _authorize_paths(session_id, [output_directory])
+    json_path, csv_path = write_cue_sheet(plan, Path(output_directory))
+    return {"json_path": str(json_path), "csv_path": str(csv_path)}
+
+
+@mcp.tool()
+async def edit_plan_validate(session_id: str, plan_path: str) -> dict[str, Any]:
+    """Validate source ranges, timing, assets, licenses, captions, and delivery constraints."""
+    plan = await _load_granted_plan(session_id, plan_path)
+    report = validate_edit_plan(plan, probe_media(plan.source_path))
+    return report.model_dump(mode="json")
+
+
+@mcp.tool()
+async def edit_plan_compare(
+    session_id: str, before_plan_path: str, after_plan_path: str, maximum_changes: int = 100
+) -> dict[str, Any]:
+    """Return a bounded deterministic field-level comparison of two edit plans."""
+    if not 1 <= maximum_changes <= 1_000:
+        raise ValueError("plan change limit must be between 1 and 1000")
+    before = await _load_granted_plan(session_id, before_plan_path)
+    after = await _load_granted_plan(session_id, after_plan_path)
+    changes = compare_edit_plans(before, after)
+    return {
+        "changes": [change.model_dump(mode="json") for change in changes[:maximum_changes]],
+        "total_changes": len(changes),
+        "truncated": len(changes) > maximum_changes,
+    }
+
+
+@mcp.tool()
+async def render_validate(
+    session_id: str, plan_path: str, render_path: str, report_path: str
+) -> dict[str, Any]:
+    """Decode and validate a render against its plan, writing diagnostic evidence."""
+    plan = await _load_granted_plan(session_id, plan_path)
+    await _authorize_paths(session_id, [render_path, report_path])
+    report = verify_render(plan, Path(render_path), Path(report_path))
+    return report.model_dump(mode="json")
 
 
 @mcp.tool()
@@ -1167,6 +1357,28 @@ async def _start_creation_job(
 
 async def _authorize_paths(session_id: str, paths: list[str]) -> None:
     await client().call("paths_authorize", {"session_id": session_id, "paths": paths})
+
+
+async def _load_granted_plan(session_id: str, plan_path: str) -> EditPlan:
+    await _authorize_paths(session_id, [plan_path])
+    plan = EditPlan.model_validate_json(Path(plan_path).read_text(encoding="utf-8"))
+    embedded_paths = {str(plan.source_path)}
+    embedded_paths.update(str(segment.source_path) for segment in plan.segments)
+    embedded_paths.update(str(cue.asset.path) for cue in plan.all_music_cues)
+    embedded_paths.update(str(cue.asset.path) for cue in plan.sound_cues)
+    if plan.brief.brand.logo_path is not None:
+        embedded_paths.add(str(plan.brief.brand.logo_path))
+    if plan.brief.brand.font_path is not None:
+        embedded_paths.add(str(plan.brief.brand.font_path))
+    await _authorize_paths(session_id, sorted(embedded_paths))
+    return plan
+
+
+def _write_model(model: EditPlan, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(model.model_dump_json(indent=2), encoding="utf-8")
+    temporary.replace(path)
 
 
 def _creative_job(session_id: str, job_id: str) -> dict[str, Any]:

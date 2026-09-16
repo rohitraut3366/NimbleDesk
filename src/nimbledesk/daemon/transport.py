@@ -114,6 +114,8 @@ class DaemonTransport:
                 ),
                 "integrity": self._runtime.audit_integrity(),
             }
+        if method == "policy_get":
+            return self._runtime.policy_summary()
         if method == "paths_authorize":
             raw_paths = params.get("paths", [])
             if not isinstance(raw_paths, list) or not raw_paths:

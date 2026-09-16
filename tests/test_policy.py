@@ -128,3 +128,19 @@ def test_window_close_requires_exact_approval() -> None:
         is PolicyDecision.REQUIRE_CONFIRMATION
     )
     assert policy.evaluate(session, action, approved=True).decision is PolicyDecision.ALLOW
+
+
+def test_policy_summary_exposes_enforced_gates_without_secrets() -> None:
+    summary = ActionPolicy(
+        host_input_enabled=True, host_clipboard_enabled=False
+    ).summary()
+
+    assert summary["host_input_enabled"] is True
+    assert summary["host_clipboard_enabled"] is False
+    assert summary["session_path_grants_enforced"] is True
+    assert summary["exact_approval_actions"] == [
+        "app_command",
+        "close_window",
+        "launch_application",
+        "write_clipboard",
+    ]

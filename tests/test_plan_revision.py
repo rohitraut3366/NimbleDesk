@@ -16,7 +16,7 @@ from nimbledesk.creative.models import (
     TimeRange,
     VisualTreatment,
 )
-from nimbledesk.creative.revision import revise_edit_plan
+from nimbledesk.creative.revision import compare_edit_plans, revise_edit_plan
 from nimbledesk.creative.validation import validate_edit_plan
 from nimbledesk.media.models import MediaMetadata
 
@@ -47,6 +47,20 @@ def test_revision_preserves_locked_segment_and_reflows_to_target(tmp_path: Path)
     assert revision.changes
     report = validate_edit_plan(revision.plan, _metadata(tmp_path))
     assert report.valid
+
+
+def test_plan_comparison_is_deterministic_and_read_only(tmp_path: Path) -> None:
+    before = _plan(tmp_path)
+    after = before.model_copy(
+        update={"brief": before.brief.model_copy(update={"mood": "cinematic"})}
+    )
+
+    first = compare_edit_plans(before, after)
+    second = compare_edit_plans(before, after)
+
+    assert first == second
+    assert any(change.path == "/brief/mood" for change in first)
+    assert before.brief.mood != after.brief.mood
 
 
 def test_validation_rejects_source_overrun_and_timeline_gap(tmp_path: Path) -> None:

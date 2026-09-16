@@ -110,6 +110,9 @@ class DesktopRuntime:
     def audit_integrity(self) -> dict[str, object]:
         return self._audit.integrity()
 
+    def policy_summary(self) -> dict[str, object]:
+        return self._policy.summary()
+
     def authorize_paths(self, session_id: str, paths: tuple[Path, ...]) -> None:
         session = self._active_session(session_id)
         for path in paths:

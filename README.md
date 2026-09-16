@@ -516,6 +516,11 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `content_index_query` / `moments_find` | `session_id`, `index_id`, description | Searches transcript, event, motion, audio, shot, and semantic evidence with stable detail handles and explicit result/token limits. |
 | `domain_packs_list` / `domain_pack_describe` | Optional pack ID | Discovers the built-in general editorial and generic shooter contracts, including kill, grenade, multi-kill, clutch, narrow-survival, and victory evidence. |
 | `variants_compare` | `session_id`, `job_id` | Returns bounded hook, payoff-time, information-density, pacing, narrative, caption, and evidence metrics with explicit tradeoffs. |
+| `music_brief_create` / `music_search` | Brief and licensed local catalog | Produces inspectable mood, energy, platform, duration, and instrumental criteria and returns bounded ranked metadata without exposing asset paths. |
+| `music_cues_generate` / `sound_design_generate` | Granted plan, catalog, and output plan | Writes an atomic revised plan with scene-aware beat alignment or sparse evidence-based sound accents after validating every embedded asset path. |
+| `cue_sheet_export` | Granted plan and output directory | Exports JSON and CSV license, attribution, territory, expiry, and generated-asset provenance. |
+| `edit_plan_validate` / `edit_plan_compare` | Granted plan paths | Validates timing, sources, assets, licenses, accessibility, captions, and delivery; comparison returns a bounded deterministic field diff. |
+| `render_validate` | Granted plan, render, and report paths | Fully decodes audio/video, checks delivery and timing, and writes verification diagnostics. |
 | `creative_brief_create` | Creative brief fields | Validates the brief and fills production defaults for platform, pace, captions, music, color, autonomy, and data policy. |
 | `edit_plan_generate` | `session_id`, source, output directory, brief | Starts a persistent granted-path job for automatic transcription, game/semantic event detection, indexing, highlights, music/sound selection, variants, plan validation, and timeline export without a final render. |
 | `edit_plan_execute` | Same inputs plus DaVinci options | Runs the complete persistent creative workflow, renders and verifies the output, and can import or render through a running DaVinci Resolve instance. |
@@ -553,6 +558,11 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `session_pause` | `session_id` | Pauses input and releases common modifier keys and mouse buttons. |
 | `session_resume` | `session_id` | Restores the original session limits; a stopped session cannot resume. |
 | `session_stop` | `session_id` | Permanently stops the session and releases input. |
+
+The MCP server also exposes `nimbledesk://capabilities`, `nimbledesk://policy`,
+`nimbledesk://adapters`, `nimbledesk://sessions/{session_id}`, and
+`nimbledesk://sessions/{session_id}/audit` resources. Session and audit resources remain
+authenticated, session-scoped, bounded, and redacted.
 
 Coordinates are logical desktop coordinates from `desktop_observe`. Element IDs are valid only for the observation that returned them. The daemon verifies the observation is fresh and, when supplied, that the active application and focused window still match. PyAutoGUI's corner fail-safe remains enabled: move the pointer to a screen corner to interrupt portable automation.
 
