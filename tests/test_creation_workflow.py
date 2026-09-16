@@ -314,6 +314,32 @@ def test_remote_vision_requires_explicit_frame_data_permission(tmp_path: Path) -
         )
 
 
+def test_remote_transcription_requires_explicit_audio_data_permission(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"fixture")
+    provider = tmp_path / "remote-transcription.json"
+    provider.write_text(
+        json.dumps(
+            {
+                "provider_id": "remote-transcription",
+                "model": "speech-model",
+                "command": ["provider", "{request}", "{response}"],
+                "execution_location": "remote",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="does not allow audio to leave the laptop"):
+        CreationWorkflow().create(
+            source,
+            tmp_path / "output",
+            CreativeBrief(captions=False, music=False),
+            transcription_provider=provider,
+            render=False,
+        )
+
+
 def test_autonomy_blocks_unapproved_render_and_editor_execution(tmp_path: Path) -> None:
     source = tmp_path / "source.mp4"
 

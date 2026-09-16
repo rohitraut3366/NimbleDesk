@@ -50,6 +50,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--transcript", type=Path, help="Supplied transcript segment JSON")
     parser.add_argument(
+        "--transcription-provider",
+        type=Path,
+        help="Model-agnostic transcription provider configuration JSON",
+    )
+    parser.add_argument(
         "--transcribe", action="store_true", help="Transcribe with the local Whisper CLI"
     )
     parser.add_argument("--whisper-model", default="small")
@@ -108,6 +113,7 @@ def main() -> None:
         game_pack=arguments.game_pack,
         vision_provider=arguments.vision_provider,
         supplied_transcript=arguments.transcript,
+        transcription_provider=arguments.transcription_provider,
         automatic_transcription=arguments.transcribe,
         whisper_model=arguments.whisper_model,
         language=arguments.language,
@@ -126,6 +132,11 @@ def main() -> None:
                 "davinci_timeline": str(result.timeline_path),
                 "render": str(result.render_path) if result.render_path else None,
                 "transcript": str(result.transcript_path) if result.transcript_path else None,
+                "transcription_analysis": (
+                    str(result.transcription_analysis_path)
+                    if result.transcription_analysis_path
+                    else None
+                ),
                 "events": str(result.events_path) if result.events_path else None,
                 "vision_analysis": (
                     str(result.vision_analysis_path) if result.vision_analysis_path else None

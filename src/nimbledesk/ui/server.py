@@ -502,6 +502,7 @@ _HTML = """<!doctype html>
         <textarea name="excludedMoments" placeholder="One per line: label | start seconds | end seconds | event type"></textarea>
       </label>
       <label>Transcript JSON<input name="transcript" placeholder="Optional"></label>
+      <label>Transcription provider JSON<input name="transcriptionProvider" placeholder="Optional"></label>
       <label>Whisper model<input name="whisperModel" value="small"></label>
       <label>Transcript language<input name="language" placeholder="Auto detect"></label>
       <label>Licensed music catalog JSON<input name="music" placeholder="Optional"></label>
@@ -621,7 +622,8 @@ form.addEventListener('submit', async event => {
       data_policy:{allow_remote_transcript:data.has('remoteTranscript'),
         allow_remote_audio:data.has('remoteAudio'),allow_remote_frames:data.has('remoteFrames'),
         retain_analysis_cache:data.has('retainCache')}},
-    transcript:optional('transcript'),music_catalog:optional('music'),sound_catalog:optional('sounds'),
+    transcript:optional('transcript'),transcription_provider:optional('transcriptionProvider'),
+    music_catalog:optional('music'),sound_catalog:optional('sounds'),
     events:optional('events'),
     game_pack:optional('gamePack'),
     vision_provider:optional('visionProvider'),

@@ -44,6 +44,7 @@ class CreateJobRequest(BaseModel):
     game_pack: Path | None = None
     vision_provider: Path | None = None
     transcript: Path | None = None
+    transcription_provider: Path | None = None
     transcribe: bool = False
     whisper_model: str = "small"
     language: str | None = None
@@ -364,6 +365,7 @@ class JobService:
                     game_pack=request.game_pack,
                     vision_provider=request.vision_provider,
                     supplied_transcript=request.transcript,
+                    transcription_provider=request.transcription_provider,
                     automatic_transcription=request.transcribe,
                     whisper_model=request.whisper_model,
                     language=request.language,
@@ -505,6 +507,7 @@ def artifact_paths(state: PersistedJob) -> dict[str, Path]:
             "timeline": result.timeline_path,
             "content-index": result.content_index_path,
             "transcript": result.transcript_path,
+            "transcription-analysis": result.transcription_analysis_path,
             "events": result.events_path,
             "vision-analysis": result.vision_analysis_path,
             "automatic-intelligence": result.automatic_intelligence_path,

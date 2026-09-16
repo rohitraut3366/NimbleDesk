@@ -124,12 +124,41 @@ The command never changes the source. Its output directory contains:
 - `variants/variant_comparison.json`: validated strongest-hook, energetic-short, and context-first plans scored with per-metric evidence and explicit tradeoffs. These scores compare edit properties and never claim to predict virality.
 - `render_verification.json`: executed-output checks for duration, resolution, frame rate, streams, black/frozen ranges, silence, peak level, caption reading limits, and graphic safe areas. A blocking failure leaves this report in place and fails the creation job.
 - `analysis/vision/analysis.json`: accepted multimodal semantic events with provider, model, confidence, configuration provenance, measured image bytes/tiles, conservative image-token estimates, and provider-reported input/output tokens when available.
+- `analysis/transcription/analysis.json`: transcription provider, model, language, configuration provenance, segment count, processed audio duration, and provider-reported token usage when a configured speech provider is used.
 - `analysis/index/content_index.json`: persistent rational-time analysis tracks, semantic moments, provenance, analyzer versions, and cache-hit metadata.
 - `analysis/`: ranked intermediate clips and `highlights.json`.
 - `automatic_intelligence.json`: every automatically enabled, unavailable, inapplicable, or
   policy-blocked intelligence and licensed-media capability, with the reason.
 
 With `content_kind=auto`, detected gameplay events select gameplay treatment, an available transcript selects talking-head treatment, and other footage uses the general vlog treatment. Mandatory event types are hard constraints: creation stops if they are absent. Excluded event types are removed before ranking.
+
+### Model-pluggable transcription
+
+Local Whisper remains the default automatic speech engine. A different local or remote speech model
+can implement the versioned JSON provider contract and be selected from the CLI or Studio. The
+provider command receives a request file and must write a response file containing normalized,
+time-aligned segments:
+
+```json
+{
+  "provider_id": "my-speech-provider",
+  "model": "my-speech-model",
+  "command": ["/path/to/provider", "{request}", "{response}"],
+  "timeout_seconds": 3600,
+  "execution_location": "local"
+}
+```
+
+```bash
+uv run nimbledesk-create source.mp4 output/video \
+  --transcription-provider provider.json
+```
+
+The request contains `request_version`, the absolute `source_path`, `source_name`, and optional
+`language`. The response contains `segments` in the same format as `transcript.json`, optional
+`detected_language`, and optional `usage` fields for `audio_seconds`, `provider_input_tokens`, and
+`provider_output_tokens`. A remote provider is rejected unless the brief explicitly enables
+`data_policy.allow_remote_audio`.
 
 ### Model-pluggable semantic vision
 

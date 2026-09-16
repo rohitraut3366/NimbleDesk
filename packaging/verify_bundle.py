@@ -194,23 +194,38 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
     for command in fixture_commands:
         subprocess.run(command, capture_output=True, check=True, timeout=60)
 
-    transcript = root / "transcript.json"
-    transcript.write_text(
+    transcription_worker = root / "transcription-provider.py"
+    transcription_worker.write_text(
+        "import json\n"
+        "import sys\n"
+        "request = json.load(open(sys.argv[1], encoding='utf-8'))\n"
+        "assert request['source_name'] == 'source.mp4'\n"
+        "json.dump({'segments': ["
+        "{'source_range': {'start_seconds': 0, 'end_seconds': 2}, "
+        "'text': 'We survived the impossible final fight.', 'confidence': 0.98, "
+        "'speaker': 'Player'}, "
+        "{'source_range': {'start_seconds': 2, 'end_seconds': 4}, "
+        "'text': 'That grenade ended the round. What a win!', 'confidence': 0.97, "
+        "'speaker': 'Player'}], 'detected_language': 'en', "
+        "'usage': {'audio_seconds': 4, 'provider_input_tokens': 80, "
+        "'provider_output_tokens': 18}}, open(sys.argv[2], 'w', encoding='utf-8'))\n",
+        encoding="utf-8",
+    )
+    transcription_provider = root / "transcription-provider.json"
+    transcription_provider.write_text(
         json.dumps(
-            [
-                {
-                    "source_range": {"start_seconds": 0, "end_seconds": 2},
-                    "text": "We survived the impossible final fight.",
-                    "confidence": 0.98,
-                    "speaker": "Player",
-                },
-                {
-                    "source_range": {"start_seconds": 2, "end_seconds": 4},
-                    "text": "That grenade ended the round. What a win!",
-                    "confidence": 0.97,
-                    "speaker": "Player",
-                },
-            ]
+            {
+                "provider_id": "bundle-transcription-fixture",
+                "model": "deterministic-speech-fixture",
+                "command": [
+                    sys.executable,
+                    str(transcription_worker),
+                    "{request}",
+                    "{response}",
+                ],
+                "timeout_seconds": 30,
+                "execution_location": "local",
+            }
         ),
         encoding="utf-8",
     )
@@ -326,8 +341,8 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
             "1",
             "--events",
             str(events),
-            "--transcript",
-            str(transcript),
+            "--transcription-provider",
+            str(transcription_provider),
             "--vision-provider",
             str(vision_provider),
             "--music-catalog",
@@ -355,6 +370,7 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
         "cue_sheet.csv",
         "detected_events.json",
         "transcript.json",
+        "analysis/transcription/analysis.json",
         "analysis/vision/analysis.json",
     )
     missing = [name for name in required_files if not (output / name).is_file()]
@@ -364,6 +380,11 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
     plan = json.loads((output / "edit_plan.json").read_text(encoding="utf-8"))
     vision = json.loads(
         (output / "analysis" / "vision" / "analysis.json").read_text(encoding="utf-8")
+    )
+    transcription = json.loads(
+        (output / "analysis" / "transcription" / "analysis.json").read_text(
+            encoding="utf-8"
+        )
     )
     detected_events = json.loads((output / "detected_events.json").read_text(encoding="utf-8"))
     if verification.get("valid") is not True:
@@ -376,6 +397,12 @@ def _verify_media_creation(executable: Path, root: Path) -> None:
         or not any(event.get("event_type") == "narrow_survival" for event in detected_events)
     ):
         raise RuntimeError("bundled semantic-vision provider contract did not reach the edit")
+    if (
+        transcription.get("provider_id") != "bundle-transcription-fixture"
+        or transcription.get("segment_count") != 2
+        or transcription.get("usage", {}).get("provider_input_tokens") != 80
+    ):
+        raise RuntimeError("bundled transcription provider contract did not reach the edit")
 
 
 def _verify_studio_runtime(executable: Path, root: Path) -> None:

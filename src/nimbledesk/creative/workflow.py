@@ -28,7 +28,9 @@ from nimbledesk.creative.planner import build_edit_plan, write_edit_plan
 from nimbledesk.creative.render import render_edit_plan
 from nimbledesk.creative.sound import load_sound_catalog
 from nimbledesk.creative.transcription import (
+    TranscriptionProviderConfig,
     load_transcript,
+    transcribe_with_provider,
     transcribe_with_whisper,
     write_transcript,
 )
@@ -57,6 +59,7 @@ class CreationResult(BaseModel):
     transcript_path: Path | None
     events_path: Path | None
     vision_analysis_path: Path | None
+    transcription_analysis_path: Path | None = None
     davinci: DaVinciResult | None = None
     plan: EditPlan
     cue_sheet_path: Path | None = None
@@ -80,6 +83,7 @@ class CreationWorkflow:
         game_pack: Path | None = None,
         vision_provider: Path | None = None,
         supplied_transcript: Path | None = None,
+        transcription_provider: Path | None = None,
         automatic_transcription: bool = False,
         whisper_model: str = "small",
         language: str | None = None,
@@ -103,6 +107,7 @@ class CreationWorkflow:
         output_directory.mkdir(parents=True, exist_ok=True)
         explicitly_requested_game_ocr = automatic_game_ocr
         explicitly_requested_transcription = automatic_transcription
+        explicitly_supplied_transcription_provider = transcription_provider is not None
         explicitly_supplied_vision = vision_provider is not None
         explicitly_supplied_music = music_catalog is not None
         explicitly_supplied_sound = sound_catalog is not None
@@ -183,7 +188,38 @@ class CreationWorkflow:
 
         report("transcribing dialogue", 0.15)
         transcripts = load_transcript(supplied_transcript)
-        if automatic_transcription:
+        transcription_analysis_path = None
+        if transcription_provider:
+            provider_config = TranscriptionProviderConfig.model_validate_json(
+                transcription_provider.read_text(encoding="utf-8")
+            )
+            if (
+                provider_config.execution_location == "remote"
+                and not brief.data_policy.allow_remote_audio
+            ):
+                raise ValueError(
+                    "creative brief data policy does not allow audio to leave the laptop"
+                )
+            try:
+                transcripts, transcription_analysis_path = transcribe_with_provider(
+                    source,
+                    output_directory / "analysis" / "transcription",
+                    transcription_provider,
+                    language,
+                    cancelled=token.is_cancelled,
+                )
+            except ProcessCancelled:
+                raise
+            except Exception as error:
+                if explicitly_supplied_transcription_provider or not automatic_intelligence:
+                    raise
+                automatic_report = record_automatic_failure(
+                    automatic_report, "transcription", error
+                )
+                write_automatic_intelligence_report(
+                    automatic_report, automatic_intelligence_path
+                )
+        elif automatic_transcription:
             try:
                 transcripts = transcribe_with_whisper(
                     source, whisper_model, language, cancelled=token.is_cancelled
@@ -327,6 +363,7 @@ class CreationWorkflow:
             timeline_path=timeline_path,
             render_path=render_path,
             transcript_path=transcript_path,
+            transcription_analysis_path=transcription_analysis_path,
             events_path=events_path,
             vision_analysis_path=vision_analysis_path,
             davinci=davinci,
