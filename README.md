@@ -513,6 +513,13 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 | `media_index_open` | `session_id`, `index_path` | Opens a content index only within the session's explicit `granted_paths`; returns a session-scoped, content-derived handle without exposing the source path. |
 | `media_index_search` | `session_id`, `index_id`, `query` | Searches labels, transcript text, event types, and evidence. `maximum_results=20`; `maximum_tokens=2000`; returns stable result IDs and explicit usage/truncation. |
 | `media_index_detail` | `session_id`, `index_id`, `result_id` | Retrieves one time-aligned result by stable ID. `maximum_tokens=2000`; expires when the session stops. |
+| `creative_brief_create` | Creative brief fields | Validates the brief and fills production defaults for platform, pace, captions, music, color, autonomy, and data policy. |
+| `edit_plan_generate` | `session_id`, source, output directory, brief | Starts a persistent granted-path job for automatic transcription, game/semantic event detection, indexing, highlights, music/sound selection, variants, plan validation, and timeline export without a final render. |
+| `edit_plan_execute` | Same inputs plus DaVinci options | Runs the complete persistent creative workflow, renders and verifies the output, and can import or render through a running DaVinci Resolve instance. |
+| `media_analysis_status` / `media_analysis_get` | `session_id`, `job_id` | Returns compact progress or terminal results with bounded capability, variant, and artifact summaries. Jobs survive process restart as explicit interrupted/recoverable records. |
+| `media_analysis_cancel` | `session_id`, `job_id` | Cancels the session-owned job and its active media/adapter child process. |
+| `edit_revision_apply` | `session_id`, `job_id`, revision changes | Preserves locked decisions, validates the revised plan, and optionally renders or executes it in DaVinci. |
+| `photo_creation_start` | `session_id`, photo source, output directory | Selects and corrects photos and can create a contact sheet, slideshow, thumbnail, poster, collage, carousel, and animated GIF. |
 | `take_screenshot` | `session_id`, `observation_id` | Crop with all of `left`, `top`, `width`, `height`; `image_format=jpeg`; `max_width=1280`; `max_height=800`; `jpeg_quality=75`. |
 | `capture_region_signature` | `session_id`, `observation_id`, `left`, `top`, `width`, `height` | Losslessly recaptures a target crop and returns its SHA-256 plus measured image usage without returning duplicate image bytes. |
 | `move_mouse` | `session_id`, `observation_id`, `x`, `y` | `duration=0.2`; expected application/window IDs. |

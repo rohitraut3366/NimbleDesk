@@ -24,6 +24,9 @@ releases input and invalidates pending and already granted approval authority.
 Gateway tests verify bounded server-side UI search, internal condition waits, adapter discovery,
 session discovery, and redacted audit summaries. Audit tests reopen the log across a simulated
 daemon restart and detect content or chain tampering.
+Creative gateway tests verify that long-running video and photo work is submitted to the persistent
+job service only after every input and output path is authorized by the active session. Status
+responses omit the full request and edit plan, returning bounded summaries for model token control.
 
 Cancellation tests start a real child process, request cancellation, verify prompt termination, and confirm that no output directory is created when a job is cancelled before execution. Console tests verify atomic job persistence, terminal cancellation state, and conversion of jobs left running across restart into explicit interrupted/recoverable records.
 

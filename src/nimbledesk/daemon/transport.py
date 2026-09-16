@@ -114,6 +114,14 @@ class DaemonTransport:
                 ),
                 "integrity": self._runtime.audit_integrity(),
             }
+        if method == "paths_authorize":
+            raw_paths = params.get("paths", [])
+            if not isinstance(raw_paths, list) or not raw_paths:
+                raise ValueError("paths_authorize requires at least one path")
+            self._runtime.authorize_paths(
+                str(params["session_id"]), tuple(Path(str(path)) for path in raw_paths)
+            )
+            return {"authorized": True, "path_count": len(raw_paths)}
         if method == "desktop_observe":
             observation = self._runtime.observe(str(params["session_id"]))
             return observation.model_dump(mode="json")

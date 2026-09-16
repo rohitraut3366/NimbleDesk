@@ -256,6 +256,22 @@ def test_target_resolve_converts_unique_selector_without_input() -> None:
     assert backend.executed_actions == []
 
 
+def test_creative_paths_must_stay_inside_session_grants(tmp_path: Path) -> None:
+    granted = tmp_path / "project"
+    granted.mkdir()
+    runtime, _backend = make_runtime()
+    session = runtime.start_session(
+        "creative fixture", SessionConfig(granted_paths=(str(granted),))
+    )
+
+    runtime.authorize_paths(
+        session.session_id, (granted / "source.mp4", granted / "outputs")
+    )
+
+    with pytest.raises(ValueError, match="outside session grants"):
+        runtime.authorize_paths(session.session_id, (tmp_path / "other.mp4",))
+
+
 def test_visual_click_recaptures_signature_and_executes_at_crop_center() -> None:
     runtime, backend = make_runtime()
     session = runtime.start_session("visual fixture", SessionConfig(input_enabled=True))

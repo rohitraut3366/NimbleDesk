@@ -142,6 +142,7 @@ class PersistedJob(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     job_id: str
+    session_id: str | None = None
     kind: Literal["create", "revision", "photo"] = "create"
     request: CreateJobRequest | ReviseJobRequest | PhotoJobRequest
     parent_job_id: str | None = None
@@ -191,13 +192,14 @@ class JobService:
         )
         self._load()
 
-    def submit(self, request: CreateJobRequest) -> JobRecord:
+    def submit(self, request: CreateJobRequest, session_id: str | None = None) -> JobRecord:
         source = request.source.expanduser().resolve()
         if not source.is_file():
             raise FileNotFoundError(f"source video does not exist: {source}")
         now = time.time()
         state = PersistedJob(
             job_id=str(uuid4()),
+            session_id=session_id,
             request=request,
             created_at=now,
             updated_at=now,
@@ -213,6 +215,7 @@ class JobService:
         self,
         parent_job_id: str,
         request: ReviseJobRequest,
+        session_id: str | None = None,
     ) -> JobRecord:
         plan_path = request.plan.expanduser().resolve()
         if not plan_path.is_file():
@@ -220,6 +223,7 @@ class JobService:
         now = time.time()
         state = PersistedJob(
             job_id=str(uuid4()),
+            session_id=session_id,
             kind="revision",
             parent_job_id=parent_job_id,
             request=request,
@@ -233,13 +237,16 @@ class JobService:
         self._executor.submit(self._run, job)
         return job
 
-    def submit_photo(self, request: PhotoJobRequest) -> JobRecord:
+    def submit_photo(
+        self, request: PhotoJobRequest, session_id: str | None = None
+    ) -> JobRecord:
         source = request.source.expanduser().resolve()
         if not source.exists():
             raise FileNotFoundError(f"photo source does not exist: {source}")
         now = time.time()
         state = PersistedJob(
             job_id=str(uuid4()),
+            session_id=session_id,
             kind="photo",
             request=request,
             created_at=now,
@@ -321,6 +328,7 @@ class JobService:
                 davinci=request.davinci or request.davinci_render,
                 davinci_render=request.davinci_render,
             ),
+            session_id=job.state.session_id,
         )
 
     def _run(self, job: JobRecord) -> None:

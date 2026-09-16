@@ -11,6 +11,9 @@ from typing import Any, Literal
 from mcp.server.fastmcp import FastMCP, Image
 
 from nimbledesk.client import DaemonClient
+from nimbledesk.creative.models import CreativeBrief, PlanRevisionRequest
+from nimbledesk.creative.style import resolve_brief
+from nimbledesk.creative.workflow import CreationResult
 from nimbledesk.gateway.budget import compact_observation, estimate_text_tokens
 from nimbledesk.protocol.models import (
     ActionKind,
@@ -25,6 +28,13 @@ from nimbledesk.protocol.models import (
     Target,
     TextTarget,
     VisualTarget,
+)
+from nimbledesk.ui.server import (
+    JOB_SERVICE,
+    CreateJobRequest,
+    PhotoJobRequest,
+    ReviseJobRequest,
+    RevisionResult,
 )
 
 mcp = FastMCP("NimbleDesk")
@@ -278,6 +288,167 @@ async def media_index_detail(
             "maximum_tokens": maximum_tokens,
         },
     )
+
+
+@mcp.tool()
+async def creative_brief_create(brief: dict[str, Any]) -> dict[str, Any]:
+    """Validate and fill defaults for a complete creative brief."""
+    return resolve_brief(brief, None).model_dump(mode="json")
+
+
+@mcp.tool()
+async def edit_plan_generate(
+    session_id: str,
+    source: str,
+    output_directory: str,
+    brief: CreativeBrief,
+    automatic_intelligence: bool = True,
+    game_ocr: bool = False,
+    transcribe: bool = False,
+    vision_provider: str | None = None,
+    music_catalog: str | None = None,
+    sound_catalog: str | None = None,
+) -> dict[str, Any]:
+    """Start persistent analysis, highlight ranking, and creative plan generation."""
+    return await _start_creation_job(
+        session_id,
+        source,
+        output_directory,
+        brief,
+        automatic_intelligence=automatic_intelligence,
+        game_ocr=game_ocr,
+        transcribe=transcribe,
+        vision_provider=vision_provider,
+        music_catalog=music_catalog,
+        sound_catalog=sound_catalog,
+        render=False,
+        execute_davinci=False,
+        render_in_davinci=False,
+    )
+
+
+@mcp.tool()
+async def edit_plan_execute(
+    session_id: str,
+    source: str,
+    output_directory: str,
+    brief: CreativeBrief,
+    automatic_intelligence: bool = True,
+    game_ocr: bool = False,
+    transcribe: bool = False,
+    vision_provider: str | None = None,
+    music_catalog: str | None = None,
+    sound_catalog: str | None = None,
+    execute_davinci: bool = False,
+    render_in_davinci: bool = False,
+) -> dict[str, Any]:
+    """Start the complete persistent plan, render, verify, and optional DaVinci workflow."""
+    return await _start_creation_job(
+        session_id,
+        source,
+        output_directory,
+        brief,
+        automatic_intelligence=automatic_intelligence,
+        game_ocr=game_ocr,
+        transcribe=transcribe,
+        vision_provider=vision_provider,
+        music_catalog=music_catalog,
+        sound_catalog=sound_catalog,
+        render=True,
+        execute_davinci=execute_davinci,
+        render_in_davinci=render_in_davinci,
+    )
+
+
+@mcp.tool()
+async def media_analysis_status(session_id: str, job_id: str) -> dict[str, Any]:
+    """Return compact progress and artifact metadata for one persistent creative job."""
+    return _creative_job(session_id, job_id)
+
+
+@mcp.tool()
+async def media_analysis_get(session_id: str, job_id: str) -> dict[str, Any]:
+    """Return a completed creative job's compact results, variants, and artifacts."""
+    result = _creative_job(session_id, job_id)
+    if result["status"] not in {"completed", "failed", "cancelled", "interrupted"}:
+        raise ValueError("creative job is still running")
+    return result
+
+
+@mcp.tool()
+async def media_analysis_cancel(session_id: str, job_id: str) -> dict[str, Any]:
+    """Cancel one session-owned creative job and its active child process."""
+    _creative_job(session_id, job_id)
+    job = JOB_SERVICE.cancel(job_id)
+    if job is None:
+        raise ValueError("unknown creative job")
+    return _compact_job(job.response())
+
+
+@mcp.tool()
+async def edit_revision_apply(
+    session_id: str,
+    job_id: str,
+    changes: PlanRevisionRequest,
+    render: bool = True,
+    execute_davinci: bool = False,
+    render_in_davinci: bool = False,
+) -> dict[str, Any]:
+    """Create a persistent, validated revision from a completed creative job."""
+    parent = JOB_SERVICE.get(job_id)
+    if parent is None or parent.state.session_id != session_id:
+        raise ValueError("unknown creative job")
+    with parent.lock:
+        result = parent.state.result
+        if parent.state.status != "completed" or not isinstance(
+            result, (CreationResult, RevisionResult)
+        ):
+            raise ValueError("only a completed video creation can be revised")
+        plan_path = result.plan_path
+        output_root = result.output_directory
+    revision = JOB_SERVICE.submit_revision(
+        job_id,
+        ReviseJobRequest(
+            plan=plan_path,
+            output_directory=output_root / "revisions" / f"mcp-{os.urandom(8).hex()}",
+            changes=changes,
+            ffmpeg_render=render,
+            davinci=execute_davinci or render_in_davinci,
+            davinci_render=render_in_davinci,
+        ),
+        session_id=session_id,
+    )
+    return _compact_job(revision.response())
+
+
+@mcp.tool()
+async def photo_creation_start(
+    session_id: str,
+    source: str,
+    output_directory: str,
+    title: str = "Photo story",
+    platform: Literal["youtube", "instagram", "tiktok"] = "instagram",
+    count: int = 20,
+    create_slideshow: bool = True,
+    create_social_assets: bool = True,
+    create_animated_gif: bool = False,
+) -> dict[str, Any]:
+    """Start a persistent photo selection, correction, and social-asset job."""
+    await _authorize_paths(session_id, [source, output_directory])
+    job = JOB_SERVICE.submit_photo(
+        PhotoJobRequest(
+            source=Path(source),
+            output_directory=Path(output_directory),
+            title=title,
+            platform=platform,
+            count=count,
+            create_slideshow=create_slideshow,
+            create_social_assets=create_social_assets,
+            create_animated_gif=create_animated_gif,
+        ),
+        session_id=session_id,
+    )
+    return _compact_job(job.response())
 
 
 @mcp.tool()
@@ -850,6 +1021,104 @@ async def _execute_action(
         approval_token=approval_token,
     )
     return await client().call("action_execute", {"action": action.model_dump(mode="json")})
+
+
+async def _start_creation_job(
+    session_id: str,
+    source: str,
+    output_directory: str,
+    brief: CreativeBrief,
+    *,
+    automatic_intelligence: bool,
+    game_ocr: bool,
+    transcribe: bool,
+    vision_provider: str | None,
+    music_catalog: str | None,
+    sound_catalog: str | None,
+    render: bool,
+    execute_davinci: bool,
+    render_in_davinci: bool,
+) -> dict[str, Any]:
+    paths = [source, output_directory]
+    paths.extend(
+        path
+        for path in (vision_provider, music_catalog, sound_catalog)
+        if path is not None
+    )
+    await _authorize_paths(session_id, paths)
+    job = JOB_SERVICE.submit(
+        CreateJobRequest(
+            source=Path(source),
+            output_directory=Path(output_directory),
+            brief=brief,
+            automatic_intelligence=automatic_intelligence,
+            game_ocr=game_ocr,
+            vision_provider=Path(vision_provider) if vision_provider else None,
+            transcribe=transcribe,
+            music_catalog=Path(music_catalog) if music_catalog else None,
+            sound_catalog=Path(sound_catalog) if sound_catalog else None,
+            ffmpeg_render=render,
+            davinci=execute_davinci or render_in_davinci,
+            davinci_render=render_in_davinci,
+        ),
+        session_id=session_id,
+    )
+    return _compact_job(job.response())
+
+
+async def _authorize_paths(session_id: str, paths: list[str]) -> None:
+    await client().call("paths_authorize", {"session_id": session_id, "paths": paths})
+
+
+def _creative_job(session_id: str, job_id: str) -> dict[str, Any]:
+    job = JOB_SERVICE.get(job_id)
+    if job is None:
+        raise ValueError("unknown creative job")
+    with job.lock:
+        if job.state.session_id != session_id:
+            raise ValueError("unknown creative job")
+    return _compact_job(job.response())
+
+
+def _compact_job(response: dict[str, Any]) -> dict[str, Any]:
+    result = response.pop("result", None)
+    response.pop("request", None)
+    response["variant_options"] = response.get("variant_options", [])[:3]
+    response["automatic_capabilities"] = response.get("automatic_capabilities", [])[:10]
+    if isinstance(result, dict):
+        output_keys = (
+            "output_directory",
+            "content_index_path",
+            "plan_path",
+            "validation_path",
+            "timeline_path",
+            "render_path",
+            "transcript_path",
+            "events_path",
+            "vision_analysis_path",
+            "cue_sheet_path",
+            "cue_sheet_csv_path",
+            "variant_comparison_path",
+            "verification_path",
+            "davinci_verification_path",
+            "contact_sheet",
+            "slideshow",
+            "thumbnail",
+            "poster",
+            "collage",
+            "animated_gif",
+        )
+        response["outputs"] = {
+            key: result[key] for key in output_keys if result.get(key) is not None
+        }
+        plan = result.get("plan")
+        if isinstance(plan, dict):
+            response["plan_summary"] = {
+                "duration_seconds": plan.get("duration_seconds"),
+                "segment_count": len(plan.get("segments", [])),
+                "review_items": plan.get("review_items", [])[:20],
+            }
+    return response
 
 
 async def _window_action(

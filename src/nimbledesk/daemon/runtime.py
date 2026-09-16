@@ -110,6 +110,11 @@ class DesktopRuntime:
     def audit_integrity(self) -> dict[str, object]:
         return self._audit.integrity()
 
+    def authorize_paths(self, session_id: str, paths: tuple[Path, ...]) -> None:
+        session = self._active_session(session_id)
+        for path in paths:
+            _granted_path(path, session.config.granted_paths)
+
     def open_content_index(self, session_id: str, index_path: Path) -> dict[str, object]:
         session = self._active_session(session_id)
         resolved = _granted_file(index_path, session.config.granted_paths)
@@ -697,6 +702,13 @@ class DesktopRuntime:
 
 
 def _granted_file(path: Path, granted_paths: tuple[str, ...]) -> Path:
+    resolved = _granted_path(path, granted_paths)
+    if not resolved.is_file():
+        raise ValueError("media index path is not a file")
+    return resolved
+
+
+def _granted_path(path: Path, granted_paths: tuple[str, ...]) -> Path:
     absolute = Path(os.path.abspath(path.expanduser()))
     for candidate in (absolute, *absolute.parents):
         if candidate.is_symlink():
@@ -704,9 +716,7 @@ def _granted_file(path: Path, granted_paths: tuple[str, ...]) -> Path:
     resolved = absolute.resolve()
     grants = tuple(Path(value).expanduser().resolve() for value in granted_paths)
     if not any(resolved == grant or grant in resolved.parents for grant in grants):
-        raise ValueError("media index path is outside session grants")
-    if not resolved.is_file():
-        raise ValueError("media index path is not a file")
+        raise ValueError("path is outside session grants")
     return resolved
 
 

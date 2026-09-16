@@ -72,6 +72,58 @@ async def test_gateway_exposes_generic_action_and_target_resolution(
 
 
 @pytest.mark.asyncio
+async def test_gateway_starts_compact_session_scoped_creative_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recording_client = RecordingClient()
+
+    class FakeJob:
+        def response(self) -> dict[str, Any]:
+            return {
+                "job_id": "job",
+                "session_id": "session",
+                "status": "queued",
+                "stage": "queued",
+                "progress": 0,
+                "request": {"source": "/project/source.mp4"},
+                "result": None,
+                "artifacts": [],
+                "variant_options": [],
+                "automatic_capabilities": [],
+            }
+
+    class FakeJobService:
+        request: Any = None
+        session_id: str | None = None
+
+        def submit(self, request: Any, session_id: str | None = None) -> FakeJob:
+            self.request = request
+            self.session_id = session_id
+            return FakeJob()
+
+    jobs = FakeJobService()
+    monkeypatch.setattr(gateway, "client", lambda: recording_client)
+    monkeypatch.setattr(gateway, "JOB_SERVICE", jobs)
+
+    result = await gateway.edit_plan_generate(
+        "session",
+        "/project/source.mp4",
+        "/project/output",
+        gateway.CreativeBrief(title="Highlights"),
+    )
+
+    assert recording_client.method == "paths_authorize"
+    assert recording_client.params["paths"] == [
+        "/project/source.mp4",
+        "/project/output",
+    ]
+    assert jobs.session_id == "session"
+    assert jobs.request.ffmpeg_render is False
+    assert "request" not in result
+    assert "result" not in result
+
+
+@pytest.mark.asyncio
 async def test_gateway_builds_observation_bound_window_action(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
