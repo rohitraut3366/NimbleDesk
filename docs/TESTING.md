@@ -189,7 +189,8 @@ nimbledesk adapter-isolation-contract \
 
 Use the matching target ID from `SUPPORT.md`. On Windows, retain both this common report and the
 standalone AppContainer report. The AppContainer contract also runs during every Windows bundle
-build.
+build. Every platform bundle build runs the common isolation contract against the frozen executable
+before producing its archive, so a source-only pass cannot hide a packaged-worker failure.
 Use the target IDs and minimum corpus mix declared in [SUPPORT.md](SUPPORT.md). Pass
 `--corpus-id` and `--source-duration-seconds` to both `nimbledesk qualify events` and
 `nimbledesk qualify ranking`; the identifiers must match for reports derived from the same source.

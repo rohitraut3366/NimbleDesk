@@ -76,7 +76,7 @@ class IsolatedAdapterRunner:
             tempfile.TemporaryFile() as stdout_file,
             tempfile.TemporaryFile() as stderr_file,
         ):
-            scratch = Path(scratch_name)
+            scratch = Path(scratch_name).resolve()
             environment.update(
                 {
                     "HOME": str(scratch),
@@ -261,6 +261,9 @@ def _sandboxed_worker_command(
     scratch: Path,
 ) -> list[str]:
     current_platform = platform.system()
+    worker_executable = _canonical_without_symlinks(
+        Path(worker_command[0]), "worker executable"
+    )
     writable_paths = tuple(
         _canonical_without_symlinks(
             Path(str(arguments[name])), f"writable adapter path argument {name}"
@@ -280,7 +283,7 @@ def _sandboxed_worker_command(
         profile = scratch / "adapter.sb"
         profile.write_text(
             _macos_sandbox_profile(
-                (*granted_paths, *package_paths),
+                (worker_executable, *granted_paths, *package_paths),
                 writable_paths,
                 scratch,
                 manifest.network_access,
@@ -301,6 +304,7 @@ def _sandboxed_worker_command(
             "/",
         ]
         readable_paths = {
+            worker_executable,
             *(_existing_path(path) for path in _linux_runtime_paths()),
             *(_canonical_without_symlinks(path, "granted path") for path in granted_paths),
             *package_paths,
@@ -442,12 +446,11 @@ def _macos_sandbox_profile(
         "(allow sysctl-read)",
         "(allow mach-lookup)",
         "(allow ipc-posix-shm)",
+        "(allow ipc-sysv-sem)",
         '(allow file-read* (literal "/"))',
     ]
-    lines.extend(
-        f'(allow file-read* file-map-executable (subpath "{_sandbox_path(path)}"))'
-        for path in readable
-    )
+    lines.extend(_macos_path_lookup_rules(readable))
+    lines.extend(_macos_read_rule(path) for path in readable)
     lines.append(_macos_write_rule(scratch))
     lines.extend(_macos_write_rule(path) for path in writable_paths)
     if network_access:
@@ -457,6 +460,35 @@ def _macos_sandbox_profile(
 
 def _sandbox_path(path: Path) -> str:
     return str(path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _macos_read_rule(path: Path) -> str:
+    escaped = _sandbox_path(path)
+    if path.is_dir():
+        return (
+            f'(allow file-read* file-map-executable (literal "{escaped}") '
+            f'(subpath "{escaped}"))'
+        )
+    return f'(allow file-read* file-map-executable (literal "{escaped}"))'
+
+
+def _macos_path_lookup_rules(paths: set[Path]) -> tuple[str, ...]:
+    ancestors = {
+        ancestor
+        for path in paths
+        for ancestor in path.resolve().parents
+        if ancestor != Path("/")
+    }
+    file_parents = {path.resolve().parent for path in paths if path.is_file()}
+    rules = [
+        f'(allow file-read-metadata (literal "{_sandbox_path(path)}"))'
+        for path in sorted(ancestors, key=str)
+    ]
+    rules.extend(
+        f'(allow file-read-data (literal "{_sandbox_path(path)}"))'
+        for path in sorted(file_parents, key=str)
+    )
+    return tuple(rules)
 
 
 def _macos_write_rule(path: Path) -> str:

@@ -323,9 +323,18 @@ def test_macos_sandbox_profile_limits_reads_and_network(tmp_path: Path) -> None:
     scratch = tmp_path / "scratch"
     writable.mkdir(parents=True)
     scratch.mkdir()
-    profile = _macos_sandbox_profile((granted,), (writable,), scratch, False)
+    executable = tmp_path / "nimbledesk"
+    executable.write_bytes(b"executable")
+    profile = _macos_sandbox_profile((granted, executable), (writable,), scratch, False)
 
     assert f'(subpath "{_sandbox_path(granted)}")' in profile
+    assert (
+        f'(allow file-read* file-map-executable (literal "{_sandbox_path(executable)}"))'
+    ) in profile
+    assert (
+        f'(allow file-read-data (literal "{_sandbox_path(executable.parent)}"))'
+    ) in profile
+    assert "(allow ipc-sysv-sem)" in profile
     assert (
         f'(allow file-write* (literal "{_sandbox_path(writable)}") '
         f'(subpath "{_sandbox_path(writable)}"))'

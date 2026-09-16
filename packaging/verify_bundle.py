@@ -81,6 +81,28 @@ def verify_bundle(executable: Path) -> None:
         ):
             raise RuntimeError("bundled DaVinci worker returned an invalid failure contract")
 
+        isolation_report = root / "adapter-isolation-contract.json"
+        isolation_contract = subprocess.run(
+            [
+                str(executable),
+                "adapter-isolation-contract",
+                "--target-id",
+                f"bundle-{platform.system().lower()}-{platform.machine().lower()}",
+                "--output",
+                str(isolation_report),
+            ],
+            capture_output=True,
+            check=False,
+            timeout=180,
+        )
+        if isolation_contract.returncode != 0 or not isolation_report.is_file():
+            raise RuntimeError(
+                "bundled adapter isolation contract failed: "
+                + isolation_contract.stderr.decode("utf-8", errors="replace")[:8_192]
+            )
+        if json.loads(isolation_report.read_text(encoding="utf-8")).get("passed") is not True:
+            raise RuntimeError("bundled cross-platform adapter isolation did not pass")
+
         if platform.system() == "Windows":
             windows_report = root / "windows-adapter-contract.json"
             windows_contract = subprocess.run(
