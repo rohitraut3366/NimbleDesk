@@ -555,6 +555,10 @@ If `NIMBLEDESK_CONNECTION_FILE` is omitted, the MCP server reads `~/.nimbledesk/
 
 ### Recommended model workflow
 
+For a complete ready-to-copy instruction covering creative media, token-efficient analysis,
+DaVinci execution, approvals, and desktop fallback, use the
+[AI operator prompt](docs/AI_OPERATOR_PROMPT.md).
+
 1. Call `health`.
 2. Call `session_start` with a clear reason. Set `input_enabled` to `true` only when input is intended. Enable `clipboard_enabled` only for a workflow that needs clipboard text, and allowlist every application that may be launched. Add only the project or analysis directories needed by media tools to `granted_paths`.
 3. Call `desktop_observe` and retain its `observation_id`, active application, focused window, semantic elements, display bounds, and semantic hashes. On the next fresh observation, pass that ID as `previous_observation_id` so unchanged trees can be omitted. Follow a returned continuation with `continuation_observation_id` and its offsets to page through the exact same snapshot.
