@@ -165,3 +165,7 @@ def main() -> None:
 
 def _request_shutdown(_signal_number: int, _frame: object) -> None:
     raise KeyboardInterrupt
+
+
+if __name__ == "__main__":
+    main()
