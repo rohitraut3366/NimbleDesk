@@ -299,7 +299,7 @@ def start_windows_appcontainer_process(
             raise windows_error(get_last_error())
         process_handle = process_information.hProcess
         thread_handle = process_information.hThread
-        job_handle = win32job.CreateJobObject(None, None)
+        job_handle = win32job.CreateJobObject(None, "")
         _configure_job(job_handle, modules, active_process_limit=2)
         win32job.AssignProcessToJobObject(job_handle, process_handle)
         modules["win32process"].ResumeThread(thread_handle)

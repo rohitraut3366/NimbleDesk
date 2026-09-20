@@ -135,7 +135,7 @@ def start_windows_restricted_process(
             str(cwd),
             startup,
         )
-        job_handle = win32job.CreateJobObject(None, None)
+        job_handle = win32job.CreateJobObject(None, "")
         _configure_job(job_handle, modules, active_process_limit=1)
         win32job.AssignProcessToJobObject(job_handle, process_handle)
         win32process.ResumeThread(thread_handle)
@@ -201,7 +201,7 @@ def start_windows_job_process(
             str(cwd),
             startup,
         )
-        job_handle = win32job.CreateJobObject(None, None)
+        job_handle = win32job.CreateJobObject(None, "")
         _configure_job(job_handle, modules, active_process_limit=None)
         win32job.AssignProcessToJobObject(job_handle, process_handle)
         win32process.ResumeThread(thread_handle)

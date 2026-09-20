@@ -78,8 +78,10 @@ def test_posix_runner_terminates_the_entire_worker_process_group(
     process = FakeProcess()
     monkeypatch.setattr(runner.os, "name", "posix")
     monkeypatch.setattr(
-        runner.os, "killpg", lambda process_id, signal: signals.append((process_id, signal))
+        runner.os, "killpg", lambda process_id, signal: signals.append((process_id, signal)), raising=False
     )
+    if not hasattr(runner.signal, "SIGKILL"):
+        monkeypatch.setattr(runner.signal, "SIGKILL", 9, raising=False)
 
     runner._terminate_process(process)
     runner._kill_process(process)
@@ -103,7 +105,9 @@ def test_posix_runner_falls_back_when_process_group_signals_are_denied(
     def denied_signal(_process_id: int, _signal: int) -> None:
         raise PermissionError
 
-    monkeypatch.setattr(runner.os, "killpg", denied_signal)
+    monkeypatch.setattr(runner.os, "killpg", denied_signal, raising=False)
+    if not hasattr(runner.signal, "SIGKILL"):
+        monkeypatch.setattr(runner.signal, "SIGKILL", 9, raising=False)
 
     runner._terminate_process(process)
     runner._kill_process(process)

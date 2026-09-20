@@ -107,7 +107,8 @@ def test_adapter_timeout_terminates_worker() -> None:
 
 
 def test_adapter_worker_cannot_create_child_processes() -> None:
-    result = IsolatedAdapterRunner().execute(_manifest(), "spawn_child", {})
+    manifest = _manifest().model_copy(update={"isolation": "sandboxed"})
+    result = IsolatedAdapterRunner().execute(manifest, "spawn_child", {})
 
     assert result.success
     assert result.result["child_process_created"] is False
